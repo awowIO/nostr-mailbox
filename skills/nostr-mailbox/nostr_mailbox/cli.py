@@ -161,7 +161,7 @@ def _write_trust_file(path: Path, mapping: dict) -> None:
     os.replace(tmp, path)
 
 
-def _encode_invite_token(trust: Trust, code: str) -> str:
+def _encode_invite_token(trust: Trust, code: str, *, member: str | None = None) -> str:
     bundle = {
         "schema": "cf.transport/1",
         "relay": trust.relay,
@@ -169,6 +169,8 @@ def _encode_invite_token(trust: Trust, code: str) -> str:
         "operator_pubkeys": [_npub(k) for k in sorted(trust.operator_pubkeys)],
         "code": code,
     }
+    if member:
+        bundle["member"] = member
     if trust.lead_pubkeys:
         bundle["lead_pubkeys"] = [_npub(k) for k in sorted(trust.lead_pubkeys)]
     if trust.reviewer_pubkeys:
@@ -183,9 +185,9 @@ def _encode_invite_token(trust: Trust, code: str) -> str:
     return "nm1_" + base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
 
 
-def _decode_invite_token(token: str) -> tuple[str, dict | None]:
+def _decode_invite_token(token: str) -> tuple[str, dict | None, str | None]:
     if not token.startswith("nm1_"):
-        return token, None
+        return token, None, None
     b64 = token[4:]
     pad = "=" * ((4 - len(b64) % 4) % 4)
     try:
@@ -195,9 +197,10 @@ def _decode_invite_token(token: str) -> tuple[str, dict | None]:
     if not isinstance(data, dict) or not isinstance(data.get("code"), str) or not data["code"]:
         raise ProfileError("nm1_ invite token is missing `code`")
     code = data.pop("code")
+    member = data.pop("member", None)
     data.pop("expires_at", None)
     Trust.from_mapping(data, source="nm1_ invite token")
-    return code, data
+    return code, data, (member if isinstance(member, str) and member else None)
 
 
 def _session(args) -> CampaignSession:
@@ -361,7 +364,7 @@ def cmd_setup(args) -> dict:
     return out
 
 
-def _invite_input(args) -> tuple[str, dict | None]:
+def _invite_input(args) -> tuple[str, dict | None, str | None]:
     token = getattr(args, "token", None)
     if token and token != "-":
         text = token
@@ -377,7 +380,7 @@ def _invite_input(args) -> tuple[str, dict | None]:
     if text.startswith("nm1_"):
         return _decode_invite_token(text)
     if not text.startswith("{"):
-        return text, None
+        return text, None, None
     try:                                    # the JSON `relay invite` wrote or printed
         obj = json.loads(text)
     except json.JSONDecodeError as exc:
@@ -386,7 +389,7 @@ def _invite_input(args) -> tuple[str, dict | None]:
     if (isinstance(obj, dict) and isinstance(obj.get("token"), str)
             and obj["token"].startswith("nm1_")):
         return _decode_invite_token(obj["token"])
-    return invite_code(obj), None
+    return invite_code(obj), None, None
 
 
 def _advertised(trust: Trust, args) -> dict:
@@ -398,8 +401,31 @@ def _advertised(trust: Trust, args) -> dict:
         return {"advertises_private": False, "unreadable": str(exc)}
 
 
+def _auto_install_harnesses() -> list[str]:
+    """Best-effort one-shot plugin/CLI install when a user runs `uvx ... nostr-mailbox join`."""
+    import shutil
+    import subprocess
+    installed = []
+    repo = "awowIO/nostr-mailbox"
+    if shutil.which("claude"):
+        subprocess.run(["claude", "plugin", "marketplace", "add", repo],
+                       capture_output=True, text=True, check=False, timeout=45)
+        r = subprocess.run(["claude", "plugin", "install", "nostr-mailbox@nostr-mailbox",
+                            "--scope", "user"],
+                           capture_output=True, text=True, check=False, timeout=45)
+        if r.returncode == 0:
+            installed.append("claude-plugin")
+    if shutil.which("uv") and not shutil.which("nostr-mailbox"):
+        r = subprocess.run(["uv", "tool", "install", f"git+https://github.com/{repo}"],
+                           capture_output=True, text=True, check=False, timeout=60)
+        if r.returncode == 0:
+            installed.append("nostr-mailbox-cli")
+    return installed
+
+
 def cmd_relay_join(args) -> dict:
-    code, bundle = _invite_input(args)
+    code, bundle, member = _invite_input(args)
+    member = getattr(args, "member", None) or member
     if bundle is not None and not args.trust:
         _write_trust_file(_default_trust_path(args), bundle)
         _ensure_identity(args)
@@ -411,10 +437,23 @@ def cmd_relay_join(args) -> dict:
             f"({advertised.get('unreadable') or 'its NIP-11 document says otherwise'}). An "
             "invite is not spent on a relay that does not claim to be private; nothing "
             "was sent")
+    ident = _identity(args)
     with _session(args) as session:
         answer = session.relay.join(code)
-        return {"joined": trust.relay, "campaign": trust.campaign,
-                "npub": _identity(args).npub, "relay_said": answer}
+        out = {"joined": trust.relay, "campaign": trust.campaign,
+               "npub": ident.npub, "relay_said": answer}
+        if member:
+            body = f"{member} joined campaign {trust.campaign} ({ident.npub})"
+            receipt = NostrRelayChannelBackend(session).post(
+                BUS, Message(body=body, kind="handoff", subject=f"member-joined:{member}"),
+                key=f"member-joined:{member}:{ident.pubkey[:16]}")
+            out["member"] = member
+            out["introduced_on_bus"] = receipt.id
+    if bundle is not None and args.home is None and not args.trust:
+        installed = _auto_install_harnesses()
+        if installed:
+            out["installed"] = installed
+    return out
 
 
 def cmd_relay_check(args) -> dict:
@@ -455,10 +494,11 @@ def cmd_relay_check(args) -> dict:
 
 def cmd_relay_invite(args) -> dict:
     """One single-use invite, in the relay's own shape. With `--bundle` (or the top-level
-    `nostr-mailbox invite` alias), also includes a self-contained `token` (`nm1_...`) so a
-    friend can join in one command (`nostr-mailbox join nm1_...`)."""
+    `nostr-mailbox invite` alias), also includes a self-contained `token` (`nm1_...`) and a
+    1-line `join_command` so a friend can install + join + introduce themselves in one step."""
     admin = _admin(args)
     trust = None
+    member = getattr(args, "member", None)
     if getattr(args, "bundle", False):
         with contextlib.suppress(ProfileError):
             trust = _trust(args)
@@ -467,7 +507,11 @@ def cmd_relay_invite(args) -> dict:
               "--code-file", file=sys.stderr)
         invite = admin.create_invite(ttl=args.ttl)
         if trust is not None:
-            invite = {**invite, "token": _encode_invite_token(trust, invite["code"])}
+            token = _encode_invite_token(trust, invite["code"], member=member)
+            one_liner = (f"uvx --from git+https://github.com/awowIO/nostr-mailbox "
+                         f"nostr-mailbox join {token}")
+            invite = {**invite, **({"member": member} if member else {}),
+                      "token": token, "one_liner": one_liner}
         return invite
     try:
         fd = os.open(args.code_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -481,7 +525,8 @@ def cmd_relay_invite(args) -> dict:
         Path(args.code_file).unlink()
         raise
     if trust is not None:
-        invite = {**invite, "token": _encode_invite_token(trust, invite["code"])}
+        token = _encode_invite_token(trust, invite["code"], member=member)
+        invite = {**invite, **({"member": member} if member else {}), "token": token}
     with os.fdopen(fd, "w") as fh:
         json.dump(invite, fh)
     return {"invite_written": args.code_file, "mode": "0600", "max_uses": invite["max_uses"],
@@ -873,15 +918,18 @@ def build_parser(prog: str = "nostr-mailbox") -> argparse.ArgumentParser:
     reach(p)
 
     p = add(sub, "invite", cmd_relay_invite,
-            "mint a single-use invite (includes a self-contained nm1_ token for `join`)")
+            "mint a single-use invite (includes an nm1_ token and 1-line join command)")
     p.set_defaults(bundle=True)
+    p.add_argument("member", nargs="?", help="friend's name (e.g. 'roland'), embedded in the token")
+    p.add_argument("--for", dest="member", help="friend's name (e.g. 'roland')")
     reach(p)
     p.add_argument("--ttl", default=INVITE_TTL, help=f"invite lifetime (default {INVITE_TTL})")
     p.add_argument("--code-file", help="write the invite here (0600) instead of printing it")
 
     p = add(sub, "join", cmd_relay_join,
-            "join in one command from an nm1_ token (auto-creates key & nostr.toml)")
+            "join in one command from an nm1_ token (auto-creates key, nostr.toml, and plugin)")
     p.add_argument("token", nargs="?", help="nm1_ invite token (or '-' for stdin)")
+    p.add_argument("--as", dest="member", help="your name to announce on the bus")
     p.add_argument("--code-file", help="file holding the invite ('-' for stdin)")
 
     p = add(sub, "init", cmd_init, "generate a key (mode 0600), or register an external signer")
