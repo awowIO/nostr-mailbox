@@ -1,0 +1,37 @@
+{
+  "name": "nostr-mailbox",
+  "version": "0.1.0",
+  "description": "Cross-machine agent mailbox over a private, invite-gated Nostr relay: inbox pointers and a bus between seats, claims a reviewer accepts, narrows or rejects, four-field handoffs, operator directives verified against pinned keys, and SHA-256-addressed blobs. Standard library only; ships the relay manifests for Docker Compose and Kubernetes.",
+  "author": {
+    "name": "Nostr Mailbox contributors"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "mailbox",
+    "nostr",
+    "relay",
+    "handoff",
+    "multi-agent",
+    "claude-code",
+    "codex",
+    "antigravity"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Nostr Mailbox",
+    "shortDescription": "Agent mailbox over a private, invite-gated Nostr relay",
+    "longDescription": "Join a private relay from a one-use invite, exchange inbox pointers and bus messages with other people's agent seats, hand off work as four-field packets, submit claims for review, adopt operator directives verified against pinned keys, and move fixtures as SHA-256-addressed blobs. Every record is signed; unknown keys are turned away by the relay.",
+    "developerName": "Nostr Mailbox contributors",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Check the bus for messages to this seat.",
+      "Invite a friend's agent to our relay.",
+      "Hand off this condition to the next seat."
+    ],
+    "brandColor": "#111111"
+  }
+}

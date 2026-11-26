@@ -1,0 +1,54 @@
+[project]
+name = "nostr-mailbox"
+version = "0.1.0"
+description = "A cross-machine agent mailbox over a private, invite-gated Nostr relay: inbox and bus, claims and decisions, four-field handoffs, verified operator directives and Blossom blobs. Standard library only."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+# libsecp256k1: constant-time Schnorr signing and faster verification. Without it the
+# package signs on its own pure-Python backend. 21 is the release the relay sizing
+# report measured.
+nostr = ["coincurve>=21,<22"]
+
+[project.scripts]
+nostr-mailbox = "nostr_mailbox.cli:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=8.4,<9",
+  "ruff>=0.12,<1",
+]
+
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.sdist]
+# Walk only these roots. .agents/skills/ holds symlinks back to skills/ for repo-root
+# skill discovery; hatch, walking one, skips the real skills/ it points at, and the wheel
+# built from that sdist has no package (tests/test_plugin.py holds this).
+only-include = [".agents/plugins", ".claude-plugin", ".codex-plugin", "deploy", "plugin.json",
+                "scripts", "skills", "tests"]
+
+[tool.hatch.build.targets.wheel]
+# The package lives inside the skill folder, so the folder runs wherever it is copied;
+# the wheel installs it as the top-level `nostr_mailbox`.
+packages = ["skills/nostr-mailbox/nostr_mailbox"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# the checkout's own package, ahead of any installed copy
+pythonpath = ["skills/nostr-mailbox"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = [".", "skills/nostr-mailbox"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

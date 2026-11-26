@@ -1,0 +1,125 @@
+# Private, invite-gated Nostr campaign relay on Kubernetes.
+#
+# Technical requirements:
+# - One StatefulSet pod (single-writer embedded bbolt store + Blossom blob directory on one
+#   ReadWriteOnce PersistentVolumeClaim).
+# - Default sizing: 2 vCPU / 4 GiB RAM / 64 GiB SSD (handles ~50 collaborators and ~500
+#   concurrent agent seats; for a small 5-15 person team, 1 vCPU / 1-2 GiB RAM / 20 GiB SSD
+#   is plenty).
+# - TLS termination in front of port 5500 exposing only:
+#     GET  /                           WebSocket upgrade, or NIP-11 (`Accept: application/nostr+json`)
+#     PUT  /upload  /media/upload      signed members-only Blossom upload
+#     GET, HEAD  /<sha256>[.ext]  /media/<sha256>[.ext]  signed members-only Blossom download
+#
+# Before applying:
+# 1. Replace `relay.example.com` below (in `NCLI_NIP11_URL` and the `IngressRoute` rules)
+#    with your public DNS hostname.
+# 2. Create the relay signing key Secret once (never commit the key to Git):
+#      kubectl create namespace nostr-relay --dry-run=client -o yaml | kubectl apply -f -
+#      openssl rand -hex 32 | tr -d '\n' | kubectl -n nostr-relay create secret generic \
+#        nostr-relay-signing --from-file=RELAY_SIGNING_KEY=/dev/stdin
+# 3. Apply with kustomize (which builds the ConfigMap from `relay.yaml`):
+#      kubectl apply -k deploy/nostr-relay
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nostr-relay
+  labels:
+    kubernetes.io/metadata.name: nostr-relay
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: { name: nostr-relay, namespace: nostr-relay }
+spec:
+  serviceName: nostr-relay
+  replicas: 1
+  podManagementPolicy: OrderedReady
+  updateStrategy: { type: OnDelete }
+  selector: { matchLabels: { app: nostr-relay } }
+  template:
+    metadata: { labels: { app: nostr-relay } }
+    spec:
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: relay
+          image: ghcr.io/ohstr/ncli:0.8.0-rc.54@sha256:fc131ffc2de36b54e2e7598f2ee0cddec1e64a113d85491632c51e3dc988516a
+          args: ["relay", "--config", "/app/ncli/relay.yaml"]
+          env:
+            - { name: NCLI_NIP11_URL, value: "wss://relay.example.com" }
+            - name: NCLI_NIP11_PRIVKEY
+              valueFrom:
+                secretKeyRef: { name: nostr-relay-signing, key: RELAY_SIGNING_KEY }
+            - { name: HOME, value: /app/ncli/data }
+          ports: [{ name: ws, containerPort: 5500 }]
+          readinessProbe:
+            httpGet:
+              path: /
+              port: ws
+              httpHeaders: [{ name: Accept, value: application/nostr+json }]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          resources:
+            requests: { cpu: "1", memory: 2Gi }
+            limits: { memory: 4Gi }
+          volumeMounts:
+            - { name: config, mountPath: /app/ncli/relay.yaml, subPath: relay.yaml, readOnly: true }
+            - { name: data, mountPath: /app/ncli/data }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: config
+          configMap: { name: nostr-relay-config }
+        - name: tmp
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 64Gi
+---
+apiVersion: v1
+kind: Service
+metadata: { name: nostr-relay, namespace: nostr-relay }
+spec:
+  selector: { app: nostr-relay }
+  ports: [{ name: ws, port: 5500, targetPort: ws }]
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata: { name: nostr-relay, namespace: nostr-relay }
+spec:
+  entryPoints: [websecure]
+  routes:
+    - match: 'Host(`relay.example.com`) && Path(`/`) && Method(`GET`) && (Header(`Upgrade`, `websocket`) || Header(`Accept`, `application/nostr+json`))'
+      kind: Rule
+      services: [{ name: nostr-relay, port: 5500 }]
+    - match: 'Host(`relay.example.com`) && Method(`PUT`) && (Path(`/upload`) || Path(`/media/upload`))'
+      kind: Rule
+      services: [{ name: nostr-relay, port: 5500 }]
+    - match: 'Host(`relay.example.com`) && (Method(`GET`) || Method(`HEAD`)) && PathRegexp(`^/(media/)?[0-9a-f]{64}([.][a-z0-9]{1,8})?$`)'
+      kind: Rule
+      services: [{ name: nostr-relay, port: 5500 }]
+  tls: { certResolver: le }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: nostr-relay-isolation, namespace: nostr-relay }
+spec:
+  podSelector: { matchLabels: { app: nostr-relay } }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: traefik } }
+      ports: [{ protocol: TCP, port: 5500 }]
+  egress: []

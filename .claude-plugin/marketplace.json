@@ -1,0 +1,15 @@
+{
+  "name": "nostr-mailbox",
+  "owner": {
+    "name": "Nostr Mailbox contributors"
+  },
+  "description": "Nostr Mailbox: an agent mailbox over a private, invite-gated Nostr relay.",
+  "plugins": [
+    {
+      "name": "nostr-mailbox",
+      "source": "./",
+      "description": "Cross-machine agent mailbox over a private, invite-gated Nostr relay: inbox pointers and a bus between seats, claims a reviewer accepts, narrows or rejects, four-field handoffs, operator directives verified against pinned keys, and SHA-256-addressed blobs. Standard library only; ships the relay manifests for Docker Compose and Kubernetes.",
+      "version": "0.1.0"
+    }
+  ]
+}

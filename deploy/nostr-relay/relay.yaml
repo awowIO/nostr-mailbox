@@ -1,0 +1,74 @@
+# ncli relay configuration: a private, invite-gated campaign relay.
+#
+# Tier: Heavy Multi-Campaign Lab. 50 collaborators + 500 concurrent agent seats on
+# 2 vCPU / 4 GiB (compose.yaml and kubernetes.yaml both size for it).
+#
+# Checked against the pinned release itself, ghcr.io/ohstr/ncli:0.8.0-rc.54
+# (ncli 0.8.0-rc.54+719e4a3, nmilat v0.5.0-rc.54): `ncli relay --config relay.yaml
+# --check` accepts this file, and tests/test_nostr_ncli.py boots the real binary on it
+# and drives enrollment, the mailbox and private blobs through it.
+port: 5500
+store: ./data/db/relay.db
+logdir: ./data/logs
+
+nip11:
+  name: Private campaign relay
+  url: ""         # set by NCLI_NIP11_URL: the exact wss:// URL clients sign in NIP-42
+  privkey: ""     # set by NCLI_NIP11_PRIVKEY: the relay's own signing key, never in Git
+  limitation:
+    # Gate 1: no socket reads or writes anything before it answers the NIP-42 challenge.
+    auth_required: true
+    # Gate 2: an authenticated key that is not enrolled still reads and writes nothing.
+    membership_required: true
+
+membership:
+  enabled: true
+  # An unredeemed invite dies after seven days. Membership itself does not expire.
+  inviteTTL: 168h
+  # Gate 3: an invite is for one key, once. This is the default for an invite created
+  # without a count. It is NOT a ceiling: the relay's admin route issues whatever count
+  # it is asked for. `nostr-mailbox relay invite` always asks for exactly one use
+  # and refuses to hand out an invite the relay reports otherwise.
+  inviteMaxUses: 1
+  memberClaims: false
+  publishAddRemoveEvents: false
+
+groups:
+  roles:
+    admin: [9000, 9001, 9002, 9005, 9008, 9009, 9010]
+
+limits:
+  events:
+    # Per key: 60 events a minute, bursts of 60.
+    #
+    # What a seat needs, from the report's traffic model: one event a minute on
+    # average, and one event every five seconds while a wave is running, which is
+    # 12 a minute. So a seat in a wave uses 20% of this limit, and an idle one 1.7%.
+    # The other 80% is room for a seat that acks a backlog in one go.
+    #
+    # What the relay is protected from: one runaway or hostile key can write at most
+    # 1 event/s. All 550 keys at their limit together are 550 events/s; the modelled
+    # wave peak for this tier is 100 events/s (500 seats, one event each per 5 s),
+    # 18% of that ceiling. The limit caps a single key; it is not sized to hold the
+    # whole fleet back.
+    perPubkey: {events: 60, per: 1m, burst: 60}
+
+# Blossom on the relay's own origin: blobs for reproducer fixtures, patches, wave
+# artifacts and seal manifests, so a campaign needs no second server. The values are
+# the pinned release's own example (examples/relay/blossom-relay.yaml) with one change:
+# downloads are members-only too, because a campaign's fixtures are as private as its
+# messages. A blob authorization must name this relay's public host (from
+# NCLI_NIP11_URL) in a `server` tag.
+blossom:
+  enabled: true
+  # PUT here; GET or HEAD a blob at /<sha256>[.ext] or /media/<sha256>[.ext]. The
+  # Caddyfile and the IngressRoute route exactly these and nothing else.
+  uploadPaths: [/upload, /media/upload]
+  blobPrefix: /media
+  # 100 MiB per blob, the release default. There is no total quota: blobs share the
+  # data volume with the event store, and nothing here stops them filling it. Watch
+  # the volume (see kubernetes.yaml) or move blobs out with `storage.kind: s3`.
+  maxBlobBytes: 104857600
+  maxUploadsPerSigner: 2      # uploads one key may have in flight; the release default
+  membersOnly: {upload: true, download: true}
+  storage: {kind: dir}        # files beside the event store, under the data mount

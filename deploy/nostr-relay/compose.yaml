@@ -1,0 +1,96 @@
+# A private campaign relay on one host: the relay, and Caddy in front of it for TLS.
+#
+# Five minutes, on a host with Docker Engine, Compose v2 and OpenSSL. Point a DNS name
+# at the host and open inbound TCP 80 and 443; friends need only outbound 443.
+#
+#   export RELAY_HOST=<the DNS name that points at this host>
+#   umask 077
+#   sudo install -d -o 65532 -g 65532 data     # the relay runs as 65532, not as root
+#   ( set -C
+#     { printf 'RELAY_HOST=%s\n' "$RELAY_HOST"
+#       printf 'RELAY_SIGNING_KEY='
+#       openssl rand -hex 32
+#     } > .env
+#   ) && docker compose config --quiet && docker compose up -d
+#   curl -fsS -H 'Accept: application/nostr+json' "https://$RELAY_HOST/"
+#
+# `set -C` refuses to overwrite an existing .env: that file holds the relay's signing
+# key. Keep it in the host's secret backup and out of Git. It is not an operator key;
+# the key that signs campaign directives stays on the operator's own machine. `data/`
+# holds the event store and the blobs: back it up, and keep it out of Git too.
+#
+# Then enroll your own key and invite a friend (from the repository root):
+#
+#   nostr-mailbox init                          # prints your npub
+#   nostr-mailbox relay add <your npub> --compose deploy/nostr-relay/compose.yaml
+#   nostr-mailbox relay invite --compose deploy/nostr-relay/compose.yaml \
+#       --code-file friend.invite               # one key, one use, seven days
+#
+# Sizing: Heavy Multi-Campaign Lab, 50 collaborators + 500 concurrent agent seats. The
+# limits below are an estimate from the private-relay report's traffic model; this
+# client's own read pattern and blob traffic are not in it and are not measured.
+#
+# Not verified here: `docker compose config` accepts this file, and the real relay
+# binary was run as a non-root user writing only under its data directory. The image
+# itself was not started under UID 65532.
+services:
+  edge:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      RELAY_HOST: ${RELAY_HOST:?Set RELAY_HOST}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [relay]
+
+  relay:
+    # Pinned by digest: the release the private-relay report benchmarked.
+    image: ghcr.io/ohstr/ncli:0.8.0-rc.54@sha256:fc131ffc2de36b54e2e7598f2ee0cddec1e64a113d85491632c51e3dc988516a
+    command: ["relay", "--config", "/app/ncli/relay.yaml"]
+    restart: unless-stopped
+    # Not root: the image declares no user and would run as UID 0. The relay writes
+    # its store, logs and blobs under ./data (created for 65532 above), stages uploads
+    # in /tmp, and nothing else, so the rest of its filesystem is read-only.
+    user: "65532:65532"
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      # The exact URL every client signs in its NIP-42 proof, and the host a blob
+      # authorization must name.
+      NCLI_NIP11_URL: wss://${RELAY_HOST:?Set RELAY_HOST}
+      NCLI_NIP11_PRIVKEY: ${RELAY_SIGNING_KEY:?Set RELAY_SIGNING_KEY}
+      HOME: /app/ncli/data            # where `ncli relay invites create` keeps its logs
+    volumes:
+      - ./relay.yaml:/app/ncli/relay.yaml:ro
+      - ./data:/app/ncli/data
+    # No `ports:` here on purpose. The relay is reachable only through the edge, and
+    # its admin CLI only through `docker compose exec`.
+    deploy:
+      resources:
+        limits:
+          # 2 vCPU. The report models this tier at 0.039 cores on average and 0.47 in a
+          # wave (500 seats, one event each per five seconds, eight recipients per
+          # event): 2% and 24% of this limit. The rest is for reconnect storms, where
+          # every returning socket costs a signature check, and for store compaction.
+          cpus: "2"
+          # 4 GiB. Accounted for: 550 sockets at the report's 96 KiB each is 52 MiB
+          # (1.3%), and the relay measured 56 MiB resident with 61 sockets under load.
+          # Not accounted for, and the reason the limit is not lower: how much of its
+          # bbolt store this relay keeps mapped has not been measured at this tier.
+          # Watch resident memory against this number during the first real wave.
+          memory: 4G
+
+volumes:
+  caddy_data: {}
+  caddy_config: {}
+# The event store and the blobs are in ./data on the host, not in a named volume, so
+# that the directory can belong to the relay's non-root user from the first start.
+# Budget from the report's model for this tier: 37 to 49 GiB of new indexed event
+# history every 30 days, about twice that as working space, and blobs on top (100 MiB
+# each at most, no total quota). On a disk smaller than 128 GiB, decide the retention
+# window before the disk decides it for you.

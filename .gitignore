@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+# uv's lockfile is local-only: it embeds package-index URLs, and the package has no
+# runtime dependencies.
+uv.lock
+# the self-hosted relay's signing key (deploy/nostr-relay/compose.yaml writes it)
+.env
+# a relay invite is a bearer code: whoever holds the file can join
+*.invite
+# a self-hosted relay's event store and blobs
+/deploy/nostr-relay/data/
