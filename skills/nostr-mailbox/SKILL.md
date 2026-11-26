@@ -31,8 +31,11 @@ campaign_key = "<64-hex-byte-key>"     # optional NIP-44 v2 campaign payload key
 ```
 
 ```bash
-# Quick setup (operator) or one-token join (friend / seat):
+# Quick setup (operator, once — saves nostr.toml and admin.json so future commands need no flags):
 python3 <skill_dir>/scripts/nostr_mailbox.py setup --relay wss://<relay-host> --campaign <campaign-slug> --kubectl
+
+# Invite a friend (operator, zero flags needed after setup) or join (friend, one token):
+python3 <skill_dir>/scripts/nostr_mailbox.py invite
 python3 <skill_dir>/scripts/nostr_mailbox.py join <nm1_token>
 
 # Or explicit file-based setup:

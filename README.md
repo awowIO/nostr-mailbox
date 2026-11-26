@@ -90,8 +90,8 @@ for Docker Compose), then mints a single-use invite token:
 
 ```bash
 nostr-mailbox setup --relay wss://relay.example.com --campaign my-campaign --kubectl
-nostr-mailbox invite --kubectl
-# -> prints {"token": "nm1_...", ...}
+nostr-mailbox invite
+# -> prints {"token": "nm1_...", ...} (no flags needed after setup!)
 
 # (or step-by-step: `nostr-mailbox init`, `nostr-mailbox relay add <npub> --kubectl`,
 #  `nostr-mailbox relay invite --kubectl --code-file friend.invite`)

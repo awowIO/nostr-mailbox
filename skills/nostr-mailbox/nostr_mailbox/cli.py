@@ -110,6 +110,19 @@ def _default_trust_path(args) -> Path:
     return home(args.home) / "nostr.toml"
 
 
+def _default_admin_path(args) -> Path:
+    return home(args.home) / "admin.json"
+
+
+def _write_admin_file(path: Path, admin: RelayAdmin) -> None:
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as fh:
+        json.dump({"exec_prefix": admin.exec_prefix, "config": admin.config}, fh)
+    os.replace(tmp, path)
+
+
 def _trust(args) -> Trust:
     path = args.trust
     if not path:
@@ -239,12 +252,29 @@ def _directive_dict(directive) -> dict:
 
 def _admin(args) -> RelayAdmin:
     if args.kubectl:
-        return RelayAdmin.kubectl(timeout_s=args.timeout_seconds, namespace=args.namespace,
-                                  pod=args.pod)
+        kubeconfig = os.environ.get("KUBECONFIG", "").split(os.pathsep)[0].strip()
+        admin = RelayAdmin.kubectl(timeout_s=args.timeout_seconds, namespace=args.namespace,
+                                   pod=args.pod)
+        if kubeconfig:
+            admin.exec_prefix = ["kubectl", "--kubeconfig", kubeconfig,
+                                 *admin.exec_prefix[1:]]
+        return admin
     if args.compose:
         return RelayAdmin.compose(args.compose, timeout_s=args.timeout_seconds)
-    return RelayAdmin(shlex.split(args.exec or ""), timeout_s=args.timeout_seconds,
-                      config=args.config)
+    if args.exec:
+        return RelayAdmin(shlex.split(args.exec), timeout_s=args.timeout_seconds,
+                          config=args.config)
+    saved = _default_admin_path(args)
+    if saved.is_file():
+        try:
+            data = json.loads(saved.read_text())
+            if isinstance(data, dict) and isinstance(data.get("exec_prefix"), list):
+                return RelayAdmin([str(x) for x in data["exec_prefix"]],
+                                  timeout_s=args.timeout_seconds,
+                                  config=str(data.get("config") or args.config))
+        except (OSError, json.JSONDecodeError):
+            pass
+    return RelayAdmin([], timeout_s=args.timeout_seconds, config=args.config)
 
 
 # -------------------------------------------------------------------------- identity
@@ -294,10 +324,18 @@ def _ensure_identity(args):
 
 def cmd_setup(args) -> dict:
     """One-command operator setup: creates the operator key (if missing), generates a
-    32-byte NIP-44 v2 campaign_key, writes `<home>/nostr.toml` (0600), and enrolls the
-    operator key on the relay when `--kubectl` / `--compose` / `--exec` is given."""
+    32-byte NIP-44 v2 campaign_key (reusing an existing one for the same campaign), writes
+    `<home>/nostr.toml` (0600), saves `<home>/admin.json` (0600) so future `invite` /
+    `relay revoke` calls need no flags, and enrolls the operator key on the relay."""
     ident, created = _ensure_identity(args)
-    ck = os.urandom(32).hex() if not args.no_encryption else None
+    trust_path = Path(args.trust) if args.trust else _default_trust_path(args)
+    existing_ck = None
+    if trust_path.is_file():
+        with contextlib.suppress(ProfileError):
+            prev = Trust.load(trust_path)
+            if prev.campaign == args.campaign and prev.campaign_key:
+                existing_ck = prev.campaign_key
+    ck = None if args.no_encryption else (existing_ck or os.urandom(32).hex())
     mapping = {
         "schema": "cf.transport/1",
         "relay": args.relay,
@@ -306,7 +344,6 @@ def cmd_setup(args) -> dict:
     }
     if ck:
         mapping["campaign_key"] = ck
-    trust_path = Path(args.trust) if args.trust else _default_trust_path(args)
     _write_trust_file(trust_path, mapping)
     out = {
         "identity": ident.name,
@@ -318,7 +355,9 @@ def cmd_setup(args) -> dict:
         "encrypted_nip44_v2": bool(ck),
     }
     if args.kubectl or args.compose or args.exec:
-        out["enrolled_on_relay"] = _admin(args).add_member(ident.pubkey)
+        admin = _admin(args)
+        _write_admin_file(_default_admin_path(args), admin)
+        out["enrolled_on_relay"] = admin.add_member(ident.pubkey)
     return out
 
 
