@@ -319,8 +319,15 @@ nostr-mailbox --persona alice --topic wave-7 mcp
 With `--http`, the same server answers Streamable HTTP at `/mcp`, HTTP+SSE at `/sse`
 and `/messages`, and OpenAPI 3.1 at `/openapi.json` with `POST /tools/<tool>`. It binds
 `127.0.0.1:7891` unless `--http HOST:PORT`, `--bind` or `--port` says otherwise, and
-prints the URL and the bearer header. The bearer comes from `--token-file`, default
-`<home>/mcp.token` (made `0600`), or `--token`. `--no-auth` serves loopback only, to
+prints the URL and the bearer header, led by `magic_mcp_url`: `/mcp/s/<token>`, the
+whole server under the bearer in its path, for a client that takes one URL and no auth
+settings (`magic_openapi_url` is its OpenAPI document, asking for no authentication).
+The bearer comes from `--token-file`, default `<home>/mcp.token` (made `0600`), or
+`--token`, sent as `Authorization: Bearer`, as `?access_token=`, or in that path. A
+client given the plain `/mcp` gets a 401 naming the OAuth metadata, and signs in by
+OAuth 2.1 with PKCE and dynamic registration; its token acts as the Persona picked on
+the consent card, and grants are kept in `<home>/mcp-oauth.json`. Calls run at once, so
+a watch that waits holds up no other call. `--no-auth` serves loopback only, to
 requests whose `Host` names loopback. An HTTP client is offered no argument that names
 a file on the server's machine.
 

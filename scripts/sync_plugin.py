@@ -15,7 +15,8 @@ plugin.json is the single source of truth. Generated:
   .agents/skills/<skill>            relative symlinks to skills/<skill>: repo-root skill discovery
 Antigravity (and Gemini CLI) load the package from ~/.gemini/config/plugins/<name>.
 Claude Desktop launches the MCP server named in its claude_desktop_config.json: --install
-merges `nostr-mailbox` into its `mcpServers`, run as the persona `claude-desktop`.
+merges `nostr-mailbox` into its `mcpServers`, run as this machine's default persona, the
+one the terminal CLI and every other local harness act as.
 """
 
 from __future__ import annotations
@@ -267,7 +268,12 @@ def skill_harness_dirs() -> dict[str, Path]:
     }
 
 
-DESKTOP_SERVER, DESKTOP_PERSONA = "nostr-mailbox", "claude-desktop"
+DESKTOP_SERVER = "nostr-mailbox"
+# What makes the CLI in this shell act as it does: its home, its persona, its default org.
+# Claude Desktop starts its server with none of this shell's environment, so the entry
+# carries whichever of these are set here, and the server acts as this terminal does.
+# NOSTR_MAILBOX_SEAT is left out: a seat is one agent's queue of unsettled messages.
+PROFILE_ENV = ("NOSTR_MAILBOX_HOME", "NOSTR_MAILBOX_IDENTITY", "NOSTR_MAILBOX_TRUST")
 # What an MCP stdio client (Claude Desktop among them) passes a server by default, beside
 # the `env` of its entry: nothing else of the installing shell reaches the server.
 STDIO_ENV = (("APPDATA", "HOMEDRIVE", "HOMEPATH", "LOCALAPPDATA", "PATH", "PROCESSOR_ARCHITECTURE",
@@ -286,13 +292,19 @@ def claude_desktop_config() -> Path:
 
 
 def desktop_entry(binary: Path) -> dict:
-    """The `mcpServers` entry: the installed binary, as the persona claude-desktop, over
-    stdio. A desktop app starts it with a bare PATH, under which the binary's
+    """The `mcpServers` entry: the installed binary over stdio, as this machine's
+    default persona with its keyrings, the very ones the terminal CLI, Claude Code,
+    Codex, Antigravity and Cursor use here, so a channel joined once is open to all of
+    them. No `--persona`: one named here would start with no keyring and be invited
+    afresh. A call that should act as another persona names it in `persona`.
+
+    A desktop app starts the server with a bare PATH, under which the binary's
     `/usr/bin/env python3` finds no Python 3.12 (macOS ships 3.9), so the entry carries
-    the PATH this installer runs with: the server finds the python3, and the kubectl or
-    docker an admin command reaches the relay with, that this shell does."""
-    return {"command": str(binary), "args": ["--persona", DESKTOP_PERSONA, "mcp"],
-            "env": {"PATH": os.environ["PATH"]}}
+    the PATH this installer runs with (the python3, and the kubectl or docker an admin
+    command reaches the relay with), and the profile variables set here (PROFILE_ENV)."""
+    env = {"PATH": os.environ["PATH"],
+           **{name: os.environ[name] for name in PROFILE_ENV if os.environ.get(name)}}
+    return {"command": str(binary), "args": ["mcp"], "env": env}
 
 
 def launch_once(entry: dict) -> None:

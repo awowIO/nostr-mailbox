@@ -8,23 +8,31 @@ loopback port (`mcp_http`, the console), its reply parsed back. Each machine is 
 home directory, and every file a tool writes is a real file. The Claude Desktop entry is
 written by the real installer and launched the way an MCP stdio client launches it.
 
-What these witnesses cannot show: ChatGPT and Claude Desktop themselves. The OpenAPI
-document is held to what a GPT Action imports (OpenAPI 3.1, an operationId and a short
-description per operation, a bearer scheme); the import itself needs ChatGPT."""
+What these witnesses cannot show: ChatGPT, Claude.ai and Claude Desktop themselves. The
+OpenAPI document is held to what a GPT Action imports (OpenAPI 3.1, an operationId and a
+short description per operation, a bearer scheme or, under a magic URL, none); the OAuth
+sign-in is driven here as the MCP authorization spec has a client drive it (a 401, RFC
+9728 and 8414 discovery, RFC 7591 registration, a consent form posted as a browser posts
+it, PKCE S256); the import and the click in a real client need that client."""
+import base64
 import hashlib
+import html
 import http.client
 import io
 import json
 import os
+import re
+import secrets
 import shutil
 import signal
 import socket
 import stat
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 import pytest
 
@@ -605,7 +613,10 @@ def test_streamable_http_carries_the_tools_with_sessions_a_bearer_and_cors(cli_r
             for token, said in [(None, "missing"), ("guess", "wrong")]:
                 status, response, body = _rpc(url, init, token=token)
                 assert status == 401 and "missing or wrong bearer token" in body["error"], said
-                assert response.getheader("WWW-Authenticate") == 'Bearer realm="nostr-mailbox"'
+                assert response.getheader("WWW-Authenticate") == (
+                    f'Bearer resource_metadata="{url}/.well-known/oauth-protected-resource"'), \
+                    "a 401 names where an MCP client learns to sign in"
+                assert "sign in by OAuth" in body["error"]
             assert server.routes.sessions() == 0, "a refused initialize opens nothing"
 
             status, response, opened = _rpc(url, init)
@@ -869,6 +880,13 @@ def test_mcp_http_prints_its_bearer_keeps_it_0600_and_serves_until_ctrl_c(tmp_pa
         assert (up["token_file"], up["header"], up["persona"]) == (
             str(home / "mcp.token"), f"Authorization: Bearer {token}", "scout")
         assert up["mcp"] == up["serving"] + "/mcp" and up["auth"] == "bearer"
+        assert list(up)[:2] == ["magic_mcp_url", "magic_openapi_url"], "the one URL comes first"
+        assert up["magic_mcp_url"] == f"{up['serving']}/mcp/s/{token}"
+        assert up["magic_openapi_url"] == up["magic_mcp_url"] + "/openapi.json"
+        status, _, body = _http(up["serving"], "POST", urlsplit(up["magic_mcp_url"]).path,
+                                {"jsonrpc": "2.0", "id": 1, "method": "ping"}, token=None,
+                                headers=STREAMABLE)
+        assert (status, json.loads(body)["result"]) == (200, {}), "it serves with no header"
         assert up["claude_code"].startswith(f"claude mcp add --transport http nostr-mailbox "
                                             f"{up['mcp']} --header")
         status, response, body = _rpc(up["serving"], {"jsonrpc": "2.0", "id": 1,
@@ -887,6 +905,7 @@ def test_mcp_http_prints_its_bearer_keeps_it_0600_and_serves_until_ctrl_c(tmp_pa
     proc, up = start("--http", "127.0.0.1:0", "--no-auth", at=bare)
     try:
         assert up["auth"].startswith("none") and up["header"] is None
+        assert up["magic_mcp_url"] == up["serving"] + "/mcp", "no bearer: the plain URL"
         assert not (bare / "mcp.token").exists(), "--no-auth makes no token"
         port = urlsplit(up["serving"]).port
         status, _, body = _rpc(up["serving"], {"jsonrpc": "2.0", "id": 1, "method": "ping"},
@@ -968,6 +987,432 @@ def test_the_console_serves_the_same_mcp_routes_at_its_own_mcp(cli_run, tmp_path
                 "the console's own API still answers no CORS"
 
 
+def test_two_agents_on_one_http_server_talk_while_a_watch_waits(cli_run, tmp_path):
+    """Two agents connected to one HTTP MCP server talk in real time. Agent A's
+    `mailbox_watch` on `wave` waits up to 10 s as alice; once its subscription is open,
+    and 200 ms later, agent B posts there as bob, another persona of the same home. B's
+    post is not queued behind A's wait: both calls answer in under 2.5 s, and A's watch
+    wakes with B's message. While the calls overlap, stdout is the process's stderr;
+    once both are done, it is stdout again."""
+    with LoopbackRelay(member_claims=True) as relay:
+        ops, laptop = tmp_path / "ops", tmp_path / "laptop"
+        _setup(cli_run, relay, ops, "operator", "camp")
+        cli_run(ops, "operator", "topic", "create", "wave")
+        for persona in ("alice", "bob"):          # no --for: a join then announces nothing
+            cli_run(laptop, persona, "join",
+                    cli_run(ops, "operator", "topic", "invite", "wave")["token"])
+        assert cli_run(laptop, "alice", "--topic", "wave", "watch", "bus", "--wait-seconds",
+                       "0")["messages"] == [], "nothing is pending: A's watch has to wait"
+        stdout = sys.stdout
+        with mcp_http.McpServer(token=BEARER, port=0, home_dir=laptop, default_persona="alice",
+                                timeout_seconds=WAIT, quiet=True) as server:
+            answered: dict = {}
+
+            def call(key: str, name: str, arguments: dict) -> None:
+                began = time.monotonic()
+                try:
+                    status, _, body = _rpc(server.url, _call(name, arguments))
+                except TimeoutError:        # no answer within the connection's WAIT
+                    answered[key] = None
+                    return
+                answered[key] = (status, body, time.monotonic() - began)
+
+            listening = relay.subscriptions()
+            watcher = threading.Thread(target=call, args=(
+                "watch", "mailbox_watch", {"channel": "wave", "wait_seconds": 10,
+                                           "persona": "alice"}))
+            watcher.start()
+            deadline = time.monotonic() + WAIT
+            while relay.subscriptions() == listening:       # A is listening on the relay
+                assert time.monotonic() < deadline, "the watch never subscribed"
+                time.sleep(0)
+            time.sleep(0.2)
+            poster = threading.Thread(target=call, args=(
+                "post", "mailbox_post", {"channel": "wave", "body": "hello", "persona": "bob"}))
+            poster.start()
+            poster.join(WAIT)
+            watcher.join(WAIT)
+            assert not poster.is_alive() and not watcher.is_alive()
+
+        assert answered["post"] is not None, f"the post had no answer in {WAIT} s: it was " \
+                                             "held behind the watch"
+        assert answered["watch"] is not None, f"the watch had no answer in {WAIT} s"
+        (post_status, posted, post_took), (watch_status, watched, watch_took) = (
+            answered["post"], answered["watch"])
+        assert (post_status, watch_status) == (200, 200)
+        assert posted["result"]["isError"] is False, posted
+        assert post_took < 2.5, f"the post waited {post_took:.2f} s behind the watch"
+        assert watch_took < 2.5, f"the watch took {watch_took:.2f} s: it woke on the timeout"
+        heard = watched["result"]["structuredContent"]["messages"]
+        assert [(m["id"], m["body"]) for m in heard] == [
+            (posted["result"]["structuredContent"]["id"], "hello")], "A heard B"
+        assert sys.stdout is stdout, "the last call to finish put stdout back"
+
+
+CALLBACK = "https://chat.example.org/connector/oauth/callback"
+PING = {"jsonrpc": "2.0", "id": 1, "method": "ping"}
+
+
+def _pkce() -> tuple[str, str]:
+    """A PKCE verifier and its S256 challenge (RFC 7636 §4.1, §4.2)."""
+    verifier = secrets.token_urlsafe(48)
+    digest = hashlib.sha256(verifier.encode()).digest()
+    return verifier, base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+
+
+def _form_post(url: str, path: str, fields: dict, *, headers: dict | None = None):
+    """A form post, as a browser sends one (or an OAuth client its token request)."""
+    parts = urlsplit(url)
+    conn = http.client.HTTPConnection(parts.hostname, parts.port, timeout=WAIT)
+    try:
+        conn.request("POST", path, body=urlencode(fields).encode(), headers={
+            "Content-Type": "application/x-www-form-urlencoded", **(headers or {})})
+        response = conn.getresponse()
+        payload = response.read()
+    finally:
+        conn.close()
+    return response.status, response, payload
+
+
+def _hidden(page: bytes) -> dict:
+    """The hidden fields of the consent form, as a browser posts them back."""
+    return {name: html.unescape(value) for name, value in re.findall(
+        r'<input type="hidden" name="([^"]+)" value="([^"]*)">', page.decode())}
+
+
+def _register(url: str, **metadata) -> dict:
+    status, _, raw = _http(url, "POST", "/oauth/register",
+                           {"client_name": "Witness GPT", "redirect_uris": [CALLBACK],
+                            **metadata}, token=None)
+    assert status == 201, raw
+    return json.loads(raw)
+
+
+def _consent(url: str, client: dict, challenge: str, *, headers: dict | None = None,
+             persona: str | None = None) -> dict:
+    """GET the card, then click Authorize on it: the query the client's callback gets."""
+    asked = {"client_id": client["client_id"], "redirect_uri": CALLBACK,
+             "response_type": "code", "state": "st-1", "code_challenge": challenge,
+             "code_challenge_method": "S256", "resource": url + "/mcp"}
+    status, _, page = _http(url, "GET", "/oauth/authorize?" + urlencode(asked), token=None,
+                            headers=headers)
+    assert status == 200 and b'name="owner_token"' not in page, page
+    picked = {"persona": persona} if persona else {}
+    status, response, _ = _form_post(url, "/oauth/authorize", {
+        **_hidden(page), **picked, "decision": "approve"}, headers={"Origin": url,
+                                                                    **(headers or {})})
+    assert status == 302
+    back = urlsplit(response.getheader("Location"))
+    assert f"{back.scheme}://{back.netloc}{back.path}" == CALLBACK
+    return dict(parse_qsl(back.query))
+
+
+def _token(url: str, **fields) -> tuple[int, dict]:
+    status, _, raw = _form_post(url, "/oauth/token", fields)
+    return status, json.loads(raw)
+
+
+def test_oauth_signs_a_client_in_with_pkce_and_its_token_acts_as_one_persona(cli_run,
+                                                                           tmp_path):
+    """A client handed only `<server>/mcp` signs itself in, as the MCP authorization spec
+    has it: the 401 names the resource metadata (RFC 9728), that names this server as
+    its authorization server (RFC 8414), the client registers itself (RFC 7591) and
+    sends its user to the consent card. The person running the server proves it once
+    with its token (or its magic URL); a session cookie makes every later consent one
+    click, and the card alone (its CSRF token, its own origin) can answer. The code is
+    bound to its PKCE challenge and spent by its first use. The access token reaches
+    every route as the persona picked, and only as it; a refresh rotates both tokens;
+    the grant, kept as digests in a 0600 file, outlives the server and is honored by
+    another server of the same home; a code used twice revokes it."""
+    with LoopbackRelay(member_claims=True) as relay:
+        ops = tmp_path / "ops"
+        _setup(cli_run, relay, ops, "operator", "camp")
+        cli_run(ops, "operator", "topic", "create", "wave")
+        cli_run(ops, "scout", "init")
+        with mcp_http.McpServer(token=BEARER, port=0, home_dir=ops, default_persona="operator",
+                                timeout_seconds=WAIT, quiet=True) as server:
+            url = server.url
+            # discovery, from nothing but the 401
+            status, response, _ = _rpc(url, PING, token=None)
+            assert status == 401
+            found = re.fullmatch(r'Bearer resource_metadata="([^"]+)"',
+                                 response.getheader("WWW-Authenticate"))
+            assert found and found.group(1) == f"{url}/.well-known/oauth-protected-resource"
+            resource = json.loads(_http(url, "GET", urlsplit(found.group(1)).path,
+                                        token=None)[2])
+            assert resource == {"resource": url + "/mcp", "authorization_servers": [url],
+                                "bearer_methods_supported": ["header", "query"],
+                                "resource_name": "Nostr Mailbox"}
+            assert json.loads(_http(url, "GET", "/.well-known/oauth-protected-resource/mcp",
+                                    token=None)[2]) == resource
+            meta = json.loads(_http(url, "GET", "/.well-known/oauth-authorization-server",
+                                    token=None)[2])
+            assert {k: meta[k] for k in ("issuer", "authorization_endpoint", "token_endpoint",
+                                         "registration_endpoint")} == {
+                "issuer": url, "authorization_endpoint": url + "/oauth/authorize",
+                "token_endpoint": url + "/oauth/token",
+                "registration_endpoint": url + "/oauth/register"}
+            assert (meta["response_types_supported"], meta["grant_types_supported"],
+                    meta["code_challenge_methods_supported"],
+                    meta["token_endpoint_auth_methods_supported"]) == (
+                ["code"], ["authorization_code", "refresh_token"], ["S256", "plain"],
+                ["none", "client_secret_post", "client_secret_basic"])
+            assert json.loads(_http(url, "GET", "/.well-known/openid-configuration",
+                                    token=None)[2]) == meta
+
+            # registration: open, and nothing of it is kept
+            client = _register(url)
+            assert {k: client[k] for k in ("client_name", "redirect_uris", "grant_types",
+                                           "response_types", "token_endpoint_auth_method")} == {
+                "client_name": "Witness GPT", "redirect_uris": [CALLBACK],
+                "grant_types": ["authorization_code", "refresh_token"],
+                "response_types": ["code"], "token_endpoint_auth_method": "none"}
+            assert "client_secret" not in client
+            store = ops / "mcp-oauth.json"
+            assert stat.S_IMODE(store.stat().st_mode) == 0o600
+            assert json.loads(store.read_text())["grants"] == {}, "a registration keeps nothing"
+            for uris, said in [(["http://evil.example/cb"], "neither https nor http on a loop"),
+                               (["https://chat.example.org/cb#x"], "fragment"),
+                               ([], "non-empty list")]:
+                status, _, raw = _http(url, "POST", "/oauth/register", {"redirect_uris": uris},
+                                       token=None)
+                assert status == 400, uris
+                assert json.loads(raw)["error"] == "invalid_redirect_uri"
+                assert said in json.loads(raw)["error_description"]
+
+            # the consent card: before the owner proves it, one field and no persona names
+            verifier, challenge = _pkce()
+            asked = {"client_id": client["client_id"], "redirect_uri": CALLBACK,
+                     "response_type": "code", "state": "st-1", "code_challenge": challenge,
+                     "code_challenge_method": "S256"}
+            status, response, page = _http(url, "GET", "/oauth/authorize?" + urlencode(asked),
+                                           token=None)
+            assert status == 200 and page.startswith(b"<!doctype html>")
+            assert b"Authorize <code>Witness GPT</code> to connect to Nostr Mailbox" in page
+            assert "frame-ancestors 'none'" in response.getheader("Content-Security-Policy")
+            assert b'name="owner_token"' in page and b"scout" not in page
+            fields = _hidden(page)
+            for extra, headers, said in [
+                    ({"owner_token": BEARER}, {"Origin": "https://evil.example"}, b"another site"),
+                    ({"owner_token": BEARER}, {"Sec-Fetch-Site": "cross-site"}, b"cross-site"),
+                    ({"owner_token": BEARER, "csrf": "forged"}, {}, b"CSRF"),
+                    ({"owner_token": "guess"}, {}, b"not this server&#x27;s token")]:
+                status, response, body = _form_post(url, "/oauth/authorize",
+                                                    {**fields, **extra}, headers=headers)
+                assert status == 403 and said in body, (extra, headers, body[:300])
+                assert response.getheader("Set-Cookie") is None
+            status, _, page = _http(url, "GET", "/oauth/authorize?" + urlencode(
+                {**asked, "redirect_uri": "https://evil.example/cb"}), token=None)
+            assert status == 400 and b"not one this client registered" in page, \
+                "a redirect URI never registered is not redirected to"
+
+            # the magic URL proves it too; then the card names the personas
+            status, response, page = _form_post(url, "/oauth/authorize", {
+                **fields, "owner_token": mcp_http.capability_url(url, BEARER)})
+            assert status == 200 and b'<option value="scout">scout</option>' in page
+            assert b'<option value="operator" selected>operator (default)</option>' in page
+            set_cookie = response.getheader("Set-Cookie")
+            assert "HttpOnly" in set_cookie and "SameSite=Lax" in set_cookie
+            assert "Path=/oauth" in set_cookie
+            owner = {"Cookie": set_cookie.split(";")[0]}
+            forged = {k: v for k, v in fields.items() if k != "step"}
+            status, _, body = _form_post(url, "/oauth/authorize", {
+                **forged, "persona": "operator", "decision": "approve"}, headers=owner)
+            assert status == 403 and b"CSRF" in body, \
+                "the cookie and a token anyone can load approve nothing: the card's is the owner's"
+            cancelled = _form_post(url, "/oauth/authorize", {**_hidden(page),
+                                                             "decision": "deny"})[1]
+            assert dict(parse_qsl(urlsplit(cancelled.getheader("Location")).query))[
+                "error"] == "access_denied"
+
+            # with the cookie, one click; the code is spent by its first use, right or wrong
+            got = _consent(url, client, challenge, headers=owner, persona="scout")
+            assert (got["state"], got["iss"]) == ("st-1", url) and got["code"].startswith("nmo_")
+            exchange = {"grant_type": "authorization_code", "code": got["code"],
+                        "redirect_uri": CALLBACK, "client_id": client["client_id"]}
+            status, refused = _token(url, **exchange, code_verifier=_pkce()[0])
+            assert (status, refused["error"]) == (400, "invalid_grant")
+            assert "does not match the code_challenge" in refused["error_description"]
+            status, refused = _token(url, **exchange, code_verifier=verifier)
+            assert (status, refused["error"]) == (400, "invalid_grant"), "spent when it failed"
+            got = _consent(url, client, challenge, headers=owner, persona="scout")
+            exchange["code"] = got["code"]
+            status, issued = _token(url, **exchange, code_verifier=verifier)
+            assert status == 200, issued
+            assert (issued["token_type"], issued["expires_in"]) == ("Bearer", 2592000)
+            assert issued["access_token"].startswith("nma_") and issued["refresh_token"]
+
+            # the token: every route, as scout alone
+            access = issued["access_token"]
+            _, _, listed = _rpc(url, _call("mailbox_list", {}), token=access)
+            assert listed["result"]["structuredContent"]["active_persona"] == "scout"
+            _, _, other = _rpc(url, _call("mailbox_list", {"persona": "operator"}), token=access)
+            assert other["result"]["isError"] is True
+            assert "granted persona 'scout'" in other["result"]["content"][0]["text"]
+            status, _, raw = _http(url, "POST", "/tools/mailbox_list", {"persona": "operator"},
+                                   token=access)
+            assert status == 403 and "acts as it alone" in json.loads(raw)["error"]
+            status, _, raw = _http(url, "POST", "/tools/mailbox_list", {}, token=access)
+            assert status == 200 and json.loads(raw)["active_persona"] == "scout"
+            status, _, _ = _http(url, "POST", "/mcp?" + urlencode({"access_token": access}),
+                                 PING, token=None, headers=STREAMABLE)
+            assert status == 200, "RFC 6750 §2.3: the bearer in the query"
+            status, _, raw = _http(url, "POST", urlsplit(mcp_http.capability_url(
+                url, access)).path + "/tools/mailbox_list", {}, token=None)
+            assert status == 200 and json.loads(raw)["active_persona"] == "scout"
+            init = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}
+            sid = _rpc(url, init, token=access)[1].getheader(mcp_http.SESSION_HEADER)
+            assert _rpc(url, PING, session=sid, token=access)[0] == 200
+            assert _rpc(url, PING, session=sid)[0] == 404, \
+                "a session answers the bearer that opened it alone"
+            kept = store.read_text()
+            [grant] = json.loads(kept)["grants"].values()
+            assert (grant["persona"], grant["client_name"]) == ("scout", "Witness GPT")
+            assert access not in kept and issued["refresh_token"] not in kept, "digests only"
+
+            # a refresh rotates both tokens
+            refresh = {"grant_type": "refresh_token", "client_id": client["client_id"]}
+            status, again = _token(url, **refresh, refresh_token=issued["refresh_token"])
+            assert status == 200 and again["access_token"] != access
+            assert _rpc(url, PING, token=access)[0] == 401, "the old access token stops"
+            status, refused = _token(url, **refresh, refresh_token=issued["refresh_token"])
+            assert (status, refused["error"]) == (400, "invalid_grant")
+
+            # another server of this home (the console beside `mcp --http`) honors it
+            with mcp_http.McpServer(token=BEARER, port=0, home_dir=ops,
+                                    default_persona="operator", timeout_seconds=WAIT,
+                                    quiet=True) as beside:
+                _, _, listed = _rpc(beside.url, _call("mailbox_list", {}),
+                                    token=again["access_token"])
+                assert listed["result"]["structuredContent"]["active_persona"] == "scout"
+
+            # a code used twice revokes what it was exchanged for
+            status, refused = _token(url, **exchange, code_verifier=verifier)
+            assert (status, refused["error"]) == (400, "invalid_grant")
+            assert _rpc(url, PING, token=again["access_token"])[0] == 401
+            assert json.loads(store.read_text())["grants"] == {}
+
+            # a client registered with a secret must send it
+            secret = _register(url, token_endpoint_auth_method="client_secret_basic")
+            assert secret["client_secret"] and secret["client_secret_expires_at"] == 0
+            status, refused = _token(url, grant_type="authorization_code", code="nmo_x",
+                                     client_id=secret["client_id"])
+            assert (status, refused["error"]) == (401, "invalid_client")
+            basic = base64.b64encode(
+                f"{secret['client_id']}:{secret['client_secret']}".encode()).decode()
+            status, _, raw = _form_post(url, "/oauth/token", {
+                "grant_type": "authorization_code", "code": "nmo_x"},
+                headers={"Authorization": f"Basic {basic}"})
+            assert (status, json.loads(raw)["error"]) == (400, "invalid_grant"), "authenticated"
+
+
+def test_one_magic_url_carries_the_whole_server_with_no_auth_settings(cli_run, tmp_path,
+                                                                      capsys):
+    """`/mcp/s/<token>` is the server under the bearer in its path, for a client that
+    takes one URL and no auth settings: Streamable HTTP at the URL itself, HTTP+SSE whose
+    endpoint event stays under it, `POST <url>/tools/<tool>`, and an OpenAPI document
+    whose server is that URL and which asks for no authentication (a GPT Action imports
+    it with Authentication: None). No request sends an Authorization header. A wrong
+    token in the path runs nothing, and the server's log never names the token."""
+    with LoopbackRelay(member_claims=True) as relay:
+        ops = tmp_path / "ops"
+        _setup(cli_run, relay, ops, "operator", "camp")
+        cli_run(ops, "operator", "topic", "create", "wave")
+        with mcp_http.McpServer(token=BEARER, port=0, home_dir=ops, default_persona="operator",
+                                timeout_seconds=WAIT, quiet=False) as server:
+            url = server.url
+            magic = mcp_http.capability_url(url, BEARER)
+            assert magic == f"{url}/mcp/s/{BEARER}"
+            prefix = urlsplit(magic).path
+            init = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                    "params": {"protocolVersion": "2025-11-25"}}
+            status, response, _ = _http(url, "POST", prefix, init, token=None, headers=STREAMABLE)
+            assert status == 200 and response.getheader(mcp_http.SESSION_HEADER)
+            status, _, raw = _http(url, "POST", prefix, _call("mailbox_post", {
+                "channel": "wave", "body": "by the magic url"}), token=None, headers=STREAMABLE)
+            assert status == 200 and json.loads(raw)["result"]["isError"] is False
+            assert _bodies(cli_run, ops, "operator", "wave") == ["by the magic url"]
+
+            status, _, raw = _http(url, "GET", prefix + "/openapi.json", token=None)
+            doc = json.loads(raw)
+            assert status == 200 and doc["servers"] == [{"url": magic}]
+            assert doc["security"] == [] and "securitySchemes" not in doc["components"]
+            assert not any("401" in op["post"]["responses"] for op in doc["paths"].values())
+            status, _, raw = _http(url, "POST", prefix + "/tools/mailbox_list", {}, token=None)
+            assert status == 200 and json.loads(raw)["active_persona"] == "operator"
+
+            parts = urlsplit(url)
+            conn = http.client.HTTPConnection(parts.hostname, parts.port, timeout=WAIT)
+            conn.request("GET", prefix + "/sse", headers={"Accept": "text/event-stream"})
+            stream = conn.getresponse()
+            endpoint = _event(stream)
+            assert endpoint["event"] == "endpoint"
+            assert endpoint["data"].startswith(prefix + "/messages?session_id=")
+            status, _, raw = _http(url, "POST", endpoint["data"],
+                                   {"jsonrpc": "2.0", "id": 4, "method": "ping"}, token=None)
+            assert status == 200 and json.loads(raw)["id"] == 4
+            assert json.loads(_event(stream)["data"])["id"] == 4, "answered on the stream too"
+            conn.close()
+
+            status, _, raw = _http(url, "POST", "/mcp/s/guess/tools/mailbox_post",
+                                   {"channel": "wave", "body": "no"}, token=None)
+            assert status == 401 and "neither this server's" in json.loads(raw)["error"]
+            assert _http(url, "GET", prefix + "/elsewhere", token=None)[0] == 404
+            status, response, _ = _http(url, "OPTIONS", prefix, token=None, headers={
+                "Origin": "http://localhost:6274", "Access-Control-Request-Method": "POST"})
+            assert status == 204, "a browser client's preflight carries no token"
+        logged = capsys.readouterr().err
+        assert "/mcp/s/<redacted>/tools/mailbox_list" in logged
+        assert BEARER not in logged and "guess" not in logged, "no token is ever logged"
+        assert mcp_http.redact("GET /mcp?access_token=nma_x&y=1") == \
+            "GET /mcp?access_token=<redacted>&y=1"
+
+
+def test_the_console_pairs_with_one_url_and_signs_oauth_clients_in_in_one_click(cli_run,
+                                                                               tmp_path):
+    """Pair Coding Agent asks `/api/pair` (the page's token) for the one URL an MCP
+    client is handed: `magic_mcp_url` first, then its OpenAPI document, then the plain
+    `/mcp`. That URL serves with no header. A client given the plain URL signs in by
+    OAuth, and here the consent card is one click from the start: this console answers
+    its own loopback Host alone, as it does for its signing page."""
+    with LoopbackRelay(member_claims=True) as relay:
+        ops = tmp_path / "ops"
+        _setup(cli_run, relay, ops, "operator", "camp")
+        cli_run(ops, "scout", "init")
+        console = ui.Console(base=ops, identity="operator", timeout_s=WAIT, quiet=True)
+        with ui.ConsoleServer(console, port=0) as server:
+            url = server.url
+            token = (ops / "mcp.token").read_text().strip()
+            parts = urlsplit(url)
+            asked = []
+            for headers in ({ui.TOKEN_HEADER: console.token}, {}):
+                conn = http.client.HTTPConnection(parts.hostname, parts.port, timeout=WAIT)
+                conn.request("GET", "/api/pair", headers=headers)
+                response = conn.getresponse()
+                asked.append((response.status, json.loads(response.read())))
+                conn.close()
+            (status, pair), (refused, _) = asked
+            assert status == 200 and refused == 403, "the page's token is asked"
+            assert list(pair)[:3] == ["magic_mcp_url", "magic_openapi_url", "mcp_url"]
+            assert pair["magic_mcp_url"] == mcp_http.capability_url(url, token)
+            assert pair["magic_openapi_url"] == pair["magic_mcp_url"] + "/openapi.json"
+            assert pair["mcp_url"] == url + "/mcp"
+            status, _, raw = _http(url, "POST", urlsplit(pair["magic_mcp_url"]).path
+                                   + "/tools/mailbox_list", {}, token=None)
+            assert status == 200 and json.loads(raw)["active_persona"] == "operator"
+
+            client = _register(url)
+            verifier, challenge = _pkce()
+            got = _consent(url, client, challenge, persona="scout")
+            status, issued = _token(url, grant_type="authorization_code", code=got["code"],
+                                    redirect_uri=CALLBACK, client_id=client["client_id"],
+                                    code_verifier=verifier)
+            assert status == 200, issued
+            _, _, listed = _rpc(url, _call("mailbox_list", {}), token=issued["access_token"])
+            assert listed["result"]["structuredContent"]["active_persona"] == "scout"
+            assert (ops / "mcp-oauth.json").is_file()
+
+
 # ====================================================== Claude Desktop, installed
 SYNC = Path(__file__).resolve().parents[1] / "scripts/sync_plugin.py"
 
@@ -977,9 +1422,12 @@ def test_the_installer_merges_claude_desktop_and_the_entry_it_writes_launches(cl
     """`sync_plugin.py --install --harness claude-desktop` merges one entry into an
     existing claude_desktop_config.json: every other key and server kept, its mode kept,
     no staging file left. The entry, launched the way an MCP stdio client launches it (its
-    command, args and env alone), answers as the persona claude-desktop. Running again
-    changes nothing; a dry run writes nothing; a config that is not JSON, or a symlink, is
-    refused and left as it is. A full --install finds Claude Desktop by its folder."""
+    command, args and env alone), acts as this machine's default persona: a channel the
+    terminal CLI created is open to it, its keyring the same file, with no invite. The
+    profile variables set in the installing shell go along; the seat does not. Running
+    again changes nothing; a dry run writes nothing; a config that is not JSON, or a
+    symlink, is refused and left as it is. A full --install finds Claude Desktop by its
+    folder."""
     fake_home = tmp_path / "home"
     config = tmp_path / "Claude/claude_desktop_config.json"
     config.parent.mkdir()
@@ -1004,8 +1452,8 @@ def test_the_installer_merges_claude_desktop_and_the_entry_it_writes_launches(cl
     merged = json.loads(config.read_text())
     binary = fake_home / ".local/bin/nostr-mailbox"
     entry = merged["mcpServers"]["nostr-mailbox"]
-    assert entry == {"command": str(binary), "args": ["--persona", "claude-desktop", "mcp"],
-                     "env": {"PATH": os.environ["PATH"]}}
+    assert entry == {"command": str(binary), "args": ["mcp"],
+                     "env": {"PATH": os.environ["PATH"]}}, "no --persona: the machine's own"
     assert {k: v for k, v in merged.items() if k != "mcpServers"} == {
         "globalShortcut": "Ctrl+Space"}
     assert merged["mcpServers"]["other"] == before["mcpServers"]["other"]
@@ -1013,21 +1461,41 @@ def test_the_installer_merges_claude_desktop_and_the_entry_it_writes_launches(cl
     assert stat.S_IMODE(config.stat().st_mode) == 0o640
     assert sorted(p.name for p in config.parent.iterdir()) == [config.name]
 
-    # launched as Claude Desktop launches it: nothing of this shell but its default set
+    # launched as Claude Desktop launches it: nothing of this shell but its default set.
+    # The terminal CLI, as the default persona of the default home, keeps channel wave
     ops = fake_home / ".config/nostr-mailbox"
-    cli_run(ops, "claude-desktop", "init")
-    launched = subprocess.run(
-        [entry["command"], *entry["args"]],
-        input=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize",
-                          "params": {"protocolVersion": "2025-06-18"}}) + "\n"
-        + json.dumps(_call("mailbox_list", {}, 2)) + "\n",
-        capture_output=True, text=True, timeout=WAIT,
-        env={"HOME": str(fake_home), **entry["env"]})
-    assert launched.returncode == 0, launched.stderr
-    init, listed = _replies(launched.stdout.encode())
-    assert init["result"]["serverInfo"]["name"] == "nostr-mailbox"
-    seen = listed["result"]["structuredContent"]
-    assert (seen["home"], seen["active_persona"]) == (str(ops), "claude-desktop")
+    with LoopbackRelay(member_claims=True) as relay:
+        _setup(cli_run, relay, ops, "default", "camp")
+        cli_run(ops, "default", "topic", "create", "wave")
+        launched = subprocess.run(
+            [entry["command"], *entry["args"]],
+            input=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                              "params": {"protocolVersion": "2025-06-18"}}) + "\n"
+            + json.dumps(_call("mailbox_list", {}, 2)) + "\n"
+            + json.dumps(_call("mailbox_post", {"channel": "wave", "body": "from desktop"},
+                               3)) + "\n",
+            capture_output=True, text=True, timeout=WAIT,
+            env={"HOME": str(fake_home), **entry["env"]})
+        assert launched.returncode == 0, launched.stderr
+        init, listed, posted = _replies(launched.stdout.encode())
+        assert init["result"]["serverInfo"]["name"] == "nostr-mailbox"
+        seen = listed["result"]["structuredContent"]
+        assert (seen["home"], seen["active_persona"]) == (str(ops), "default")
+        assert [(c["name"], c["held_epochs"], c["keeper"]) for c in seen["channels"]] == [
+            ("wave", [1], True)], "the terminal's own channel and keyring, with no invite"
+        assert posted["result"]["isError"] is False, posted
+        assert _bodies(cli_run, ops, "default", "wave") == ["from desktop"]
+
+    # the installing shell's profile goes along (a desktop app passes none of it on)
+    profiled = tmp_path / "profiled/claude_desktop_config.json"
+    profiled.parent.mkdir()
+    shell = {**env, "NOSTR_MAILBOX_HOME": str(tmp_path / "elsewhere"),
+             "NOSTR_MAILBOX_IDENTITY": "alice", "NOSTR_MAILBOX_SEAT": "reviewer-3"}
+    done = install("--harness", "claude-desktop", at=profiled, environ=shell)
+    assert done.returncode == 0, done.stderr
+    assert json.loads(profiled.read_text())["mcpServers"]["nostr-mailbox"]["env"] == {
+        "PATH": os.environ["PATH"], "NOSTR_MAILBOX_HOME": str(tmp_path / "elsewhere"),
+        "NOSTR_MAILBOX_IDENTITY": "alice"}, "a seat is one agent's queue, not the machine's"
 
     again = install("--harness", "claude-desktop")
     assert again.returncode == 0 and "unchanged" in again.stdout

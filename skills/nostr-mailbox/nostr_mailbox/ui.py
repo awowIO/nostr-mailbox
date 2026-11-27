@@ -79,7 +79,11 @@ MCP. The routes of `nostr-mailbox mcp --http` (`mcp_http`) are served here too: 
 this console's Host rule and ask for the home's bearer (`<home>/mcp.token`, made 0600 on
 first start), never the page's token, and they answer CORS for loopback origins only. A
 call runs as the persona its request names in `X-NM-Persona`, else as the console's
-default persona, like every request here. `/api/state` says where they are."""
+default persona, like every request here. `/api/state` says where they are. A client
+given `<console>/mcp` alone signs in by OAuth (`mcp_oauth`): the consent card is one
+click here, since whoever reaches this console's Host is served its signing page too,
+and the token it gets acts as the persona picked there alone. `/api/pair` gives Pair
+Coding Agent the one URL to paste (`/mcp/s/<bearer>`) and its OpenAPI document."""
 from __future__ import annotations
 
 import argparse
@@ -133,7 +137,17 @@ from .identity import (
     load_identity,
 )
 from .mailbox import Dropbox
-from .mcp_http import TOKEN_FILE, McpHttp, is_loopback, load_token
+from .mcp_http import (
+    MCP,
+    OPENAPI,
+    TOKEN_FILE,
+    McpHttp,
+    capability_url,
+    is_loopback,
+    load_token,
+    redact,
+)
+from .mcp_oauth import OAUTH_FILE, WELL_KNOWN_SERVER
 from .profile import EpochKeys, ProfileError, Trust, slug
 from .relay import INVITE_CLAIM_KIND, INVITE_TTL, NCLI_CONFIG, RelayAdmin, RelayError
 
@@ -1146,8 +1160,11 @@ class _Server(ThreadingHTTPServer):
         names = {str(host), "localhost"}
         self.allowed_hosts = {f"[{h}]:{port}" if ":" in h else f"{h}:{port}" for h in names}
         self.origins = {f"http://{h}" for h in self.allowed_hosts}
+        # OAuth's consent card is one click here: this console answers loopback Hosts
+        # alone, and serves its whole signing page to whoever reaches it so
         self.mcp = McpHttp(token=load_token(console.home / TOKEN_FILE), defaults=self._mcp_call,
-                           host_ok=lambda named: named in self.allowed_hosts)
+                           host_ok=lambda named: named in self.allowed_hosts,
+                           oauth_file=console.home / OAUTH_FILE, owner_trusted=True)
 
     def _mcp_call(self, handler: BaseHTTPRequestHandler) -> dict:
         """What an MCP call through the console runs as: the persona its request names in
@@ -1167,7 +1184,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def log_message(self, format: str, *args) -> None:       # noqa: A002 (stdlib name)
         if not self.server.console.quiet:
-            sys.stderr.write(f"ui: {self.address_string()} {format % args}\n")
+            sys.stderr.write(redact(f"ui: {self.address_string()} {format % args}") + "\n")
 
     # ---- plumbing
     def _send(self, status: int, body: bytes, content_type: str, extra: dict | None = None):
@@ -1281,6 +1298,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._serve(lambda c: self._json(200, c.topics()), write=False)
         elif path == "/api/invites":
             self._serve(lambda c: self._json(200, c.invites()), write=False)
+        elif path == "/api/pair":
+            self._serve(lambda c: self._json(200, self._pair(c)), write=False)
         elif where == "/api/blob" or topic:
             def blob(c: Console) -> None:
                 if not _SHA256.fullmatch(sha256):
@@ -1324,6 +1343,22 @@ class _Handler(BaseHTTPRequestHandler):
             self._error(HTTPStatus.NOT_FOUND, ConsoleError(f"nothing at {path}"))
             return
         self._serve(lambda c: self._json(200, method(c, self._body())), write=True)
+
+    def _pair(self, console: Console) -> dict:
+        """Pair Coding Agent's MCP block: first the one URL an MCP client is handed
+        (`magic_mcp_url`, which carries this home's bearer in its path, and its OpenAPI
+        document for a GPT Action with Authentication: None), then the plain URL a
+        client signs in to by OAuth itself."""
+        origin = f"http://{self.headers.get('Host')}"   # one of allowed_hosts: the gate held
+        magic = capability_url(origin, self.server.mcp.token)
+        return {"magic_mcp_url": magic, "magic_openapi_url": magic + OPENAPI,
+                "mcp_url": origin + MCP, "openapi_url": origin + OPENAPI,
+                "oauth_metadata": origin + WELL_KNOWN_SERVER,
+                "token_file": str(console.home / TOKEN_FILE),
+                "persona": console.identity_name,
+                "note": "magic_mcp_url is the bearer: whoever holds it acts as any persona "
+                        "of this home. mcp_url alone makes an MCP client sign in by OAuth, "
+                        "as the persona picked on this console's consent card"}
 
     def _mcp_only(self) -> None:
         """DELETE and OPTIONS: MCP's (a session's end, a CORS preflight), nothing else's."""

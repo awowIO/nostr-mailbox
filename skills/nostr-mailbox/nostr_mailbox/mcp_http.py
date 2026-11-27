@@ -18,21 +18,32 @@ Three wires carry the JSON-RPC 2.0 that `mcp.handle_rpc` answers on stdio:
   `POST /tools/<tool>`: the body is the tool's arguments, the answer what the tool says,
   or `{"error", "type"}` with a 4xx or 5xx status.
 
-Who may call. Every route but `/openapi.json` and the CORS preflight needs
-`Authorization: Bearer <token>`. The token is `<home>/mcp.token` (0600, made on first
-use) unless `--token` or `--token-file` names another; the console uses its home's.
+Who may call. Every route but `/openapi.json`, the OAuth routes and the CORS preflight
+needs a bearer, sent three ways: `Authorization: Bearer <token>`, `?access_token=<token>`,
+or in the path. The bearer is the server's token, `<home>/mcp.token` (0600, made on first
+use) unless `--token` or `--token-file` names another (the console uses its home's), or
+an access token this server issued by OAuth (`mcp_oauth`). Without one, `/mcp` and the
+rest answer 401 with `WWW-Authenticate: Bearer resource_metadata=…`, from which an MCP
+client signs itself in. The server's token acts as any persona of the home; an OAuth
+token as the one persona picked on its consent card.
 `--no-auth` drops the bearer on a loopback bind only, and then `Host` must name loopback,
 which a DNS-rebinding page cannot (it names its own). An `Origin`, when one is sent, must
 be a loopback origin or this server's own, whatever the auth (403): a page on another
 site is never served. A bind beyond loopback without a bearer is refused.
 
+One URL. `/mcp/s/<token>` is the whole server under a bearer in its path: `/mcp/s/<token>`
+is Streamable HTTP, and `/sse`, `/messages`, `/openapi.json` and `/tools/<tool>` follow
+it. A client that takes one URL and no auth settings is handed that URL alone; the
+OpenAPI document under it names it as its server and asks for no authentication (a GPT
+Action imports it with Authentication: None). Such a URL is the bearer: whoever holds it
+holds the server. This server never writes a path's token (or an `access_token`) into its
+log; a proxy in front of it may, so keep its access log private or off.
+
 What a client may do. An HTTP client may be on another machine, so it is offered no
-argument naming a file on this one (`mcp.LOCAL_FILE_ARGUMENTS`). It acts as any persona
-of the home, as a stdio client does: serve a dedicated `--home` to anyone who should
-reach only one. One tool call runs at a time (`mcp.call_tool`), as on stdio, so a watch
-that waits holds the others for that long. A request body holds at most
-`mcp.MAX_FRAME_BYTES` (413). A stream waits on its socket and a wake pipe: nothing
-polls."""
+argument naming a file on this one (`mcp.LOCAL_FILE_ARGUMENTS`). Tool calls run at once,
+each on its own request's thread (`mcp.call_tool`), so one client's watch that waits
+holds up no other's post. A request body holds at most `mcp.MAX_FRAME_BYTES` (413). A
+stream waits on its socket and a wake pipe: nothing polls."""
 from __future__ import annotations
 
 import argparse
@@ -56,19 +67,36 @@ from dataclasses import dataclass, field
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, quote, unquote, unquote_plus, urlsplit
 
 from . import __version__, mcp
 from ._files import write_private
 from .blossom import BlossomError
 from .errors import NostrError
 from .event import DEFAULT_WAIT_S
-from .identity import home
+from .identity import DEFAULT_NAME, home
+from .mcp_oauth import (
+    AUTHORIZE,
+    OAUTH_FILE,
+    REGISTER,
+    TOKEN,
+    WELL_KNOWN_OPENID,
+    WELL_KNOWN_RESOURCE,
+    WELL_KNOWN_SERVER,
+    OAuth,
+    OAuthError,
+    OAuthStoreError,
+    single,
+)
 from .relay import RelayError
 
 DEFAULT_HOST, DEFAULT_PORT = "127.0.0.1", 7891     # the console is 7890
 TOKEN_FILE = "mcp.token"
 MCP, SSE, MESSAGES, OPENAPI, TOOLS_PREFIX = "/mcp", "/sse", "/messages", "/openapi.json", "/tools/"
+CAPABILITY = "/mcp/s/"                  # /mcp/s/<token>: the routes under a bearer in the path
+_WELL_KNOWN = (WELL_KNOWN_RESOURCE, WELL_KNOWN_SERVER, WELL_KNOWN_OPENID)
+# A bearer in a request target: a capability path's token, an access_token parameter.
+_SECRET_IN_TARGET = re.compile(r"(/mcp/s/)[^/?#\s\"]+|([?&]access_token=)[^&#\s\"]+")
 SESSION_HEADER, VERSION_HEADER = "Mcp-Session-Id", "MCP-Protocol-Version"
 ALLOW_METHODS = "GET, POST, DELETE, OPTIONS"
 # What a browser client sends: the four every MCP request may carry, the version header
@@ -172,9 +200,12 @@ def loopback_host(header: str | None) -> bool:
     return name is not None and is_loopback(name)
 
 
-def origin_allowed(origin: str | None, host: str | None) -> bool:
+def origin_allowed(origin: str | None, host: str | None, forwarded: str | None = None) -> bool:
     """Whether a request's `Origin` may be served: none (not a browser, or a same-origin
-    GET), a loopback origin, or this server's own (the one its `Host` names)."""
+    GET), a loopback origin, or this server's own (the one its `Host` names, or the
+    `X-Forwarded-Host` a TLS proxy in front says it reached: a page cannot send that
+    header on a form post, and a fetch that sends it is preflighted, which another site
+    is refused)."""
     if origin is None:
         return True
     parts = urlsplit(origin)
@@ -184,7 +215,39 @@ def origin_allowed(origin: str | None, host: str | None) -> bool:
         return False
     if parts.scheme not in ("http", "https") or not name:
         return False                        # `null`: a sandboxed frame, a file
-    return is_loopback(name) or (host is not None and parts.netloc.lower() == host.lower())
+    own = {h.strip().lower() for h in (host, forwarded) if h}
+    return is_loopback(name) or parts.netloc.lower() in own
+
+
+def request_origin(headers) -> str | None:
+    """The origin a request reached, as a TLS proxy in front says it (X-Forwarded-Proto,
+    X-Forwarded-Host), else as its Host names it; None without either."""
+    scheme = (headers.get("X-Forwarded-Proto") or "http").partition(",")[0].strip()
+    where = (headers.get("X-Forwarded-Host") or headers.get("Host") or "").partition(",")[0]
+    if not where.strip():
+        return None
+    return f"{scheme if scheme in ('http', 'https') else 'http'}://{where.strip()}"
+
+
+def redact(text: str) -> str:
+    """`text` (a log line) without the bearer a request target may carry."""
+    return _SECRET_IN_TARGET.sub(lambda m: (m.group(1) or m.group(2)) + "<redacted>", text)
+
+
+def _query_bearer(query: str) -> str:
+    """The bearer a query carries as `access_token` (RFC 6750 §2.3), the name as
+    written: one sent under an encoded name is not taken, as the log's redaction would
+    not see it either."""
+    for part in query.split("&"):
+        name, eq, value = part.partition("=")
+        if eq and name == "access_token":
+            return unquote_plus(value)
+    return ""
+
+
+def capability_url(base: str, token: str) -> str:
+    """The one URL that carries the whole server: `<base>/mcp/s/<token>`."""
+    return f"{base}{CAPABILITY}{quote(token, safe='')}"
 
 
 def check_token(token: str, what: str) -> str:
@@ -288,14 +351,24 @@ class _Session:
     legacy: bool                            # opened by GET /sse, else by initialize
     protocol: str | None = None
     streams: set[_Stream] = field(default_factory=set)
+    # who opened it: the OAuth grant of its bearer, None for the server's own token.
+    # Only a bearer of the same grant (its tokens rotate) may use it, so one client's
+    # replies never reach another's stream.
+    grant: str | None = None
 
 
 class _Exchange:
     """One request's answer. Every response it sends carries the CORS headers its
-    Origin earned; `started` is whether a status line went out."""
+    Origin earned; `started` is whether a status line went out. `grant` and `persona`
+    are the OAuth grant its bearer belongs to and the one persona it was granted, None
+    for the server's own token; `prefix` is the capability path it came under
+    (`/mcp/s/<token>`), else empty."""
 
     def __init__(self, handler: BaseHTTPRequestHandler, cors: dict[str, str]):
         self.handler, self.cors, self.started = handler, cors, False
+        self.grant: str | None = None
+        self.persona: str | None = None
+        self.prefix = ""
 
     def _head(self, status: int, headers: dict) -> None:
         handler = self.handler
@@ -350,12 +423,17 @@ class McpHttp:
     """The MCP routes, for any `BaseHTTPRequestHandler`: `nostr-mailbox mcp --http`
     sends it every request, the console those it `owns`. `token` is the bearer (None:
     none asked); `defaults(handler)` gives `mcp.call_tool`'s keywords for one request;
-    `host_ok`, when given, must accept the request's `Host`."""
+    `host_ok`, when given, must accept the request's `Host`. `oauth_file`, beside a
+    `token`, turns OAuth sign-in on and is where its grants are kept (`mcp_oauth`);
+    `owner_trusted` makes its consent card one click from the start (the console)."""
 
     def __init__(self, *, token: str | None,
                  defaults: Callable[[BaseHTTPRequestHandler], dict],
-                 host_ok: Callable[[str | None], bool] | None = None):
+                 host_ok: Callable[[str | None], bool] | None = None,
+                 oauth_file: str | Path | None = None, owner_trusted: bool = False):
         self.token, self._defaults, self._host_ok = token, defaults, host_ok
+        self.oauth = (OAuth(oauth_file, bearer=token, owner_trusted=owner_trusted)
+                      if token is not None and oauth_file is not None else None)
         self._lock = threading.Lock()
         self._sessions: dict[str, _Session] = {}
         self._loose: set[_Stream] = set()   # GET /mcp streams of no session
@@ -365,7 +443,8 @@ class McpHttp:
     @staticmethod
     def owns(target: str) -> bool:
         path = urlsplit(target).path.rstrip("/") or "/"
-        return path in (MCP, SSE, MESSAGES, OPENAPI) or path.startswith(TOOLS_PREFIX)
+        return (path in (MCP, SSE, MESSAGES, OPENAPI, AUTHORIZE, TOKEN, REGISTER)
+                or path.startswith((TOOLS_PREFIX, CAPABILITY, *_WELL_KNOWN)))
 
     def sessions(self) -> int:
         with self._lock:
@@ -386,15 +465,24 @@ class McpHttp:
         parts = urlsplit(handler.path)
         path, method = parts.path.rstrip("/") or "/", handler.command
         origin, host = handler.headers.get("Origin"), handler.headers.get("Host")
+        forwarded = (handler.headers.get("X-Forwarded-Host") or "").partition(",")[0] or None
         cors = ({"Access-Control-Allow-Origin": origin, "Vary": "Origin",
                  "Access-Control-Expose-Headers": SESSION_HEADER}
-                if origin is not None and origin_allowed(origin, host) else {})
+                if origin is not None and origin_allowed(origin, host, forwarded) else {})
         out = _Exchange(handler, cors)
         try:
-            self._gate(handler, method, path, origin, host)
+            self._gate(origin, host, forwarded)
+            path = self._authenticate(out, method, path, parts.query)
             self._dispatch(out, method, path, parts.query)
         except _Status as refusal:
             out.refuse(refusal)
+        except OAuthError as exc:           # in the shape an OAuth client reads (RFC 6749 §5.2)
+            handler.close_connection = True     # its body may be unread
+            out.json(exc.status, {"error": exc.error, "error_description": str(exc)},
+                     {**exc.headers, "Connection": "close"})
+        except OAuthStoreError as exc:      # this server's own file, as the error says
+            out.refuse(_Status(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc),
+                               kind=type(exc).__name__))
         except (BrokenPipeError, ConnectionResetError) as exc:
             handler.close_connection = True
             handler.log_message("the client left before its answer was written: %r", exc)
@@ -406,36 +494,97 @@ class McpHttp:
                          {"error": "the MCP server failed; its traceback is on its stderr",
                           "type": "InternalError"}, {"Connection": "close"})
 
-    def _gate(self, handler, method: str, path: str, origin: str | None,
-              host: str | None) -> None:
+    def _gate(self, origin: str | None, host: str | None, forwarded: str | None) -> None:
         """The checks every request passes before anything is read or run."""
         if self._host_ok is not None and not self._host_ok(host):
             raise _Status(HTTPStatus.FORBIDDEN, f"Host {host!r} is not this server: a page "
                           "that reaches loopback under another name is turned away")
-        if not origin_allowed(origin, host):
+        if not origin_allowed(origin, host, forwarded):
             raise _Status(HTTPStatus.FORBIDDEN, f"Origin {origin!r} is neither loopback nor "
                           "this server's own: a page on another site is not served")
-        if method == "OPTIONS" or (method == "GET" and path == OPENAPI) or self.token is None:
-            return
-        scheme, _, given = (handler.headers.get("Authorization") or "").partition(" ")
-        if scheme.lower() != "bearer" or not hmac.compare_digest(given.strip().encode(),
-                                                                 self.token.encode()):
-            raise _Status(HTTPStatus.UNAUTHORIZED, "missing or wrong bearer token: send "
-                          "Authorization: Bearer <token>, the one this server printed when "
-                          "it started (kept in its token file, <home>/mcp.token by default)",
-                          headers={"WWW-Authenticate": 'Bearer realm="nostr-mailbox"'})
+
+    def _authenticate(self, out: _Exchange, method: str, path: str, query: str) -> str:
+        """Who sends this request, recorded on `out`; returns the route it names (under
+        a capability URL, the route after its token). The OAuth routes, `/openapi.json`
+        and a CORS preflight are served to anyone."""
+        if path.startswith(CAPABILITY):
+            raw, _, rest = path[len(CAPABILITY):].partition("/")
+            inner = "/" + rest if rest else MCP
+            if not (inner in (MCP, SSE, MESSAGES, OPENAPI) or inner.startswith(TOOLS_PREFIX)):
+                raise _Status(HTTPStatus.NOT_FOUND, f"nothing at {CAPABILITY}<token>{inner}: "
+                              "under a capability URL the routes are the URL itself "
+                              f"(Streamable HTTP), {SSE}, {MESSAGES}, {OPENAPI} and "
+                              f"{TOOLS_PREFIX}<tool>")
+            out.prefix = CAPABILITY + raw
+            if method == "OPTIONS":
+                return inner
+            if self.token is None:
+                raise _Status(HTTPStatus.NOT_FOUND, "this server runs without a bearer: its "
+                              f"routes are served at {MCP} itself, with no token in the path")
+            if not self._admit(out, unquote(raw)):
+                raise _Status(HTTPStatus.UNAUTHORIZED, "the token in this URL is neither this "
+                              "server's nor one it issued and still honors (rotated, revoked "
+                              "or expired): copy the URL again from where the server shows it",
+                              headers={"WWW-Authenticate": 'Bearer realm="nostr-mailbox"'})
+            return inner
+        if (method == "OPTIONS" or self.token is None or (method == "GET" and path == OPENAPI)
+                or path in (AUTHORIZE, TOKEN, REGISTER) or path.startswith(_WELL_KNOWN)):
+            return path
+        scheme, _, given = (out.handler.headers.get("Authorization") or "").partition(" ")
+        if not scheme:                      # RFC 6750 §2.3: the bearer in the query
+            scheme, given = "bearer", _query_bearer(query)
+        if scheme.lower() == "bearer" and self._admit(out, given.strip()):
+            return path
+        signin = (", or sign in by OAuth: an MCP client handed only this URL does so by "
+                  "itself" if self.oauth is not None else "")
+        raise _Status(HTTPStatus.UNAUTHORIZED, "missing or wrong bearer token: send "
+                      "Authorization: Bearer <token>, the one this server printed when it "
+                      "started (kept in its token file, <home>/mcp.token by default)" + signin,
+                      headers={"WWW-Authenticate": self._challenge(out.handler, path)})
+
+    def _admit(self, out: _Exchange, given: str) -> bool:
+        """Whether `given` is the server's own token (any persona) or a live OAuth
+        access token (its persona alone, then recorded on `out`)."""
+        if not given:
+            return False
+        if hmac.compare_digest(given.encode(), self.token.encode()):
+            return True
+        found = self.oauth.grant_for(given) if self.oauth is not None else None
+        if found is None:
+            return False
+        out.grant, out.persona = found
+        return True
+
+    def _challenge(self, handler, path: str) -> str:
+        """`WWW-Authenticate` of a 401: where an MCP client learns how to sign in. For
+        `/mcp`, the origin's own metadata, whose `resource` is `<origin>/mcp`; for any
+        other route, its own (RFC 9728 §3.1: the path after the well-known name), whose
+        `resource` is that route, as a client requires of the URL it connected to."""
+        origin = request_origin(handler.headers)
+        if self.oauth is None or origin is None:
+            return 'Bearer realm="nostr-mailbox"'
+        named = "" if path == MCP else path
+        return f'Bearer resource_metadata="{origin}{WELL_KNOWN_RESOURCE}{named}"'
 
     def _dispatch(self, out: _Exchange, method: str, path: str, query: str) -> None:
         if path.startswith(TOOLS_PREFIX):
             methods = {"POST": self._post_tool}
+        elif path.startswith(WELL_KNOWN_RESOURCE):
+            methods = {"GET": self._resource_metadata}
+        elif path.startswith((WELL_KNOWN_SERVER, WELL_KNOWN_OPENID)):
+            methods = {"GET": self._server_metadata}
         else:
             methods = {MCP: {"POST": self._post_mcp, "GET": self._get_mcp,
                              "DELETE": self._delete_mcp},
                        SSE: {"GET": self._get_sse}, MESSAGES: {"POST": self._post_messages},
-                       OPENAPI: {"GET": self._openapi}}.get(path)
+                       OPENAPI: {"GET": self._openapi},
+                       REGISTER: {"POST": self._register},
+                       AUTHORIZE: {"GET": self._authorize, "POST": self._authorize},
+                       TOKEN: {"POST": self._token}}.get(path)
         if methods is None:
             raise _Status(HTTPStatus.NOT_FOUND, f"nothing at {path}: the MCP routes are {MCP}, "
-                          f"{SSE}, {MESSAGES}, {OPENAPI} and {TOOLS_PREFIX}<tool>")
+                          f"{SSE}, {MESSAGES}, {OPENAPI} and {TOOLS_PREFIX}<tool>, the same "
+                          f"under {CAPABILITY}<token>, and OAuth sign-in at /oauth/*")
         if method == "OPTIONS":             # the CORS preflight
             out.send(HTTPStatus.NO_CONTENT, headers={
                 "Access-Control-Allow-Methods": ALLOW_METHODS,
@@ -449,13 +598,14 @@ class McpHttp:
                           headers={"Allow": allowed})
         run(out, path, query)
 
-    def _server(self, handler) -> dict:
-        """`mcp.call_tool`'s keywords for this request. Its client may be anywhere."""
+    def _server(self, out: _Exchange) -> dict:
+        """`mcp.call_tool`'s keywords for this request. Its client may be anywhere, and
+        an OAuth token acts as its own persona alone."""
         try:
-            defaults = self._defaults(handler)
+            defaults = self._defaults(out.handler)
         except NostrError as exc:           # a persona the request names is no name
             raise _Status(HTTPStatus.BAD_REQUEST, str(exc), kind=type(exc).__name__) from exc
-        return {**defaults, "local_files": False}
+        return {**defaults, "local_files": False, "bound_persona": out.persona}
 
     def _body(self, handler, *, rpc: bool, empty_ok: bool = False):
         """The request's JSON, or None for no body where `empty_ok`. A body without a
@@ -493,18 +643,18 @@ class McpHttp:
                           rpc=-32700 if rpc else None) from exc
 
     # ---- sessions
-    def _open(self, *, legacy: bool, protocol: str | None = None) -> _Session:
-        session = _Session(secrets.token_urlsafe(32), legacy, protocol)
+    def _open(self, out: _Exchange, *, legacy: bool, protocol: str | None = None) -> _Session:
+        session = _Session(secrets.token_urlsafe(32), legacy, protocol, grant=out.grant)
         with self._lock:
             if self._closed:
                 raise _Status(HTTPStatus.SERVICE_UNAVAILABLE, "this server is stopping")
             self._sessions[session.id] = session
         return session
 
-    def _session(self, sid: str, *, legacy: bool) -> _Session:
+    def _session(self, out: _Exchange, sid: str, *, legacy: bool) -> _Session:
         with self._lock:
             session = self._sessions.get(sid)
-        if session is None or session.legacy != legacy:
+        if session is None or session.legacy != legacy or session.grant != out.grant:
             opens = f"GET {SSE}" if legacy else "initialize"
             raise _Status(HTTPStatus.NOT_FOUND, f"no open session {sid!r} here: it was closed, "
                           f"or never opened ({opens} opens one)", rpc=-32001)
@@ -547,8 +697,8 @@ class McpHttp:
                    and m.get("method") == "initialize"]
         named = handler.headers.get(SESSION_HEADER)
         if named is not None and not opening:
-            self._session(named, legacy=False)
-        reply = mcp.handle_rpc(message, **self._server(handler))
+            self._session(out, named, legacy=False)
+        reply = mcp.handle_rpc(message, **self._server(out))
         headers = {}
         if opening:
             replies = reply if isinstance(reply, list) else [reply]
@@ -556,7 +706,7 @@ class McpHttp:
                          and r.get("id") == opening[0]), None)
             if done is not None:
                 headers[SESSION_HEADER] = self._open(
-                    legacy=False, protocol=done["result"]["protocolVersion"]).id
+                    out, legacy=False, protocol=done["result"]["protocolVersion"]).id
         if reply is None:
             out.send(HTTPStatus.ACCEPTED, headers=headers)
         elif _only_sse(handler):
@@ -571,7 +721,7 @@ class McpHttp:
             raise _Status(HTTPStatus.NOT_ACCEPTABLE, f"GET {MCP} opens a stream of server "
                           "messages: send Accept: text/event-stream (requests go by POST)")
         named = handler.headers.get(SESSION_HEADER)
-        session = self._session(named, legacy=False) if named is not None else None
+        session = self._session(out, named, legacy=False) if named is not None else None
         stream = self._attach(session)
         try:
             out.stream({SESSION_HEADER: session.id} if session is not None else {})
@@ -585,17 +735,18 @@ class McpHttp:
         if named is None:
             raise _Status(HTTPStatus.BAD_REQUEST, f"DELETE {MCP} closes the session named in "
                           f"{SESSION_HEADER}, and none was named", rpc=-32600)
-        session = self._session(named, legacy=False)
+        session = self._session(out, named, legacy=False)
         self._drop(session)
         out.json(HTTPStatus.OK, {"closed": session.id})
 
     # ---- HTTP+SSE (2024-11-05)
     def _get_sse(self, out: _Exchange, path: str, query: str) -> None:
-        session = self._open(legacy=True)
+        session = self._open(out, legacy=True)
         stream = self._attach(session)
         try:
             out.stream()
-            stream.pump(out.handler, _frame("endpoint", f"{MESSAGES}?session_id={session.id}"))
+            stream.pump(out.handler, _frame("endpoint",
+                                            f"{out.prefix}{MESSAGES}?session_id={session.id}"))
         finally:
             self._detach(session, stream)
             self._drop(session)
@@ -606,9 +757,9 @@ class McpHttp:
             raise _Status(HTTPStatus.BAD_REQUEST, f"POST {MESSAGES} names its session, as "
                           f"the endpoint event of GET {SSE} gave it: "
                           f"{MESSAGES}?session_id=<sid>", rpc=-32600)
-        session = self._session(named, legacy=True)
+        session = self._session(out, named, legacy=True)
         message = self._body(out.handler, rpc=True)
-        reply = mcp.handle_rpc(message, **self._server(out.handler))
+        reply = mcp.handle_rpc(message, **self._server(out))
         if reply is None:
             out.send(HTTPStatus.ACCEPTED)
             return
@@ -622,13 +773,11 @@ class McpHttp:
     # ---- OpenAPI
     def _openapi(self, out: _Exchange, path: str, query: str) -> None:
         """The document, its server the origin this request reached (as a TLS proxy in
-        front says it, in X-Forwarded-Proto and X-Forwarded-Host)."""
-        headers = out.handler.headers
-        scheme = (headers.get("X-Forwarded-Proto") or "http").partition(",")[0].strip()
-        where = (headers.get("X-Forwarded-Host") or headers.get("Host") or "").partition(",")[0]
-        base = f"{scheme if scheme in ('http', 'https') else 'http'}://{where.strip()}"
-        out.json(HTTPStatus.OK, openapi(base if where.strip() else "/",
-                                        auth=self.token is not None))
+        front says it, in X-Forwarded-Proto and X-Forwarded-Host). Under a capability
+        URL its server is that URL, and it asks for no authentication: the URL is it."""
+        origin = request_origin(out.handler.headers)
+        base = origin + out.prefix if origin else out.prefix or "/"
+        out.json(HTTPStatus.OK, openapi(base, auth=self.token is not None and not out.prefix))
 
     def _post_tool(self, out: _Exchange, path: str, query: str) -> None:
         name = path[len(TOOLS_PREFIX):]
@@ -640,17 +789,120 @@ class McpHttp:
         if not isinstance(arguments, dict):
             raise _Status(HTTPStatus.BAD_REQUEST, f"POST {path} takes the tool's arguments as "
                           "one JSON object")
-        server = self._server(out.handler)
+        server = self._server(out)
         try:
             payload = mcp.call_tool(name, arguments, **server)
         except mcp.InvalidArguments as exc:
             raise _Status(HTTPStatus.BAD_REQUEST, str(exc), kind=type(exc).__name__) from exc
+        except mcp.NotThisPersona as exc:
+            raise _Status(HTTPStatus.FORBIDDEN, str(exc), kind=type(exc).__name__) from exc
         except (RelayError, BlossomError) as exc:
             raise _Status(HTTPStatus.BAD_GATEWAY, str(exc), kind=type(exc).__name__) from exc
         except (NostrError, OSError) as exc:
             raise _Status(HTTPStatus.UNPROCESSABLE_ENTITY, str(exc),
                           kind=type(exc).__name__) from exc
         out.json(HTTPStatus.OK, payload)
+
+    # ---- OAuth sign-in (mcp_oauth)
+    def _oauth(self) -> OAuth:
+        if self.oauth is None:
+            raise _Status(HTTPStatus.NOT_FOUND, "OAuth sign-in is offered beside a bearer only; "
+                          f"this server runs without one, so a client connects to {MCP} as it is")
+        return self.oauth
+
+    @staticmethod
+    def _origin(out: _Exchange) -> str:
+        origin = request_origin(out.handler.headers)
+        if origin is None:
+            raise _Status(HTTPStatus.BAD_REQUEST, "a request without a Host names no origin "
+                          "to sign in at")
+        return origin
+
+    def _resource_metadata(self, out: _Exchange, path: str, query: str) -> None:
+        """RFC 9728. `/.well-known/oauth-protected-resource/<path>` describes `<path>`."""
+        self._oauth()
+        out.json(HTTPStatus.OK, OAuth.protected_resource(
+            self._origin(out), path[len(WELL_KNOWN_RESOURCE):] or MCP))
+
+    def _server_metadata(self, out: _Exchange, path: str, query: str) -> None:
+        self._oauth()
+        out.json(HTTPStatus.OK, OAuth.metadata(self._origin(out)))
+
+    def _register(self, out: _Exchange, path: str, query: str) -> None:
+        oauth = self._oauth()
+        body = self._body(out.handler, rpc=False)
+        if not isinstance(body, dict):
+            raise OAuthError("invalid_client_metadata", "a client's metadata is one JSON object")
+        out.json(HTTPStatus.CREATED, oauth.register(body))
+
+    def _authorize(self, out: _Exchange, path: str, query: str) -> None:
+        """The consent card (GET) and its answer (POST, from that card alone)."""
+        oauth, handler = self._oauth(), out.handler
+        try:
+            defaults = self._defaults(handler)
+        except NostrError as exc:
+            raise _Status(HTTPStatus.BAD_REQUEST, str(exc), kind=type(exc).__name__) from exc
+        root = home(defaults.get("home_dir"))
+        seen = {"origin": self._origin(out),
+                "personas": sorted(p.stem for p in (root / "identities").glob("*.json")),
+                "default": defaults.get("default_persona") or DEFAULT_NAME,
+                "owner": oauth.owner(handler.headers.get("Cookie"))}
+        if handler.command == "GET":
+            answer = oauth.authorize(single(parse_qs(query, keep_blank_values=True)), **seen)
+        else:
+            site = handler.headers.get("Sec-Fetch-Site")
+            if site not in (None, "same-origin", "none"):
+                raise _Status(HTTPStatus.FORBIDDEN, "a consent is answered from this server's "
+                              f"own page, never from a {site} one")
+            form = self._form(handler)
+            answer = oauth.authorize(form, **seen, form=form,
+                                     secure=seen["origin"].startswith("https:"))
+        out.send(answer.status, answer.body, answer.content_type, answer.headers)
+
+    def _token(self, out: _Exchange, path: str, query: str) -> None:
+        oauth = self._oauth()
+        form = self._form(out.handler)
+        out.json(HTTPStatus.OK, oauth.token(form, out.handler.headers.get("Authorization")),
+                 {"Pragma": "no-cache"})
+
+    @staticmethod
+    def _form(handler) -> dict[str, str]:
+        """An OAuth request's parameters, from a form (application/x-www-form-urlencoded)
+        or a JSON object of strings: at most `mcp.MAX_FRAME_BYTES`, each sent once."""
+        if handler.headers.get("Transfer-Encoding"):
+            raise OAuthError("invalid_request", "send the body with a Content-Length, not "
+                             "chunked", status=HTTPStatus.LENGTH_REQUIRED)
+        length = handler.headers.get("Content-Length")
+        if length is None or not length.isdigit():
+            raise OAuthError("invalid_request", "a request body needs a Content-Length",
+                             status=HTTPStatus.LENGTH_REQUIRED)
+        size, cap = int(length), mcp.MAX_FRAME_BYTES
+        if size > cap:
+            raise OAuthError("invalid_request", f"a {size:,}-byte body, {100 * size / cap:.0f}% "
+                             f"of the {cap:,}-byte cap: refused unread",
+                             status=HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+        raw = handler.rfile.read(size)
+        if len(raw) < size:
+            raise OAuthError("invalid_request", f"the body ended {len(raw):,} bytes into its "
+                             f"{size:,}")
+        kind = (handler.headers.get("Content-Type") or "").partition(";")[0].strip().lower()
+        try:
+            text = raw.decode()
+        except UnicodeDecodeError as exc:
+            raise OAuthError("invalid_request", "the body is not UTF-8") from exc
+        if kind == "application/x-www-form-urlencoded" or (kind == "" and not text):
+            return single(parse_qs(text, keep_blank_values=True))
+        if kind == "application/json":
+            try:
+                value = json.loads(text)
+            except (json.JSONDecodeError, RecursionError) as exc:
+                raise OAuthError("invalid_request", f"the body is not JSON: {exc}") from exc
+            if not isinstance(value, dict) or not all(isinstance(v, str) for v in value.values()):
+                raise OAuthError("invalid_request", "a JSON body is one object of strings")
+            return value
+        raise OAuthError("invalid_request", "send a form (application/x-www-form-urlencoded) "
+                         f"or JSON, not {kind or 'no type'}",
+                         status=HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
 
 
 def _brief(text: str) -> str:
@@ -709,6 +961,8 @@ def openapi(base_url: str, *, auth: bool) -> dict:
             "description": "The token the server printed when it started, kept in its token "
                            "file (<home>/mcp.token by default)"}}
         doc["security"] = [{"bearerAuth": []}]
+    else:                                   # none asked: a capability URL, or --no-auth
+        doc["security"] = []
     return doc
 
 
@@ -730,7 +984,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def log_message(self, format: str, *args) -> None:       # noqa: A002 (stdlib name)
         if not self.server.quiet:
-            sys.stderr.write(f"mcp: {self.address_string()} {format % args}\n")
+            sys.stderr.write(redact(f"mcp: {self.address_string()} {format % args}") + "\n")
 
     def _route(self) -> None:
         self.server.routes.handle(self)
@@ -754,7 +1008,8 @@ class McpServer:
         defaults = {"home_dir": home_dir, "default_persona": default_persona, "trust": trust,
                     "topic": topic, "timeout_seconds": timeout_seconds}
         self.routes = McpHttp(token=token, defaults=lambda handler: defaults,
-                              host_ok=None if token is not None else loopback_host)
+                              host_ok=None if token is not None else loopback_host,
+                              oauth_file=home(home_dir) / OAUTH_FILE)
         self._server = _Http((host, port), self.routes, quiet)
         self._thread = threading.Thread(target=self._server.serve_forever,
                                         name="nostr-mailbox-mcp", daemon=True)
@@ -794,9 +1049,18 @@ def _bearer(args) -> tuple[str | None, Path | None]:
 
 def banner(url: str, host: str, token: str | None, token_file: Path | None, *, home_dir,
            persona: str) -> dict:
-    """What `mcp --http` prints when it is up: where, and how a client authenticates."""
+    """What `mcp --http` prints when it is up: first the one URL a client is handed
+    (`magic_mcp_url`, and its OpenAPI document), then where each route is and how a
+    client authenticates otherwise."""
     header = f"Authorization: Bearer {token}" if token is not None else None
-    out = {"serving": url, "mcp": url + MCP, "sse": url + SSE, "openapi": url + OPENAPI,
+    magic = capability_url(url, token) if token is not None else None
+    out = {"magic_mcp_url": magic or url + MCP,
+           "magic_openapi_url": magic + OPENAPI if magic else url + OPENAPI,
+           "magic_note": ("paste magic_mcp_url as the whole server, with no auth settings: "
+                          "it carries the bearer, so share it as you would the token"
+                          if magic else "no bearer: the plain URLs need none"),
+           "oauth": (url + WELL_KNOWN_SERVER if token is not None else None),
+           "serving": url, "mcp": url + MCP, "sse": url + SSE, "openapi": url + OPENAPI,
            "tools": url + TOOLS_PREFIX + "<tool>",
            "auth": "bearer" if token is not None else "none: loopback, Host naming loopback",
            "token_file": str(token_file) if token_file else None, "header": header,
@@ -850,6 +1114,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                            "names loopback; refused on any other address")
 
 
-__all__ = ["DEFAULT_HOST", "DEFAULT_PORT", "TOKEN_FILE", "McpHttp", "McpHttpError", "McpServer",
-           "banner", "http_address", "is_loopback", "load_token", "loopback_host", "mcp_address",
-           "openapi", "origin_allowed", "serve"]
+__all__ = ["CAPABILITY", "DEFAULT_HOST", "DEFAULT_PORT", "TOKEN_FILE", "McpHttp", "McpHttpError",
+           "McpServer", "banner", "capability_url", "http_address", "is_loopback", "load_token",
+           "loopback_host", "mcp_address", "openapi", "origin_allowed", "redact",
+           "request_origin", "serve"]

@@ -52,8 +52,17 @@ grants, so protect it even after redemption. Treat a backup containing keys like
 
 **An HTTP MCP server acts for its bearer.** `mcp --http` and the console's `/mcp` run
 the tools for any client that sends the home's bearer (`<home>/mcp.token`, `0600`), as
-any Persona of that home. The server binds loopback by default and refuses a bind
-beyond loopback without a bearer. It checks `Origin` on every request, and `Host`
+any Persona of that home. The magic URL `/mcp/s/<token>` carries that bearer in its
+path and is as strong: the server never logs it, but a client stores it and a proxy in
+front may log it. An OAuth access token acts as the one Persona picked on its consent
+card, and only as it. The consent card asks once per browser session for the server's
+token, because anyone who reaches a public URL can load it. Its Authorize form carries
+a CSRF token bound to that proof and is refused from another site. A code goes only to
+a redirect URI the client registered, https or loopback, is bound to its PKCE
+challenge, and is spent by its first use. OAuth grants are kept as token digests in
+`<home>/mcp-oauth.json` (`0600`). The console's card is one click, since the console
+answers its own loopback Host alone. The server binds loopback by default and refuses a
+bind beyond loopback without a bearer. It checks `Origin` on every request, and `Host`
 whenever it runs without a bearer. An HTTP client is offered no argument naming a file
 on the server's machine, so a prompt-injected remote model cannot upload local files.
 Serve a remote client such as ChatGPT from a dedicated `--home` holding one Persona,

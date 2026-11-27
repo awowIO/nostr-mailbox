@@ -2758,7 +2758,13 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
       topic ? 'A forward-only grant or a revoke rotates the topic to a new epoch. The CLI fetches the new key itself the next time it connects: no fresh export is needed.' : '',
     ].join('\n');
     const toml = S.mode === 'standalone' ? exportToml(scope) : null, ways = mcpWays(cmd, topic);
-    openModal('Pair a coding agent or an MCP client', () => html`<h3>Connect over MCP</h3>
+    const pair = S.mode === 'bridge' ? await api('/api/pair') : null;
+    openModal('Pair a coding agent or an MCP client', () => html`${pair ? html`<h3>One URL for any MCP client</h3>
+      <p class="muted">Paste it as the whole server and choose no authentication: it carries this home's bearer in its path, so share it only as you would the token. It acts as any persona of this home.${topic ? ` Name the channel ${topic} in each call.` : ''}</p>
+      <div class="grid2" style="margin-top:8px"><div class="item"><strong>MCP URL (Streamable HTTP)</strong><pre class="doc">${pair.magic_mcp_url}</pre><div class="actions"><button class="btn primary tiny" data-act="copy" data-text="${pair.magic_mcp_url}">Copy URL</button></div></div>
+      <div class="item"><strong>OpenAPI URL (a GPT Action, Authentication: None)</strong><pre class="doc">${pair.magic_openapi_url}</pre><div class="actions"><button class="btn tiny" data-act="copy" data-text="${pair.magic_openapi_url}">Copy URL</button></div></div></div>
+      <p class="small muted">Or give a client ${pair.mcp_url} alone: it signs in by OAuth, and the consent card here picks the one persona it acts as. ChatGPT and Claude.ai call from their own servers, so they need a public HTTPS origin: serve <code>nostr-mailbox mcp --http</code> behind TLS and paste the magic URL it prints, with your host in it.</p>` : ''}
+      <h3>Connect over MCP</h3>
       <div class="grid2" style="margin-top:8px">${ways.map((w) => html`<div class="item"><strong>${w.title}</strong><p class="small muted">${w.note}</p><pre class="doc">${w.text}</pre><div class="actions"><button class="btn tiny" data-act="copy" data-text="${w.text}">Copy</button></div></div>`)}</div>
       <h3 style="margin-top:16px">Prompt for a coding agent (Claude Code · Codex · Antigravity)</h3>
       <p class="muted">${exported ? html`Written <code>${exported.trust_file}</code> and <code>${exported.keyring}</code> (0600).` : S.mode === 'bridge' ? html`Uses <code>${S.bridge.state.trust_file}</code>.` : topic ? html`Download the topic's declaration and save it as <code>topics/${topic}.toml</code> under the agent's nostr-mailbox home, mode 0600. It holds no key.` : 'Download nostr.toml and save it beside the agent, mode 0600.'}</p>
@@ -2788,13 +2794,13 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     };
     const chatgpt = {
       title: '2 · ChatGPT: Custom GPT Action (/openapi.json)',
-      note: 'ChatGPT calls an Action from its own servers, so it needs a public HTTPS origin, never a loopback one. Serve a home that holds only a chatgpt persona behind your TLS proxy, import <your origin>/openapi.json in the GPT editor, and pick API Key, Bearer, with the token in that home\'s mcp.token.',
+      note: 'ChatGPT calls from its own servers, so it needs a public HTTPS origin, never a loopback one. Serve a home that holds only a chatgpt persona behind your TLS proxy. Add <your origin>/mcp as a connector (it signs in by OAuth), or import the magic_openapi_url the server prints as an Action with Authentication: None.',
       text: ['nostr-mailbox --home ~/.config/nostr-mailbox-chatgpt --persona chatgpt join --code-file chatgpt.token',
         'nostr-mailbox --home ~/.config/nostr-mailbox-chatgpt --persona chatgpt mcp --http 127.0.0.1:7891'].join('\n'),
     };
     const desktop = {
       title: '3 · Claude Desktop (claude_desktop_config.json)',
-      note: 'Claude Desktop starts the server itself, over stdio, as the persona claude-desktop. From a checkout, the installer merges that entry into claude_desktop_config.json, keeps every other server, and checks that it starts. Invite claude-desktop into a channel, then hand Claude Desktop the token to mailbox_join.',
+      note: 'Claude Desktop starts the server itself, over stdio, as this machine\'s default persona: the same persona and keyrings as the CLI, Claude Code and Codex here, so a channel joined once is open to all of them. From a checkout, the installer merges that entry into claude_desktop_config.json, keeps every other server, and checks that it starts.',
       text: 'python3 scripts/sync_plugin.py --install --harness claude-desktop',
     };
     const stdio = {

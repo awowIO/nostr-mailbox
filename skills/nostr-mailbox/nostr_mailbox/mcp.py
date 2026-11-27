@@ -29,8 +29,9 @@ never becomes a command-line flag: every option is passed as `--flag=value` and 
 positional after `--`. While a tool runs, stdout is redirected to stderr and stdin
 refuses reads, because on stdio both carry the protocol.
 
-One tool call runs at a time in a process, whichever transport brought it: the commands
-share this home's ledgers and keyrings, each written whole by one command. A client that
+Tool calls run at once in a process, whichever transport brought them, so a watch that
+waits holds up no post. The ones that rewrite this home's own files (a join, an invite,
+a revoke) run one after another (`_LOCAL_WRITES` says why the rest need not). A client that
 may be on another machine (`local_files=False`, every HTTP client) is offered no
 argument naming a file here (`LOCAL_FILE_ARGUMENTS`), and one that sends it is refused:
 over HTTP, `files` would upload whatever this machine can read into the channel."""
@@ -390,15 +391,36 @@ class _ProtocolStdin(io.TextIOBase):
         return self.read(size)
 
 
-@contextlib.contextmanager
-def _protocol_safe():
-    saved = sys.stdin
-    sys.stdin = _ProtocolStdin()
-    try:
-        with contextlib.redirect_stdout(sys.stderr):
+class _ProtocolStreams:
+    """`sys.stdin` and `sys.stdout` while any tool runs in this process: stdin refuses
+    reads and stdout is the process's stderr, because on stdio both carry the protocol.
+    The swap is counted: the first call to start makes it, the last to finish undoes it,
+    so calls running at once on several threads (HTTP) never restore each other's
+    stand-ins as the originals."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._running = 0
+        self._saved: tuple | None = None
+
+    @contextlib.contextmanager
+    def held(self):
+        with self._lock:
+            if self._running == 0:
+                self._saved = (sys.stdin, sys.stdout)
+                sys.stdin, sys.stdout = _ProtocolStdin(), sys.stderr
+            self._running += 1
+        try:
             yield
-    finally:
-        sys.stdin = saved
+        finally:
+            with self._lock:
+                self._running -= 1
+                if self._running == 0:
+                    sys.stdin, sys.stdout = self._saved
+                    self._saved = None
+
+
+_protocol_safe = _ProtocolStreams().held
 
 
 def _scalar(name: str, value) -> str:
@@ -782,10 +804,25 @@ def _tool_board(call: _Call, args: dict) -> dict:
     return out
 
 
-# One tool call at a time in this process, as on stdio (see the module docstring): the
-# commands share the home's ledgers and keyrings, and `_protocol_safe` swaps the
-# process's own stdin and stdout while one runs.
-_ONE_AT_A_TIME = threading.Lock()
+# The calls that rewrite this home's own files beyond a key sync: a join (identity,
+# declaration, org registry, keyring), an invite (the keeper's registry, a rotation) and
+# a revoke (a rotation). They run one at a time in this process. Every other call
+# (list, post, watch, the rest of the board) runs beside them and beside each other:
+# what it changes lives on the relay, which is built for several writers (idempotency
+# keys; the first settlement of a seat stands), and on this machine only the epoch keys
+# its session fetches on connect, merged into the persona's ring, the same keys
+# whichever call fetched them. So a watch that waits holds nothing while it waits.
+_LOCAL_WRITES = threading.Lock()
+
+
+def _writes_locally(name: str, args: dict) -> bool:
+    return name in ("mailbox_join", "mailbox_invite") or (
+        name == "mailbox_board" and args.get("action") == "revoke")
+
+
+class NotThisPersona(ToolError):
+    """A call naming a persona other than the one its connection was granted."""
+
 
 HANDLERS = {"mailbox_list": _tool_list, "mailbox_invite": _tool_invite,
             "mailbox_join": _tool_join, "mailbox_post": _tool_post,
@@ -795,20 +832,31 @@ HANDLERS = {"mailbox_list": _tool_list, "mailbox_invite": _tool_invite,
 def call_tool(name: str, arguments: dict | None, *, home_dir: str | Path | None = None,
               default_persona: str | None = None, trust: str | None = None,
               topic: str | None = None, timeout_seconds: float = DEFAULT_WAIT_S,
-              local_files: bool = True) -> dict:
+              local_files: bool = True, bound_persona: str | None = None) -> dict:
     """Run tool `name` and return what it says. `trust`, `topic` and `timeout_seconds`
     are the server's root flags (see the module docstring); `local_files` is whether the
-    client shares this machine (stdio) or may not (HTTP). Raises `InvalidArguments` for
+    client shares this machine (stdio) or may not (HTTP). `bound_persona` is the one
+    persona a connection was granted (an OAuth grant): the call acts as it, and one
+    naming another is refused (`NotThisPersona`). Raises `InvalidArguments` for
     arguments the schema refuses, and `NostrError` (or `OSError`) when the command
-    fails. Calls from several threads run one after another."""
+    fails. Calls from several threads run at once, but for the ones that rewrite this
+    home's files (`_LOCAL_WRITES`), which run one after another."""
     if not isinstance(name, str) or name not in HANDLERS:
         raise InvalidArguments(f"unknown tool {name!r}; tools: {sorted(HANDLERS)}")
     args = _check_arguments(name, {} if arguments is None else arguments,
                             local_files=local_files)
-    call = _Call(root=home(home_dir), persona=args.pop("persona", None) or default_persona
-                 or DEFAULT_NAME, trust=trust, topic=topic, timeout_seconds=timeout_seconds)
-    with _ONE_AT_A_TIME:
-        return HANDLERS[name](call, args)
+    named = args.pop("persona", None)
+    if bound_persona is not None:
+        if named not in (None, bound_persona):
+            raise NotThisPersona(f"this connection was granted persona {bound_persona!r} "
+                                 f"and acts as it alone, not as {named!r}")
+        named = bound_persona
+    call = _Call(root=home(home_dir), persona=named or default_persona or DEFAULT_NAME,
+                 trust=trust, topic=topic, timeout_seconds=timeout_seconds)
+    if _writes_locally(name, args):
+        with _LOCAL_WRITES:
+            return HANDLERS[name](call, args)
+    return HANDLERS[name](call, args)
 
 
 # ------------------------------------------------------------------- JSON-RPC 2.0

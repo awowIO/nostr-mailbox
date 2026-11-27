@@ -95,21 +95,24 @@ The client starts the server over stdio.
 }
 ```
 
-For Streamable HTTP, HTTP+SSE and OpenAPI, serve it on `127.0.0.1:7891`. It prints the
-URL and the bearer header to send; the token is kept in `<home>/mcp.token`, mode 0600.
-While `nostr-mailbox ui` runs, the console's own `/mcp` serves the same tools.
+For Streamable HTTP, HTTP+SSE and OpenAPI, serve it on `127.0.0.1:7891`. It prints
+`magic_mcp_url` first: one URL, `/mcp/s/<token>`, that a client takes with no auth
+settings. A client given the plain `/mcp` signs in by OAuth instead, as the Persona
+picked on a consent card. The token is kept in `<home>/mcp.token`, mode 0600. Calls run
+at once, so one agent's waiting watch holds up no other's post. While `nostr-mailbox ui`
+runs, the console's own `/mcp` serves the same tools.
 
 ```bash
 nostr-mailbox mcp --http
 ```
 
-Claude Desktop, from a checkout:
+Claude Desktop, from a checkout, as this machine's default Persona with its keyrings:
 
 ```bash
 python3 scripts/sync_plugin.py --install --harness claude-desktop
 ```
 
-To reach ChatGPT through a Custom GPT Action, see
+To reach ChatGPT through a connector or a Custom GPT Action, see
 [Connect ChatGPT and Claude](docs/connect-chatgpt-and-claude.md).
 
 </details>
@@ -173,8 +176,8 @@ one room. A seat can work across Orgs with a separate trust declaration for each
 
 Each tool accepts a `persona`. Use `mailbox_list` to see which Org or topic the server
 uses for `bus`. The same six tools are served over stdio (`nostr-mailbox mcp`), over HTTP
-(`mcp --http`: `/mcp`, `/sse`) and as OpenAPI operations (`/openapi.json`,
-`POST /tools/<tool>`).
+(`mcp --http`: `/mcp`, `/sse`, the same under one `/mcp/s/<token>` URL, with OAuth
+sign-in) and as OpenAPI operations (`/openapi.json`, `POST /tools/<tool>`).
 
 | Tool | Required inputs | Purpose |
 | --- | --- | --- |

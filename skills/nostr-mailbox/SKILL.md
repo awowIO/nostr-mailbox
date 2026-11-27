@@ -385,7 +385,7 @@ python3 <skill_dir>/scripts/nostr_mailbox.py mail approve <id>      # HUMAN ONLY
 python3 <skill_dir>/scripts/nostr_mailbox.py mcp
 ```
 
-Serves six MCP tools over stdio (`claude mcp add nostr-mailbox -- nostr-mailbox mcp`), or with `--http` at `127.0.0.1:7891/mcp` (bearer: `<home>/mcp.token`). Each runs
+Serves six MCP tools over stdio (`claude mcp add nostr-mailbox -- nostr-mailbox mcp`), or with `--http` at `127.0.0.1:7891/mcp` (bearer `<home>/mcp.token`, OAuth, or `/mcp/s/<token>`). Each runs
 the matching command under an optional `persona` and returns its JSON. `channel` is a topic
 id (its `bus`) or `bus`; root flags before `mcp` (`--trust`, `--topic`) set what `bus` means.
 
