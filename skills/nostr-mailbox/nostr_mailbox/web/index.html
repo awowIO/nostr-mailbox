@@ -201,6 +201,13 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
   const DISPOSITIONS = [...TERMINAL, 'deferred'];
   const SLUG = /^[a-z0-9][a-z0-9._-]{0,63}$/;
   const TOPIC_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/;        // a NIP-29 id that is also a slug
+  // pairwise._PART / acl._PART: the mailbox parts of the agent-mailbox wire
+  const MAIL_PART = /^(inbox|bus|topic:[a-z0-9][a-z0-9._-]*)$/;
+  // ui.ROLES: a member's role in a topic, written in the NIP-29 role slot of the admin's
+  // 9000 ("member" is read-write, as every 9000 written before roles was)
+  const ROLES = ['read-write', 'read-only', 'write-only'];
+  const ROLE_TAG = { 'read-write': 'member', 'read-only': 'read-only', 'write-only': 'write-only' };
+  const roleOf = (tag) => (tag[2] === 'read-only' || tag[2] === 'write-only' ? tag[2] : 'read-write');
   const HEX64 = /^[0-9a-f]{64}$/, HEX32 = /^[0-9a-f]{32}$/, HEX128 = /^[0-9a-f]{128}$/;
   const MESSAGE_KIND = /^[a-z][a-z0-9_-]{0,31}$/;
 
@@ -980,6 +987,26 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     if (bundle.schema !== TRUST_SCHEMA) throw new NMError(`nm1_ invite token: schema must be ${TRUST_SCHEMA}`);
     return { code, member: typeof member === 'string' && member ? member : null, bundle, extras, trust: makeTrust(bundle) };
   }
+  /** What an invite link carries in its fragment: `#nm1_…&topic=…&role=…&ticket=…` (the
+      token first, as `/join/#nm1_…` links have it), `#join=nm1_…&…`, `#invite=<code>`,
+      `#drop=<npub>/<part>`. Only these keys are taken, and never a query string, which a
+      browser would send to the server. */
+  const LINK_KEYS = ['join', 'invite', 'topic', 'drop', 'relay', 'role', 'ticket'];
+  function parseLink(fragment) {
+    let frag = String(fragment || '').replace(/^#/, '');
+    const link = {};
+    if (frag.startsWith('nm1_')) {
+      const at = frag.indexOf('&');
+      link.join = at < 0 ? frag : frag.slice(0, at);
+      frag = at < 0 ? '' : frag.slice(at + 1);
+    }
+    const p = new URLSearchParams(frag);
+    for (const k of LINK_KEYS) if (p.get(k) && !(k in link)) link[k] = p.get(k);
+    if (link.join && !link.join.startsWith('nm1_')) throw new NMError('the link\'s invite token does not start with nm1_');
+    if (link.topic && !TOPIC_ID.test(link.topic)) throw new NMError(`the link names topic ${link.topic}, which is not a topic id`);
+    if (link.role && !ROLES.includes(link.role)) throw new NMError(`the link names role ${link.role}; a role is one of ${ROLES.join(', ')}`);
+    return link;
+  }
   /** cli._write_trust_file, line for line, so an exported file reads like one `setup` wrote. */
   function trustToml(mapping) {
     const q = (v) => JSON.stringify(v);
@@ -1357,7 +1384,8 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     }
     const ledger = resolveDirectives(directives);
     // the firewall: a topic message whose author was outside the roster when it was
-    // written is held until an admin's human-gate ack releases or declines it
+    // written, or in it as read-only or write-only, is held until an admin's human-gate
+    // ack releases or declines it
     const gate = new Map();
     for (const tv of Object.values(topics)) for (const a of tv.acks) if (a.seat === GATE_SEAT && scope.admins.has(a.author) && TERMINAL.includes(a.disposition)) {
       const held = gate.get(a.msg_id);
@@ -1367,7 +1395,7 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     if (scope.roster) for (const tv of Object.values(topics)) {
       const kept = [];
       for (const m of tv.messages) {
-        const inRoster = scope.admins.has(m.author) || scope.roster.memberAt(m.author, m.created_at);
+        const inRoster = scope.admins.has(m.author) || scope.roster.writerAt(m.author, m.created_at);
         const ruling = gate.get(m.id);
         if (inRoster || (ruling && ruling.disposition === 'handled')) kept.push({ ...m, released: !inRoster ? ruling : null });
         else quarantine.push({ ...m, ruling: ruling || null, why: scope.roster.why(m.author, m.created_at) });
@@ -1449,27 +1477,33 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     const created = order(groupEvents.filter((e) => e.kind === KIND.CREATE_GROUP && firstTag(e, 'h') === topic));
     const creator = created.length ? created[0].pubkey : null;
     const admins = new Set([...trust.operator_pubkeys, ...(creator ? [creator] : [])]);
-    const history = new Map();        // pk -> [{at, member, id, by}]
-    if (creator) history.set(creator, [{ at: created[0].created_at, member: true, id: created[0].id, by: creator }]);
+    const history = new Map();        // pk -> [{at, member, role, id, by}]
+    if (creator) history.set(creator, [{ at: created[0].created_at, member: true, role: 'read-write', id: created[0].id, by: creator }]);
     for (const e of order(groupEvents)) {
       if (![KIND.PUT_USER, KIND.REMOVE_USER].includes(e.kind) || firstTag(e, 'h') !== topic || !admins.has(e.pubkey)) continue;
-      for (const pk of tagValues(e, 'p')) {
-        if (!HEX64.test(pk)) continue;
+      for (const t of e.tags) {
+        if (t[0] !== 'p' || !HEX64.test(t[1] || '')) continue;
+        const pk = t[1];
         if (!history.has(pk)) history.set(pk, []);
-        history.get(pk).push({ at: e.created_at, member: e.kind === KIND.PUT_USER, id: e.id, by: e.pubkey });
+        const h = history.get(pk), held = h.length ? h[h.length - 1].role : 'read-write';
+        h.push({ at: e.created_at, member: e.kind === KIND.PUT_USER, role: e.kind === KIND.PUT_USER ? roleOf(t) : held, id: e.id, by: e.pubkey });
       }
     }
     const state = (pk) => { const h = history.get(pk); return h && h.length ? h[h.length - 1] : null; };
     const members = [...history.keys()].filter((pk) => state(pk).member);
+    const at = (pk, ts) => { let s = null; for (const x of history.get(pk) || []) { if (x.at <= ts) s = x; } return s; };
     const roster = {
-      members, history,
-      memberAt(pk, at) { const h = history.get(pk) || []; let m = false; for (const s of h) { if (s.at <= at) m = s.member; } return m; },
-      why(pk, at) { const h = history.get(pk) || []; if (!h.length) return 'not a member of this topic'; const before = h.filter((s) => s.at <= at); if (!before.length) return 'written before this key was granted'; return 'written after this key was revoked'; },
+      members, history, roles: Object.fromEntries(members.map((pk) => [pk, state(pk).role])),
+      roleOf(pk) { const s = state(pk); return s && s.member ? s.role : null; },
+      memberAt(pk, ts) { const s = at(pk, ts); return !!(s && s.member); },
+      /** a read-write member when it wrote: a read-only or write-only member's message is held at the gate */
+      writerAt(pk, ts) { const s = at(pk, ts); return !!(s && s.member && s.role === 'read-write'); },
+      why(pk, ts) { const h = history.get(pk) || []; if (!h.length) return 'not a member of this topic'; const s = at(pk, ts); if (!s) return 'written before this key was granted'; if (s.member) return `written by a ${s.role} member`; return 'written after this key was revoked'; },
     };
     const declined = new Set(groupEvents.filter((e) => e.kind === KIND.DELETE_EVENT && admins.has(e.pubkey) && firstTag(e, 'h') === topic).flatMap((e) => tagValues(e, 'e')));
     const requests = order(groupEvents.filter((e) => e.kind === KIND.JOIN_REQUEST && firstTag(e, 'h') === topic))
       .filter((e) => !declined.has(e.id) && !(state(e.pubkey) && state(e.pubkey).member) && !((history.get(e.pubkey) || []).some((s) => s.at >= e.created_at)))
-      .map((e) => ({ id: e.id, pubkey: e.pubkey, created_at: e.created_at, reason: e.content, code: firstTag(e, 'code') || null }));
+      .map((e) => ({ id: e.id, pubkey: e.pubkey, created_at: e.created_at, reason: e.content, code: firstTag(e, 'code') || null, ticket: firstTag(e, 'ticket') || null }));
     const rings = keyrings.filter((k) => k.topic === topic && (admins.has(k.granter) || k.granter === me));
     const byEpoch = new Map();
     for (const k of [...rings].sort((a, b) => a.created_at - b.created_at)) for (const e of k.epochs) {
@@ -1523,7 +1557,7 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
   }
   /** A new thread when `inReplyTo` is absent, else a reply inside that mail's thread. */
   async function buildMail(signer, { owner, reader, part, campaign, subject, body, attachments, inReplyTo }) {
-    if (!SLUG.test(part)) throw new NMError(`mailbox part ${part} must be a slug`);
+    if (typeof part !== 'string' || part.length > 128 || !MAIL_PART.test(part)) throw new NMError(`mailbox part ${part} must be inbox, bus or topic:<slug>`);
     text(body, 'mail body');
     const me = await signer.getPublicKey();
     let opener, thread, msg = hex(randomBytes(16)), replyTo = null;
@@ -1757,19 +1791,31 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
       return wrap.id;
     }
     _admin(scope) { if (!scope.admins.has(this.me)) throw new NMError(`only an admin of topic ${scope.group} grants or revokes; nothing was sent`, 'not-authorized'); }
-    /** Grant access. full_history delivers every epoch held; forward_only rotates the
-        topic to epoch k+1 for everyone and hands the newcomer that epoch alone. */
-    async grant(scope, member, mode) {
+    /** Grant access in a role (ui.TopicDesk.grant). full_history delivers every epoch
+        held; forward_only rotates the topic to epoch k+1 for everyone and hands the
+        newcomer that epoch alone. read-only gets the same key ring; write-only gets none,
+        and a topic_scoped, human_gated grant into this key's `topic:<topic>` dropbox part. */
+    async grant(scope, member, mode, role = 'read-write') {
       this._admin(scope);
-      if (!['full_history', 'forward_only'].includes(mode)) throw new NMError(`grant mode ${mode} must be full_history or forward_only`);
+      if (!ROLES.includes(role)) throw new NMError(`role ${role} must be one of ${ROLES.join(', ')}`);
+      if (role !== 'write-only' && !['full_history', 'forward_only'].includes(mode)) throw new NMError(`grant mode ${mode} must be full_history or forward_only`);
       member = pubkeyHex(member);
-      const put = await this.relay.sign(KIND.PUT_USER, [['h', scope.group], ['p', member, 'member']], '');
+      const held = scope.roster.roleOf(member);
+      const put = await this.relay.sign(KIND.PUT_USER, [['h', scope.group], ['p', member, ROLE_TAG[role]]], '');
       await this.relay.publish(put);
+      const out = { put_user: put.id, role };
+      if (role === 'write-only') {
+        const part = `topic:${scope.group}`;
+        await this.grantMail(member, { scope: 'topic_scoped', trust: 'human_gated', readReplies: true, parts: [part] });
+        Object.assign(out, { mode: null, mailbox: { owner: npub(this.me), part, scope: 'topic_scoped', trust: 'human_gated' } });
+        if (held && held !== 'write-only') Object.assign(out, await this.rotate(scope, { remove: member }));   // it held keys until now
+        return out;
+      }
       if (mode === 'full_history') {
         const wrap = await this._ring(member, scope.group, scope.name, scope.epochs, scope.current, 'full_history');
-        return { put_user: put.id, mode, epochs: [...new Set(scope.epochs.map((e) => e.n))], wraps: [wrap] };
+        return { ...out, mode, epochs: [...new Set(scope.epochs.map((e) => e.n))], wraps: [wrap] };
       }
-      return { put_user: put.id, mode, ...(await this.rotate(scope, { add: member })) };
+      return { ...out, mode, ...(await this.rotate(scope, { add: member })) };
     }
     async revoke(scope, member) {
       this._admin(scope);
@@ -1781,7 +1827,7 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     }
     async rotate(scope, { add = null, remove = null } = {}) {
       const n = (scope.current || 0) + 1, fresh = { n, key: hex(randomBytes(32)) };
-      const members = new Set(scope.roster.members); members.add(this.me);
+      const members = new Set(scope.roster.members.filter((pk) => scope.roster.roleOf(pk) !== 'write-only')); members.add(this.me);
       if (add) members.add(add);
       if (remove) members.delete(remove);
       const wraps = [];
@@ -1791,8 +1837,8 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
       }
       return { epoch: n, recipients: [...members].sort(), wraps };
     }
-    async requestAccess(topic, reason, code) {
-      const tags = [['h', topic], ...(code ? [['code', code]] : [])];
+    async requestAccess(topic, reason, code, ticket) {
+      const tags = [['h', topic], ...(code ? [['code', code]] : []), ...(ticket ? [['ticket', ticket]] : [])];
       const ev = await this.relay.sign(KIND.JOIN_REQUEST, tags, reason || '');
       await this.relay.publish(ev);
       return ev.id;
@@ -1872,14 +1918,14 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
   }
 
   root.NM = Object.freeze({
-    NMError, RelayRejected, C, KIND, SCHEMA, TRUST_SCHEMA, KEYRING_SCHEMA, INBOX, BUS, DROPBOX, GATE_SEAT, TERMINAL, DISPOSITIONS, SLUG, TOPIC_ID,
+    NMError, RelayRejected, C, KIND, SCHEMA, TRUST_SCHEMA, KEYRING_SCHEMA, INBOX, BUS, DROPBOX, GATE_SEAT, TERMINAL, DISPOSITIONS, SLUG, TOPIC_ID, ROLES, MAIL_PART,
     utf8, fromUtf8, hex, unhex, concat, randomBytes, nowS, sha256, hmacSha256, hkdfExtract, hkdfExpand, chacha20,
     b64encode, b64decode, b64url, unb64url,
     getPublicKey, schnorrSign, schnorrVerify, ecdhX, generateSecret, bech32Encode, bech32Decode, npub, nsec, pubkeyHex,
     calcPaddedLen, pad, unpad, conversationKey, campaignConversationKey, nip44Encrypt, nip44Decrypt, nip44EncryptBytes, nip44DecryptBytes,
     serializeEvent, eventId, verifyEvent, signWithSecret, tagValues, firstTag, wireBytes, matches, order, supersedes,
     KeySigner, Nip07Signer, BridgeSigner, acceptSigned, RelayClient,
-    makeTrust, decodeInviteToken, trustToml, contentKey, pyDumps, sortedJson,
+    makeTrust, decodeInviteToken, parseLink, trustToml, contentKey, pyDumps, sortedJson,
     rootScope, topicScope, isMember, route, address, scopeTags, keyTag, encodeRecord, decodeRecord, buildView, triage,
     renderHandoff, conditionHandoff, conditionAfter, resolveDirectives, renderOperatorMd, isoStamp,
     giftWrap, unwrapGift, keyringContent, parseKeyring,
@@ -1912,7 +1958,7 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     keyrings: [], scopes: new Map(), views: new Map(), access: new Map(), primary: null,
     mailbox: null, profiles: new Map(), selected: null, tab: 'bus', busTopic: 'bus', kindFilter: '',
     replyTo: null, errors: [], toasts: [], modal: null, live: [], refreshing: false, dirty: false,
-    claim: null, rejected: [],
+    claim: null, rejected: [], invites: { topics: {} }, gen: 0,
   };
   function report(err, context) {
     console.error(context || 'nostr-mailbox console', err);
@@ -1934,16 +1980,17 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     keep.setItem(STORE, JSON.stringify(S.store));
     (S.store.remember ? sessionStorage : localStorage).removeItem(STORE);
   }
-  /** `#join=nm1_…&topic=…`, `#invite=<code>`, `#drop=<npub>/<part>`: read once, kept in
-      this tab's sessionStorage until used, and taken off the address bar. A fragment is
-      never sent to a server, and now it is not in the history either. */
+  /** `#nm1_…&topic=…&role=…&ticket=…` (what `/join/` links carry), `#join=nm1_…&…`,
+      `#invite=<code>`, `#drop=<npub>/<part>`: read once by NM.parseLink, kept in this
+      tab's sessionStorage until used, and taken off the address bar. A fragment is never
+      sent to a server, and now it is not in the history either. */
   function readLink() {
     const frag = location.hash.replace(/^#/, '');
     if (frag) {
-      const p = new URLSearchParams(frag), link = {};
-      for (const k of ['join', 'invite', 'topic', 'drop', 'relay']) if (p.get(k)) link[k] = p.get(k);
-      sessionStorage.setItem(LINK, JSON.stringify(link));
       history.replaceState(null, '', location.pathname + location.search);
+      let link;
+      try { link = NM.parseLink(frag); } catch (e) { if (!(e instanceof NM.NMError)) throw e; report(e, 'this invite link was not used'); return {}; }
+      sessionStorage.setItem(LINK, JSON.stringify(link));
       return link;
     }
     const kept = sessionStorage.getItem(LINK);
@@ -1983,9 +2030,33 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     else if (t.lead_pubkeys.includes(pk)) b.push(html`<span class="badge amber">lead</span>`);
     if (scope && scope.kind === 'topic') {
       if (scope.creator === pk) b.push(html`<span class="badge teal">admin</span>`);
-      else if (scope.roster.members.includes(pk)) b.push(html`<span class="badge">member</span>`);
+      else if (scope.roster.members.includes(pk)) b.push(roleBadge(scope.roster.roleOf(pk)));
     }
     if (pk === S.me) b.push(html`<span class="badge sage">you</span>`);
+    return b;
+  }
+  const ROLE_NOTE = {
+    'read-write': 'reads every epoch it was given and writes to the stream',
+    'read-only': 'given the key ring; what it posts is held at the human gate',
+    'write-only': 'never given the key ring; it writes sealed mail to the admin',
+  };
+  const roleBadge = (role) => html`<span class="badge ${role === 'read-only' ? 'amber' : role === 'write-only' ? 'plum' : ''}" title="${ROLE_NOTE[role] || ''}">${role}</span>`;
+  /** What the topic header says about a channel: how its payloads are protected, what this
+      key may do in it, and whether a coding agent on this workstation holds its key. */
+  function scopeBadges(scope) {
+    const b = [scope.current
+      ? html`<span class="badge teal" title="records are NIP-44 v2 under the epoch key; the relay stores ciphertext">🔒 end-to-end encrypted · Epoch ${scope.current}${scope.first && scope.first > 1 ? ` · history from E${scope.first}` : ''}</span>`
+      : html`<span class="badge plum" title="no campaign_key: the relay and every member read the payloads">unencrypted · cleartext JSON</span>`];
+    if (scope.kind === 'topic') {
+      const mine = scope.admins.has(S.me) ? null : scope.roster.roleOf(S.me);
+      b.push(scope.admins.has(S.me) ? html`<span class="badge teal">you: admin</span>` : mine ? html`<span class="badge" title="${ROLE_NOTE[mine]}">you: ${mine}</span>` : html`<span class="badge plum">you: not a member</span>`);
+    }
+    if (S.mode === 'bridge') {
+      const held = scope.kind === 'topic' ? (S.bridge.state.exports || {})[scope.group] || [] : null;
+      if (held === null) b.push(html`<span class="badge amber" title="the campaign's nostr.toml on this workstation holds its key, and any coding agent here can read it">agent-assisted · ${S.bridge.state.trust_file}</span>`);
+      else if (held.length) b.push(html`<span class="badge amber" title="Pair Coding Agent exported these epochs to a 0600 nostr.toml under exports/">agent-assisted · epoch ${held.join(', ')} exported here</span>`);
+      else b.push(html`<span class="badge sage" title="no coding agent on this workstation was given this topic's key; agents elsewhere are not known here">human-only on this workstation</span>`);
+    }
     return b;
   }
   const verified = () => html`<span class="badge sage" title="id recomputed and BIP-340 Schnorr signature verified in this tab">✓ signed</span>`;
@@ -2036,17 +2107,29 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
   function tokenRings() {
     return (S.store.tokenRings || []).map((r) => ({ topic: r.topic, name: r.name || r.topic, epochs: Object.entries(r.epochs).map(([n, key]) => ({ n: Number(n), key })), current: r.current, granter: r.owner, created_at: r.at, mode: 'token' }));
   }
+  /** One read at a time; an arrival during a read asks for another. A read begun for a
+      persona the console has since switched away from is dropped, whatever it found:
+      its connection was closed on purpose. */
   async function refresh() {
     if (S.refreshing) { S.dirty = true; return; }
     S.refreshing = true;
     try {
-      do { S.dirty = false; await load(); } while (S.dirty);
+      do {
+        S.dirty = false;
+        const gen = S.gen;
+        try { await load(gen); } catch (e) {
+          if (gen === S.gen) throw e;
+          console.info('a read for the previous persona ended with its connection', e);
+        }
+      } while (S.dirty);
     } catch (e) { report(e, 'reading the relay'); }
     finally { S.refreshing = false; draw(); }
   }
-  async function load() {
-    const desk = S.desk, trust = S.trust;
+  async function load(gen) {
+    const desk = S.desk, trust = S.trust, stale = () => gen !== S.gen;
     const { keyrings, rejected } = await desk.inbox();
+    if (S.mode === 'bridge') S.invites = await api('/api/invites');
+    if (stale()) return;
     S.keyrings = [...keyrings, ...tokenRings()];
     S.rejected = rejected;
     const created = await S.relay.queryAll({ kinds: [NM.KIND.CREATE_GROUP], authors: [S.me] });
@@ -2067,15 +2150,19 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
       const scope = NM.topicScope(trust, id, evs, S.keyrings, S.me);
       scopes.set(id, scope); evs.forEach((e) => authors.add(e.pubkey));
       if (scope.epochs.length) views.set(id, NM.buildView(scope, evs));
-      else access.set(id, scope.roster.members.includes(S.me) ? 'a member, but no key ring has reached this key yet' : 'no key for this topic: request access, or wait for an admin to approve');
+      else access.set(id, scope.roster.roleOf(S.me) === 'write-only' ? 'write-only: this key is never given the key ring; what it writes goes sealed to the admin' : scope.roster.members.includes(S.me) ? 'a member, but no key ring has reached this key yet' : 'no key for this topic: request access, or wait for an admin to approve');
     }
+    if (stale()) return;
     S.scopes = scopes; S.views = views; S.access = access;
     S.primary = trust.keyring ? trust.keyring : '';
     const primaryView = views.get(S.primary) || null;
-    S.mailbox = await desk.mailbox(primaryView);
+    const mailbox = await desk.mailbox(primaryView);
+    if (stale()) return;
+    S.mailbox = mailbox;
     [...S.mailbox.items, ...S.mailbox.held].forEach((m) => authors.add(m.from));
     authors.add(S.me);
     await loadProfiles([...authors]);
+    if (stale()) return;
     S.loaded = true;
     if (!S.selected || (S.selected.kind === 'scope' && !scopes.has(S.selected.id) && !access.has(S.selected.id))) {
       const want = S.link.topic && (scopes.has(S.link.topic) || access.has(S.link.topic)) ? S.link.topic : (scopes.has(S.primary) ? S.primary : [...scopes.keys()][0]);
@@ -2162,16 +2249,20 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
       const st = S.bridge.state;
       if (!st.trust) {
         const tok = S.link.join || '';
-        cards.push(html`<section class="card hero" data-keep="join"><h2>Join a campaign from this workstation</h2>
-          <p class="muted">No campaign at <code>${st.trust_file}</code> yet. Paste the <code>nm1_…</code> token you were sent. This workstation creates its key (mode 0600) if it has none, writes <code>nostr.toml</code>, and redeems the single-use invite (NIP-43). The key never enters this page.</p>
+        cards.push(html`<section class="card hero" data-keep="join"><h2>${S.link.topic ? 'Join the campaign & open the topic' : 'Join a campaign from this workstation'}</h2>
+          <p class="muted">No campaign at <code>${st.trust_file}</code> yet. ${tok ? 'The invite from your link is filled in below; check what it joins, then claim it.' : html`Paste the <code>nm1_…</code> token you were sent.`} Persona <strong>${st.active_persona}</strong> joins: its key is created (mode 0600) if it has none, <code>nostr.toml</code> is written, and the single-use invite is redeemed (NIP-43). The key never enters this page.</p>
+          ${tok ? inviteSummary(tok) : ''}
           <div class="row"><div><label for="jt">Invite token</label><input id="jt" name="token" value="${tok}" placeholder="nm1_…" autocomplete="off" spellcheck="false"></div>
           <div><label for="jm">Your name (announced on the bus)</label><input id="jm" name="member" placeholder="e.g. roland"></div>
-          <div class="fit"><button class="btn primary" data-act="bridge-join">Claim Invite &amp; Join</button></div></div>
+          <div class="fit"><button class="btn primary" data-act="bridge-join">${S.link.topic ? 'Claim Invite & Open Topic' : 'Claim Invite & Join'}</button></div></div>
           <p class="small muted">Operators set up the campaign with <code>nostr-mailbox setup --relay wss://… --campaign … --kubectl</code> and then reload this page.</p></section>`);
       } else if (!st.identity) {
-        cards.push(html`<section class="card hero"><h2>No identity</h2><p>Run <code>nostr-mailbox init</code> on this workstation, then reload.</p></section>`);
-      }
-      return cards.length ? cards : html`<section class="card"><p class="muted">${S.status === 'connecting' ? 'Connecting to ' + new URL(st.trust.relay).host + '…' : 'Not connected to the relay. The error above says why; Reconnect is in the header.'}</p></section>`;
+        cards.push(html`<section class="card hero"><h2>Persona ${st.active_persona} has no key</h2><p>Create it here (mode 0600), switch to another persona below, or run <code>nostr-mailbox init --name ${st.active_persona}</code> and reload.</p>
+          <div class="actions"><button class="btn primary" data-act="persona-create" data-name="${st.active_persona}">Create persona ${st.active_persona}</button></div></section>`);
+      } else if (S.link.join && S.status !== 'connecting') cards.push(bridgeInviteCard());
+      cards.push(personaCard());
+      if (st.trust && st.identity && !S.link.join) cards.unshift(html`<section class="card"><p class="muted">${S.status === 'connecting' ? 'Connecting to ' + new URL(st.trust.relay).host + ' as persona ' + st.active_persona + '…' : html`Not connected to the relay as persona <strong>${st.active_persona}</strong>. The error above says why; Reconnect is in the header. A persona that is not a member yet joins from an <code>nm1_…</code> invite link.`}</p></section>`);
+      return cards;
     }
     if (!S.signer) {
       cards.push(html`<section class="card hero" data-keep="key"><h2>Your key</h2>
@@ -2198,17 +2289,56 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     if (!cards.length) cards.push(html`<section class="card"><p class="muted">Working…</p></section>`);
     return cards;
   }
+  /** What an invite joins, decoded in this tab before anything is redeemed. */
+  function inviteSummary(token) {
+    let inv;
+    try { inv = NM.decodeInviteToken(token); } catch (e) { return html`<div class="banner">This invite does not decode: ${e.message}</div>`; }
+    const topic = inv.extras.topic || inv.extras.keyring || S.link.topic || null;
+    return html`<dl class="kv"><dt>relay</dt><dd>${inv.trust.relay}</dd><dt>campaign</dt><dd>${inv.trust.campaign}</dd>
+      ${topic ? html`<dt>topic</dt><dd>${topic}${S.link.role ? html` · invited as ${roleBadge(S.link.role)} <span class="small muted">${ROLE_NOTE[S.link.role]}; the admin's grant decides</span>` : ''}</dd>` : ''}
+      <dt>operators</dt><dd>${inv.trust.operator_pubkeys.map((pk) => html`<span class="chip">${short(pk)}</span> `)}</dd>
+      <dt>payloads</dt><dd>${inv.trust.campaign_key || inv.extras.epochs ? 'end-to-end encrypted (NIP-44 v2)' : 'NOT encrypted: this campaign has no campaign_key'}</dd>
+      ${inv.member ? html`<dt>invited as</dt><dd>${inv.member}</dd>` : ''}</dl>`;
+  }
+  /** An invite link opened on a console that already serves a campaign: redeemed for the
+      active persona when it names this same campaign, refused when it names another. */
+  function bridgeInviteCard() {
+    const st = S.bridge.state;
+    let inv;
+    try { inv = NM.decodeInviteToken(S.link.join); } catch (e) { return html`<section class="banner"><span class="grow">This invite link does not decode: ${e.message}</span><button class="btn tiny ghost" data-act="link-dismiss">dismiss</button></section>`; }
+    const same = inv.trust.relay === S.trust.relay && inv.trust.campaign === S.trust.campaign;
+    if (!same) return html`<section class="card hero"><h2>This invite is for another campaign</h2>${inviteSummary(S.link.join)}
+      <p>This console serves campaign <strong>${S.trust.campaign}</strong> on ${S.trust.relay}, from <code>${st.trust_file}</code>; joining another would replace it. Join it in a home of its own: <code>nostr-mailbox --home ~/.nostr-mailbox-${inv.trust.campaign} join &lt;token&gt;</code>, then <code>ui</code> from there.</p>
+      <div class="actions"><button class="btn" data-act="copy" data-text="${S.link.join}">Copy token</button><button class="btn ghost" data-act="link-dismiss">Dismiss</button></div></section>`;
+    const topic = S.link.topic || null, member = S.loaded;
+    return html`<section class="card hero" data-keep="join"><h2>${topic ? `Open topic ${topic}` : 'Invite for this campaign'}</h2>${inviteSummary(S.link.join)}
+      <p class="muted">${member ? html`Persona <strong>${st.active_persona}</strong> is already a member of this campaign, so the relay invite is not spent.${topic ? ' Opening the topic asks its admins for access (kind 9021), presenting the ticket from your link.' : ''}` : html`Persona <strong>${st.active_persona}</strong> is not a member yet: claiming redeems the invite for its key, and leaves <code>${st.trust_file}</code> as it is.`}</p>
+      <div class="row">${member ? '' : html`<div><label for="jm">Your name (announced on the bus)</label><input id="jm" name="member" placeholder="e.g. roland"></div>`}
+      <div class="fit"><button class="btn primary" data-act="${member ? 'link-topic' : 'bridge-join'}" ${member && !topic ? 'disabled' : ''}>${member ? (topic ? 'Request Access & Open Topic' : 'Nothing to redeem') : `Claim Invite as ${st.active_persona}`}</button></div>
+      <div class="fit"><button class="btn ghost" data-act="link-dismiss">Dismiss</button></div></div></section>`;
+  }
+  /** Every persona of this workstation (`<home>/identities/*.json`): switch which one the
+      console signs as, or make a new one. */
+  function personaCard() {
+    const st = S.bridge.state;
+    return html`<section class="card"><h3>Personas on this workstation</h3>
+      <p class="small muted">Each is its own key under <code>${st.home}/identities/</code>. Switching changes who this console signs as, for every tab of it.</p>${personaPicker()}</section>`;
+  }
+  /** The select is drawn from state, never kept across a redraw: after a switch it shows
+      the persona the bridge now signs as. Only the new-name box keeps what is typed. */
+  function personaPicker() {
+    const st = S.bridge.state;
+    return html`<div class="stack small"><div><label for="pp">Persona</label><select id="pp" name="persona" data-change="persona">${st.personas.map((p) => html`<option value="${p.name}" ${p.name === st.active_persona ? 'selected' : ''} ${p.error ? 'disabled' : ''}>${p.name}${p.error ? ' · unusable: ' + p.error : ' · ' + short(p.pubkey)}</option>`)}${st.personas.some((p) => p.name === st.active_persona) ? '' : html`<option value="${st.active_persona}" selected>${st.active_persona} · no key yet</option>`}</select></div>
+      <div class="row" data-keep="persona-new"><div><label for="pn">New persona</label><input id="pn" name="new_persona" placeholder="e.g. alice-work" autocomplete="off" spellcheck="false"></div><div class="fit"><button class="btn tiny" data-act="persona-create">+ New persona</button></div></div></div>`;
+  }
   function claimCard() {
     let inv;
     try { inv = NM.decodeInviteToken(S.link.join); } catch (e) { return html`<section class="banner">This invite link does not decode: ${e.message}</section>`; }
     const topic = inv.extras.topic || inv.extras.keyring || S.link.topic || null;
     const steps = S.claim ? S.claim.steps : [];
     return html`<section class="card hero" data-keep="claim"><h2>${topic ? 'Claim Invite & Open Topic' : 'Claim Invite'}</h2>
-      <dl class="kv"><dt>relay</dt><dd>${inv.trust.relay}</dd><dt>campaign</dt><dd>${inv.trust.campaign}</dd>
-      ${topic ? html`<dt>topic</dt><dd>${topic}${inv.extras.epochs ? html` · epochs ${Object.keys(inv.extras.epochs).join(', ')} carried in the token` : ' · access is requested (kind 9021) once you are in'}</dd>` : ''}
-      <dt>operators</dt><dd>${inv.trust.operator_pubkeys.map((pk) => html`<span class="chip">${short(pk)}</span> `)}</dd>
-      <dt>payloads</dt><dd>${inv.trust.campaign_key || inv.extras.epochs ? 'end-to-end encrypted (NIP-44 v2)' : 'NOT encrypted: this campaign has no campaign_key'}</dd>
-      ${inv.member ? html`<dt>invited as</dt><dd>${inv.member}</dd>` : ''}</dl>
+      ${inviteSummary(S.link.join)}
+      ${topic ? html`<p class="small muted">${inv.extras.epochs ? `Epochs ${Object.keys(inv.extras.epochs).join(', ')} of ${topic} are carried in the token.` : `Access to ${topic} is requested (kind 9021) once you are in${S.link.ticket ? ', presenting the ticket from your link' : ''}.`}</p>` : ''}
       <p class="small muted">The single-use code stays in this tab: it was read from the URL fragment, which a browser never sends to a server, and it is spent with one NIP-43 claim signed by your key.</p>
       <div class="row"><div><label for="cm">Your name on the bus</label><input id="cm" name="member" value="${inv.member || S.store.handle || ''}"></div>
       <div class="fit"><button class="btn primary" data-act="claim" ${S.signer && !(S.claim && S.claim.busy) ? '' : 'disabled'}>${topic ? 'Claim Invite & Open Topic' : 'Claim Invite'}</button></div></div>
@@ -2247,6 +2377,7 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
       <div class="stack small">
         <div><strong>${who(S.me)}</strong> ${seatBadges(S.me)}</div>
         <div><button class="chip" data-act="copy" data-text="${NM.npub(S.me)}" title="copy npub">${short(S.me)}</button> <span class="badge">${S.signer.type}</span></div>
+        ${S.mode === 'bridge' ? personaPicker() : ''}
         <div data-keep="seat"><label for="seat">Seat for acks</label><input id="seat" name="seat" value="${S.store.seat || seatSlug(S.store.handle)}" data-change="seat"></div>
         <div class="actions"><button class="btn tiny" data-act="profile">Set handle</button>${S.mode === 'standalone' ? html`${S.signer.type === 'browser' ? html`<button class="btn tiny ghost" data-act="show-nsec">Back up key</button>` : ''}<button class="btn tiny warn" data-act="forget">Forget key</button>` : ''}</div>
         ${S.rejected.length ? html`<div class="small"><button class="chip" data-act="show-rejected">${S.rejected.length} record(s) not shown · why</button></div>` : ''}
@@ -2256,6 +2387,7 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
   // ------------------------------------------------------------------ main
   function mainPanel() {
     const sel = S.selected;
+    if (S.mode === 'bridge' && S.link.join) return bridgeInviteCard();
     if (S.link.drop) return dropCard();
     if (!sel) return html`<div class="empty">Loading…</div>`;
     if (sel.kind === 'mail') return mailPanel(sel.part);
@@ -2265,7 +2397,7 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     const body = { bus: busTab, inbox: inboxTab, claims: claimsTab, quarantine: quarantineTab, access: accessTab }[S.tab] || busTab;
     return html`<div class="topic-head"><div class="grow"><h2>${sel.id === '' ? scope.name : '# ' + scope.name}</h2>
         <div class="meta">${scope.group ? html`<span class="chip">h=${scope.group}</span>` : ''}<span class="chip">t=${scope.campaign}</span>
-        ${scope.current ? html`<span class="badge teal">Epoch ${scope.current}${scope.first && scope.first > 1 ? ` · history from E${scope.first}` : ''}</span>` : html`<span class="badge plum">unencrypted</span>`}
+        ${scopeBadges(scope)}
         ${scope.kind === 'topic' ? html`<span class="badge">${scope.roster.members.length} member(s)</span>` : ''}
         ${scope.conflicts && scope.conflicts.length ? html`<span class="badge plum" title="two admins rotated at once; both keys are tried on read">epoch race: ${scope.conflicts.join(', ')}</span>` : ''}</div></div>
       <button class="btn" data-act="tab" data-tab="access">Grant Access</button>
@@ -2275,6 +2407,14 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
   }
   function noAccessPanel(id, scope) {
     const why = S.access.get(id) || 'no key ring for this topic';
+    if (scope && scope.kind === 'topic' && scope.roster.roleOf(S.me) === 'write-only') {
+      const h = scope.roster.history.get(S.me), admin = h[h.length - 1].by;
+      return html`<form class="card hero" data-keep="wo-${id}" data-form="drop" data-owner="${admin}" data-part="topic:${id}"><h2># ${id} · write-only</h2>
+        <div class="meta">${roleBadge('write-only')}<span class="badge teal">pairwise NIP-44 · kind 4410</span></div>
+        <p class="muted">${ROLE_NOTE['write-only']}. What you send here is sealed to ${who(admin)} alone, into their <code>topic:${id}</code> dropbox part, and held at their human gate until they approve it.</p>
+        <label>Subject</label><input name="subject"><label style="margin-top:8px">Message</label><textarea name="body" required></textarea>
+        <div class="actions"><button class="btn primary">Send to the admin</button></div></form>`;
+    }
     const requested = (S.store.requested || []).find((r) => r.topic === id);
     return html`<section class="card hero" data-keep="req"><h2>Request Access to Topic (kind 9021)</h2>
       <p># <strong>${id}</strong> — <span class="muted">${why}</span></p>
@@ -2411,15 +2551,18 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     const mode = S.grantMode || 'full_history';
     const hist = (name) => html`<label class="radio ${mode === 'full_history' ? 'on' : ''}"><input type="radio" name="${name}" value="full_history" ${mode === 'full_history' ? 'checked' : ''} data-change="grant-mode"><span><strong>(●) Full History</strong> — deliver every epoch ${[...new Set(scope.epochs.map((e) => e.n))].sort((a, b) => a - b).join(', ')} via kind 1059, so the collaborator replays all historical campaign messages, claims, handoffs and blobs.</span></label>
       <label class="radio ${mode === 'forward_only' ? 'on' : ''}"><input type="radio" name="${name}" value="forward_only" ${mode === 'forward_only' ? 'checked' : ''} data-change="grant-mode"><span><strong>( ) Forward-Only from now</strong> — rotate the topic to Epoch ${(scope.current || 0) + 1}; prior epochs stay undecryptable for them.</span></label>`;
+    const roles = (name, chosen) => html`<select name="${name}">${NM.ROLES.map((r) => html`<option value="${r}" ${r === chosen ? 'selected' : ''}>${r} — ${ROLE_NOTE[r]}</option>`)}</select>`;
     return html`${admin ? html`<form class="card" data-keep="grant" data-form="grant"><h3>Grant Access / Invite Collaborator</h3>
-        <div class="row" style="margin-top:10px"><div><label for="gm">Collaborator (npub or hex)</label><input id="gm" name="member" required placeholder="npub1…"></div></div>
-        <div class="stack" style="margin-top:10px">${hist('mode')}</div>
+        <div class="row" style="margin-top:10px"><div><label for="gm">Collaborator (npub or hex)</label><input id="gm" name="member" required placeholder="npub1…"></div>
+        <div><label>Role</label>${roles('role', 'read-write')}</div></div>
+        <div class="stack" style="margin-top:10px">${hist('mode')}<span class="small muted">The history choice does not apply to write-only: it is never given a key ring.</span></div>
         <div class="actions"><button class="btn primary">Grant Access (kind 9000 + key ring)</button></div></form>` : html`<div class="banner info"><span class="grow">Only the topic's admins (${[...scope.admins].map(who).join(', ')}) grant and revoke.</span></div>`}
       ${admin ? inviteCard(scope) : ''}
       <div class="section-title"><h3>Pending join requests (kind 9021)</h3></div>
-      ${scope.requests.length ? html`<ul class="list">${scope.requests.map((r) => html`<li class="item"><div class="meta"><span class="who">${who(r.pubkey)}</span><span class="chip">${short(r.pubkey)}</span>${ago(r.created_at)}${r.code ? html`<span class="badge">with invite code</span>` : ''}</div>
+      ${scope.requests.length ? html`<ul class="list">${scope.requests.map((r) => { const t = ticketTerms(scope, r); return html`<li class="item" data-keep="req-${r.id}"><div class="meta"><span class="who">${who(r.pubkey)}</span><span class="chip">${short(r.pubkey)}</span>${ago(r.created_at)}${r.code ? html`<span class="badge">with invite code</span>` : ''}${t ? t.badge : ''}</div>
         ${r.reason ? html`<div class="body">${r.reason}</div>` : ''}
-        ${admin ? html`<div class="actions"><button class="btn tiny sage" data-act="approve" data-pk="${r.pubkey}" data-mode="full_history">Approve with Full History</button><button class="btn tiny" data-act="approve" data-pk="${r.pubkey}" data-mode="forward_only">Approve Forward-Only</button><button class="btn tiny warn" data-act="decline" data-id="${r.id}">Decline</button></div>` : ''}</li>`)}</ul>` : html`<div class="empty">No pending requests.</div>`}
+        ${admin && t && t.admit ? html`<div class="actions"><button class="btn tiny primary" data-act="admit" data-pk="${r.pubkey}" data-ticket="${r.ticket}">Admit as invited: ${t.terms.role}${t.terms.history ? ', ' + t.terms.history.replace('_', ' ') : ''}</button></div>` : ''}
+        ${admin ? html`<div class="actions"><label class="small">Role ${roles('role', t && t.terms ? t.terms.role : 'read-write')}</label><button class="btn tiny sage" data-act="approve" data-pk="${r.pubkey}" data-mode="full_history">Approve with Full History</button><button class="btn tiny" data-act="approve" data-pk="${r.pubkey}" data-mode="forward_only">Approve Forward-Only</button><button class="btn tiny warn" data-act="decline" data-id="${r.id}">Decline</button></div>` : ''}</li>`; })}</ul>` : html`<div class="empty">No pending requests.</div>`}
       <div class="section-title"><h3>Active members</h3><span class="small muted">revoking writes kind 9001 and rotates every remaining member to a fresh epoch</span></div>
       <ul class="list">${scope.roster.members.map((pk) => html`<li class="item"><div class="meta"><span class="who">${who(pk)}</span>${seatBadges(pk, scope)}<span class="chip">${short(pk)}</span>
         ${admin && pk !== scope.creator && pk !== S.me ? html`<span class="spacer" style="flex:1"></span><button class="btn tiny warn" data-act="revoke" data-pk="${pk}">Revoke (kind 9001 + Rotate Epoch)</button>` : ''}</div></li>`)}</ul>
@@ -2427,14 +2570,34 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
       <section class="card"><ul class="list">${[...scope.epochs].sort((a, b) => a.n - b.n).map((e) => html`<li class="small">Epoch ${e.n} · from ${who(e.granter)} · ${NM.isoStamp(e.at)}${e.n === scope.current ? html` <span class="badge teal">current</span>` : ''}</li>`)}</ul>
       ${scope.ignoredRings.length ? html`<p class="small muted">${scope.ignoredRings.length} key ring(s) from non-admin keys were ignored.</p>` : ''}</section>`;
   }
+  /** A join request's ticket, matched against the invites this workstation minted (by
+      digest: /api/invites never hands out a ticket). Two keys presenting one ticket
+      contest it, and it admits neither. */
+  function ticketTerms(scope, r) {
+    if (!r.ticket) return null;
+    if (S.mode !== 'bridge') return { badge: html`<span class="badge" title="only the console that minted it can match it">presents an invite ticket</span>` };
+    const digest = NM.hex(NM.sha256(NM.utf8(r.ticket)));
+    const terms = (S.invites.topics[scope.group] || []).find((x) => x.ticket_sha256 === digest);
+    if (!terms) return { badge: html`<span class="badge plum">presents a ticket this workstation did not mint</span>` };
+    if (terms.admitted) return { terms, badge: html`<span class="badge plum">ticket already admitted ${short(terms.admitted)}</span>` };
+    if (terms.expires_at < NM.nowS()) return { terms, badge: html`<span class="badge plum">ticket expired ${NM.isoStamp(terms.expires_at)}</span>` };
+    const presenters = new Set(scope.requests.filter((x) => x.ticket === r.ticket).map((x) => x.pubkey));
+    if (presenters.size > 1) return { terms, badge: html`<span class="badge plum" title="approve one by hand with the role you choose">ticket contested by ${presenters.size} keys</span>` };
+    return { terms, admit: true, badge: html`<span class="badge sage">invited${terms.member ? ' as ' + terms.member : ''} · ${terms.role}</span>` };
+  }
   function inviteCard(scope) {
     if (S.mode !== 'bridge' || !S.bridge.state.capabilities.invite) return '';
     const minted = S.minted && S.minted.topic === (scope ? scope.group : null) ? S.minted : null;
-    return html`<form class="card" data-keep="invite" data-form="invite" data-topic="${scope ? scope.group : ''}"><h3>Mint a single-use relay invite${scope ? ' for this topic' : ''}</h3>
-      <p class="small muted">Runs the relay's admin through <code>admin.json</code>. ${scope ? 'The link opens the console with this topic; the newcomer asks for access (kind 9021) and you approve with full history or forward-only above.' : ''}</p>
-      <div class="row"><div><label>Friend's name</label><input name="member" placeholder="roland"></div><div class="fit"><button class="btn">Mint invite</button></div></div>
-      ${minted ? html`<div class="stack" style="margin-top:10px"><div class="small">Web link (bearer, single use):</div><pre class="doc">${minted.web_link}</pre>
-        <div class="actions"><button class="btn tiny" data-act="copy" data-text="${minted.web_link}" type="button">Copy link</button><button class="btn tiny" data-act="copy" data-text="${minted.one_liner}" type="button">Copy CLI one-liner</button><span class="small muted">expires ${NM.isoStamp(minted.expires_at)}</span></div></div>` : ''}</form>`;
+    return html`<form class="card" data-keep="invite" data-form="invite" data-topic="${scope ? scope.group : ''}"><h3>Mint a single-use invite${scope ? ' into this topic' : ''}</h3>
+      <p class="small muted">Runs the relay's admin through <code>admin.json</code>. ${scope ? 'The link opens the newcomer\'s console on this topic; their join request (kind 9021) presents the ticket, and "Admit as invited" grants exactly the role and history chosen here.' : ''}</p>
+      <div class="row"><div><label>Friend's name</label><input name="member" placeholder="roland"></div>
+      ${scope ? html`<div><label>Role</label><select name="role">${NM.ROLES.map((r) => html`<option value="${r}">${r} — ${ROLE_NOTE[r]}</option>`)}</select></div>
+      <div><label>History</label><select name="history"><option value="full_history">full history</option><option value="forward_only">forward-only from now</option></select></div>` : ''}
+      <div class="fit"><button class="btn">Mint invite</button></div></div>
+      ${minted ? html`<div class="stack" style="margin-top:10px"><div class="small">1-click browser join link (bearer, single use${minted.role ? ', ' + minted.role : ''}):</div><pre class="doc">${minted.join_url}</pre>
+        <div class="small">Invite token:</div><pre class="doc">${minted.token}</pre>
+        <div class="actions"><button class="btn tiny primary" data-act="copy" data-text="${minted.join_url}" type="button">Copy join link</button><button class="btn tiny" data-act="copy" data-text="${minted.token}" type="button">Copy nm1_ token</button><button class="btn tiny" data-act="copy" data-text="${minted.one_liner}" type="button">Copy CLI one-liner</button><button class="btn tiny ghost" data-act="copy" data-text="${minted.web_link}" type="button">Copy relay-origin link</button><span class="small muted">expires ${NM.isoStamp(minted.expires_at)}</span></div>
+        <p class="small muted">${minted.note}</p></div>` : ''}</form>`;
   }
 
   // ---- mailbox
@@ -2502,14 +2665,14 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
       <label class="radio ${kind === 'topic' ? 'on' : ''}"><input type="radio" name="kind" value="topic" ${kind === 'topic' ? 'checked' : ''} data-change="new-kind"><span><strong>Shared Campaign Topic</strong><br><span class="small">NIP-29 private + restricted group (kind 9007) with an Epoch 1 key, wrapped to you as a kind 1059 key ring. Grant others with full history or forward-only.</span></span></label>
       <label class="radio ${kind === 'dropbox' ? 'on' : ''}"><input type="radio" name="kind" value="dropbox" ${kind === 'dropbox' ? 'checked' : ''} data-change="new-kind"><span><strong>Personal Dropbox</strong><br><span class="small">A part of your mailbox: send_only peers write pairwise-encrypted kind 4410 envelopes to you and cannot read each other.</span></span></label></div>
       <div class="grid2" style="margin-top:12px">${kind === 'topic' ? html`<div><label>Name</label><input name="name" placeholder="Retry idempotency" required></div><div><label>Topic id (a-z 0-9 _ -)</label><input name="id" placeholder="retry-idempotency"></div>`
-        : html`<div><label>Part name (slug)</label><input name="part" placeholder="wave-7" required></div><div><label>First peer to grant (optional npub)</label><input name="peer"></div>`}</div>
+        : html`<div><label>Part name (a slug; the part is topic:&lt;name&gt;)</label><input name="part" placeholder="wave-7" required></div><div><label>First peer to grant (optional npub)</label><input name="peer"></div>`}</div>
       <div class="actions"><button class="btn primary">${kind === 'topic' ? 'Create topic' : 'Create dropbox'}</button></div></form>`;
   }
   async function pairModal(scope) {
     let path = './nostr.toml', exported = null;
     const epoch = scope.current;
     if (S.mode === 'bridge') {
-      if (scope.kind === 'topic') { exported = await api('/api/topic/export', { topic: scope.group }); path = exported.trust_file; }
+      if (scope.kind === 'topic') { exported = await api('/api/topic/export', { topic: scope.group }); path = exported.trust_file; S.bridge.state = await api('/api/state'); draw(); }
       else path = S.bridge.state.trust_file;
     }
     const seat = mySeat(), ctx = `${scope.kind === 'topic' ? `topic ${scope.group} (epoch ${epoch})` : `campaign ${scope.campaign}`}`;
@@ -2576,6 +2739,37 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     const got = S.mode === 'bridge' ? await api('/api/blob', data) : await NM.blobUpload(S.trust, S.signer, data, file.type || 'application/octet-stream');
     return got.sha256;
   }
+  /** Sign as another persona of this workstation (`POST /api/persona`), or a new one.
+      Everything read as the previous persona is dropped and read again as this one. */
+  async function switchPersona(name, create) {
+    S.bridge.state = await api('/api/persona', { name, create: !!create });
+    const st = S.bridge.state;
+    S.gen += 1;
+    if (S.relay) S.relay.close();
+    for (const l of S.live) l.close();
+    Object.assign(S, { relay: null, desk: null, me: null, status: 'idle', loaded: false, live: [], liveSignature: null,
+      keyrings: [], scopes: new Map(), views: new Map(), access: new Map(), mailbox: null, profiles: new Map(),
+      selected: null, tab: 'bus', replyTo: null, minted: null, claim: null, rejected: [], invites: { topics: {} },
+      store: { seat: st.seat, handle: st.seat }, signer: null, trust: null });
+    toast(create ? `Persona ${st.active_persona} created (0600)` : `Signing as persona ${st.active_persona}`);
+    if (st.identity && st.trust) { S.signer = new NM.BridgeSigner('', S.bridge.token); S.trust = NM.makeTrust(st.trust); await connect(); }
+    else draw();
+  }
+  /** After joining from a link that names a topic: ask its admins (kind 9021), presenting
+      the link's ticket, and open the topic, which fills in when the key ring arrives. */
+  async function requestLinkedTopic(member) {
+    const topic = S.link.topic;
+    if (!topic) return;
+    const known = S.views.has(topic);
+    if (!known) {
+      await S.desk.requestAccess(topic, `joined via invite${member ? ' as ' + member : ''}`, null, S.link.ticket || null);
+      S.store.requested = [...(S.store.requested || []).filter((r) => r.topic !== topic), { topic, at: NM.nowS() }];
+      toast(`Asked for topic ${topic}${S.link.ticket ? ' with the invite ticket' : ''} (kind 9021)`);
+    }
+    forgetLink('ticket'); forgetLink('role');
+    S.selected = { kind: 'scope', id: topic }; S.tab = 'bus';
+    await refresh();
+  }
   async function useKey(signer, handle) {
     S.signer = signer; S.me = await signer.getPublicKey();
     S.store.handle = handle || S.store.handle || ''; S.store.seat = seatSlug(S.store.handle);
@@ -2609,6 +2803,19 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     async 'key-import'() { const f = form($('[data-keep="key"]')); S.store.remember = f.remember === 'on'; const sk = NM.bech32Decode('nsec', f.nsec.trim()); S.store.nsec = NM.nsec(sk); S.store.signer = 'browser'; await useKey(new NM.KeySigner(sk), f.handle); toast('Key imported'); },
     async 'key-nip07'() { const f = form($('[data-keep="key"]')); S.store.remember = f.remember === 'on'; delete S.store.nsec; S.store.signer = 'nip07'; await useKey(new NM.Nip07Signer(window.nostr), f.handle); },
     'use-token'() { const t = $('[data-keep="manual"] [name=token]').value.trim(); NM.decodeInviteToken(t); S.link.join = t; sessionStorage.setItem(LINK, JSON.stringify(S.link)); draw(); },
+    async 'persona-create'(d) {
+      const box = $('[data-keep="persona-new"] [name=new_persona]');
+      const name = d.name || (box ? box.value : '').trim();
+      if (!NM.SLUG.test(name)) throw new NM.NMError(`a persona name must match ${NM.SLUG.source}`);
+      if (box) box.value = '';                 // cleared before the redraw keeps it
+      try { await switchPersona(name, true); } catch (e) {
+        const again = $('[data-keep="persona-new"] [name=new_persona]');
+        if (again && !d.name) again.value = name;
+        throw e;
+      }
+    },
+    'link-dismiss'() { for (const k of ['join', 'topic', 'role', 'ticket']) forgetLink(k); draw(); },
+    async 'link-topic'() { forgetLink('join'); await requestLinkedTopic(S.store.handle); },
     async 'manual-connect'() {
       const f = form($('[data-keep="manual"]'));
       S.trust = NM.makeTrust({ schema: NM.TRUST_SCHEMA, relay: f.relay.trim(), campaign: f.campaign.trim(), operator_pubkeys: [f.operator.trim()], campaign_key: f.campaign_key.trim() || null });
@@ -2617,10 +2824,12 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     },
     async 'bridge-join'() {
       const f = form($('[data-keep="join"]'));
-      const got = await api('/api/join', { token: f.token.trim(), member: f.member.trim() || null });
-      forgetLink('join'); toast(`Joined ${got.campaign}`);
+      const member = (f.member || '').trim() || null;
+      const got = await api('/api/join', { token: (f.token || S.link.join || '').trim(), member });
+      forgetLink('join'); toast(`Joined ${got.campaign} as persona ${got.persona}`);
       S.bridge.state = await api('/api/state'); S.signer = new NM.BridgeSigner('', S.bridge.token); S.trust = NM.makeTrust(S.bridge.state.trust);
       await connect();
+      if (S.loaded) await requestLinkedTopic(member);
     },
     async claim() {
       const inv = NM.decodeInviteToken(S.link.join);
@@ -2646,11 +2855,11 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
         await step('Introduce yourself on bus (as `nostr-mailbox join --as` does)', () => S.desk.post(root, NM.BUS, { body: `${member} joined campaign ${inv.trust.campaign} (${NM.npub(S.me)})`, kind: 'handoff', subject: `member-joined:${member}` }, `member-joined:${member}:${S.me.slice(0, 16)}`));
       }
       if (topic) {
-        await step(`Ask for topic ${topic} (NIP-29 kind 9021${inv.extras.group_code ? ', with its invite code' : ''})`, () => S.desk.requestAccess(topic, `joined via invite${member ? ' as ' + member : ''}`, inv.extras.group_code || null));
+        await step(`Ask for topic ${topic} (NIP-29 kind 9021${inv.extras.group_code ? ', with its invite code' : ''}${S.link.ticket ? ', presenting the invite ticket' : ''})`, () => S.desk.requestAccess(topic, `joined via invite${member ? ' as ' + member : ''}`, inv.extras.group_code || null, S.link.ticket || null));
         S.store.requested = [...(S.store.requested || []).filter((r) => r.topic !== topic), { topic, at: NM.nowS() }];
         S.link.topic = topic;
       }
-      saveStore(); forgetLink('join');
+      saveStore(); for (const k of ['join', 'role', 'ticket']) forgetLink(k);
       S.claim = null; toast(`Joined: the relay said ${said || 'ok'}`);
       await refresh();
     },
@@ -2660,7 +2869,12 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
       S.store.requested = [...(S.store.requested || []).filter((r) => r.topic !== d.id), { topic: d.id, at: NM.nowS() }]; if (S.mode === 'standalone') saveStore();
       toast('Join request sent (kind 9021)'); draw();
     },
-    async approve(d) { await grant(d.pk, d.mode); },
+    async approve(d, el) { const pick = el.closest('li').querySelector('[name=role]'); await grant(d.pk, d.mode, pick ? pick.value : 'read-write'); },
+    async admit(d) {
+      const scope = scopeNow();
+      const got = await api('/api/topic/grant', { topic: scope.group, member: d.pk, ticket: d.ticket });
+      toast(`Admitted ${who(NM.pubkeyHex(got.member))} as invited: ${got.role}`); await refresh();
+    },
     async decline(d) { await S.desk.decline(scopeNow(), d.id); toast('Declined (kind 9005)'); await refresh(); },
     async revoke(d) {
       if (!confirm(`Revoke ${who(d.pk)}? They are removed (kind 9001) and every remaining member moves to a fresh epoch they never receive.`)) return;
@@ -2683,10 +2897,11 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     else await S.desk.ack(scope, view, topic, mySeat(), id, body);
     toast(`Acked: ${f.disposition}`); await refresh();
   }
-  async function grant(member, mode) {
+  async function grant(member, mode, role) {
     const scope = scopeNow();
-    const got = S.mode === 'bridge' ? await api('/api/topic/grant', { topic: scope.group, member, mode }) : await S.desk.grant(scope, member, mode);
-    toast(mode === 'full_history' ? `Granted with epochs ${got.epochs.join(', ')}` : `Granted forward-only from epoch ${got.epoch}`);
+    const got = S.mode === 'bridge' ? await api('/api/topic/grant', { topic: scope.group, member, mode, role }) : await S.desk.grant(scope, member, mode, role);
+    toast(role === 'write-only' ? `Granted write-only: they write sealed mail into @me/topic:${scope.group}${got.epoch ? `; the topic moved to epoch ${got.epoch} without them` : ''}`
+      : `${role}: ${mode === 'full_history' ? `granted with epochs ${got.epochs.join(', ')}` : `granted forward-only from epoch ${got.epoch}`}`);
     await refresh();
   }
   const forms = {
@@ -2719,11 +2934,17 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     },
     async decide(f, el) { const r = await S.desk.decide(scopeNow(), viewNow(), el.dataset.id, f); toast(`Decided: ${r.decision.outcome}; ${r.condition.condition} at rev ${r.condition.rev}`); await refresh(); },
     async handoff(f, el) { await S.desk.handoff(scopeNow(), f, f.for_seat.trim() || null); el.reset(); toast('Handoff sent'); await refresh(); },
-    async grant(f) { await grant(f.member.trim(), f.mode); },
-    async invite(f, el) { S.minted = await api('/api/invite', { member: f.member.trim() || null, topic: el.dataset.topic || null }); draw(); },
+    async grant(f) { await grant(f.member.trim(), f.mode, f.role || 'read-write'); },
+    async invite(f, el) {
+      const topic = el.dataset.topic || null, member = f.member.trim() || null;
+      S.minted = topic ? await api(`/api/topics/${topic}/invite`, { member, role: f.role, history: f.history }) : await api('/api/invite', { member });
+      if (topic) S.invites = await api('/api/invites');
+      draw();
+    },
     async 'new-topic'(f) {
       if (f.kind === 'dropbox') {
-        const part = f.part.trim(); if (!NM.SLUG.test(part)) throw new NM.NMError(`part ${part} must be a slug`);
+        const named = f.part.trim(), part = NM.MAIL_PART.test(named) ? named : `topic:${named}`;
+        if (part.length > 128 || !NM.MAIL_PART.test(part)) throw new NM.NMError(`part ${named} must be a slug (it becomes topic:${named})`);
         localStorage.setItem(partsKey(), JSON.stringify([...new Set([...savedParts(), part])]));
         if (f.peer.trim()) await S.desk.grantMail(f.peer.trim(), { parts: [part] });
         S.modal = null; S.selected = { kind: 'mail', part }; await refresh(); return;
@@ -2747,6 +2968,7 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     'kind-filter'(el) { S.kindFilter = el.value; draw(); },
     'grant-mode'(el) { S.grantMode = el.value; draw(); },
     'new-kind'(el) { S.newKind = el.value; draw(); },
+    async persona(el) { if (el.value !== S.bridge.state.active_persona) await switchPersona(el.value, false); },
   };
   async function run(name, fn) {
     try { await fn(); } catch (e) { report(e, name); }

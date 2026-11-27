@@ -806,7 +806,9 @@ def test_the_bridge_mints_an_invite_the_browser_engine_redeems(node, workstation
 def test_the_bridge_joins_a_fresh_workstation_from_a_token(tmp_path, relay):
     """A workstation with no campaign joins from the page: the key is created 0600, the
     nostr.toml written, the invite redeemed, and the bridge starts serving that campaign.
-    It refuses to join over an existing campaign."""
+    Then a second persona joins that same campaign from a fresh token, leaving nostr.toml
+    byte for byte as it was; a token for another campaign is refused before anything is
+    sent or written."""
     operator = LocalSigner(_secret(9))
     relay.add_member(operator.pubkey)
     trust = Trust(relay=relay.url, campaign="camp", operator_pubkeys=frozenset({operator.pubkey}),
@@ -826,8 +828,381 @@ def test_the_bridge_joins_a_fresh_workstation_from_a_token(tmp_path, relay):
         assert state["identity"]["pubkey"] in relay.members
         key_file = tmp_path / "fresh/identities/default.json"
         assert oct(key_file.stat().st_mode & 0o777) == "0o600"
-        assert "already has a campaign" in call(ws, "POST", "/api/join", {"token": token},
-                                                want=403)["error"]
+        assert joined["persona"] == "default"
+        toml = (tmp_path / "fresh/nostr.toml").read_bytes()
+        again = call(ws, "POST", "/api/join", {"token": token})
+        assert again["relay_said"].startswith("duplicate"), "a member spends nothing"
+        call(ws, "POST", "/api/persona", {"name": "alice-work", "create": True})
+        second = call(ws, "POST", "/api/join", {
+            "token": cli._encode_invite_token(trust, relay.create_invite()), "member": "alice"})
+        alice = call(ws, "GET", "/api/state")["identity"]["pubkey"]
+        assert second["persona"] == "alice-work" and alice in relay.members
+        assert (tmp_path / "fresh/nostr.toml").read_bytes() == toml
+        other = Trust(relay=relay.url, campaign="elsewhere",
+                      operator_pubkeys=frozenset({operator.pubkey}))
+        stored = len(relay.stored())
+        refused = call(ws, "POST", "/api/join", {
+            "token": cli._encode_invite_token(other, relay.create_invite())}, want=403)
+        assert "already has campaign 'camp'" in refused["error"]
+        assert "'elsewhere'" in refused["error"] and len(relay.stored()) == stored
+        assert (tmp_path / "fresh/nostr.toml").read_bytes() == toml
+
+
+# ================================================= personas, invite links and roles
+def _page_engine(tmp_path, fn: str, data):
+    """One call into the page's engine under Node: `fn` is a JavaScript function of
+    (NM, input), run on the engine exactly as the page holds it, and awaited. The process
+    exits once the answer is written, whatever sockets the engine left open."""
+    engine, runner = tmp_path / "engine-fn.js", tmp_path / "engine-fn.mjs"
+    engine.write_text(_engine_source())
+    runner.write_text(
+        "import fs from 'node:fs';\n"
+        "new Function(fs.readFileSync(process.argv[2], 'utf8'))();\n"
+        "const input = JSON.parse(fs.readFileSync(0, 'utf8'));\n"
+        f"const out = await ({fn})(globalThis.NM, input);\n"
+        "process.stdout.write(JSON.stringify(out), () => process.exit(0));\n")
+    done = subprocess.run([NODE, str(runner), str(engine)], input=json.dumps(data),
+                          capture_output=True, text=True, check=False)
+    assert done.returncode == 0, f"the engine failed:\n{done.stderr}"
+    return json.loads(done.stdout)
+
+
+READ_LINKS = """(NM, input) => input.map((frag) => {
+  try { const link = NM.parseLink(frag);
+        if (!link.join) return link;
+        return { ...link, campaign: NM.decodeInviteToken(link.join).trust.campaign }; }
+  catch (e) { return { error: e.message }; } })"""
+
+
+@needs_node
+def test_join_links_open_the_console_and_the_engine_reads_every_link_form(tmp_path,
+                                                                          workstation):
+    """`/join` and `/join/` serve the very page `/` does, with this run's token and CSP,
+    to this console's Host only. The engine reads a token from `#nm1_…`, `#nm1_…&topic=…`
+    and `#join=nm1_…`, takes only the keys it knows, and refuses a link that names an
+    unknown role or a topic that is not a topic id. Its roles are the bridge's."""
+    page, _ = call(workstation, "GET", "/", token=None)
+    for path in ("/join", "/join/"):
+        served, response = call(workstation, "GET", path, token=None)
+        assert served == page and response.getheader("Content-Type").startswith("text/html")
+        assert response.getheader("Content-Security-Policy") == workstation.console.csp
+        assert f'content="{workstation.token}"'.encode() in served
+        assert "Host" in call(workstation, "GET", path, token=None, host="evil.example",
+                              want=403)["error"]
+    trust = Trust.load(workstation.home / "nostr.toml")
+    token = cli._encode_invite_token(trust, "bearer-code", member="roland")
+    got = _page_engine(tmp_path, READ_LINKS, [
+        f"#{token}", f"{token}&topic=retry&role=read-only&ticket=t-1",
+        f"#join={token}&topic=retry&ticket=t-2&extra=dropped", "#invite=relay-code",
+        f"#{token}&role=owner", f"#join={token}&topic=Not_A_Topic", "#join=nope"])
+    assert got[:4] == [
+        {"join": token, "campaign": "camp"},
+        {"join": token, "topic": "retry", "role": "read-only", "ticket": "t-1",
+         "campaign": "camp"},
+        {"join": token, "topic": "retry", "ticket": "t-2", "campaign": "camp"},
+        {"invite": "relay-code"}]
+    assert "role owner" in got[4]["error"] and "not a topic id" in got[5]["error"]
+    assert "nm1_" in got[6]["error"]
+    assert _page_engine(tmp_path, "(NM) => NM.ROLES", None) == list(ui.ROLES)
+
+
+def test_personas_are_listed_switched_and_created_and_a_request_keeps_its_own(workstation,
+                                                                            relay):
+    """Every identity file is a persona in /api/state, an unusable one listed with the
+    reason. /api/persona switches who the bridge signs as and creates a fresh 0600 key
+    on request, never over one that exists. A request runs as the persona it began with,
+    whatever a switch did meanwhile."""
+    alice = create_identity("alice-work", base=workstation.home)
+    broken = workstation.home / "identities/broken.json"
+    broken.write_text("{}")
+    broken.chmod(0o644)
+    state = call(workstation, "GET", "/api/state")
+    listed = {p["name"]: p for p in state["personas"]}
+    assert sorted(listed) == ["alice-work", "broken", "default"]
+    assert state["active_persona"] == "default" and listed["default"]["active"]
+    assert listed["alice-work"]["pubkey"] == alice.pubkey and "error" not in listed["alice-work"]
+    assert "0600" in listed["broken"]["error"] and "nsec" not in json.dumps(state)
+    started = workstation.console.pinned()
+    switched = call(workstation, "POST", "/api/persona", {"name": "alice-work"})
+    assert switched["active_persona"] == switched["seat"] == "alice-work"
+    assert switched["identity"]["pubkey"] == alice.pubkey
+    assert started.need_identity().pubkey == workstation.pubkey, \
+        "a request that began as default finishes as default"
+    signed = call(workstation, "POST", "/api/sign", {"event": {
+        "created_at": int(time.time()), "kind": 22242,
+        "tags": [["relay", relay.url], ["challenge", "c"]], "content": ""}})["event"]
+    assert verify_event(signed).pubkey == alice.pubkey
+    made = call(workstation, "POST", "/api/persona", {"name": "alice-personal", "create": True})
+    key_file = workstation.home / "identities/alice-personal.json"
+    assert made["active_persona"] == "alice-personal" and oct(key_file.stat().st_mode & 0o777) \
+        == "0o600"
+    assert made["identity"]["pubkey"] not in (alice.pubkey, workstation.pubkey)
+    assert "already exists" in call(workstation, "POST", "/api/persona", {
+        "name": "alice-work", "create": True}, want=400)["error"]
+    assert "no identity 'ghost'" in call(workstation, "POST", "/api/persona",
+                                         {"name": "ghost"}, want=400)["error"]
+    assert "must match" in call(workstation, "POST", "/api/persona", {"name": "Bad Name",
+                                                                      "create": True},
+                                want=400)["error"]
+    assert call(workstation, "GET", "/api/state")["active_persona"] == "alice-personal"
+    back = call(workstation, "POST", "/api/persona", {"name": "default"})
+    assert back["identity"]["pubkey"] == workstation.pubkey and back["role"] == "operator"
+
+
+def _admin_cli(ws, relay, tmp_path):
+    """admin.json pointing at a recording program on a real subprocess boundary, as
+    `kubectl exec … ncli` would be; each `mint()` arms it with a fresh real relay code.
+    Returns (mint, runs): `runs()` counts the times the admin was run."""
+    code_file, log = tmp_path / "next-invite.json", tmp_path / "admin-runs.log"
+    admin = tmp_path / "ncli.sh"
+    admin.write_text(f"echo run >> '{log}'\ncat '{code_file}'\n")
+    (ws.home / "admin.json").write_text(json.dumps({"exec_prefix": ["/bin/sh", str(admin)]}))
+
+    def mint() -> str:
+        code, stamp = relay.create_invite(), int(time.time())
+        code_file.write_text(json.dumps({"code": code, "created_at": stamp,
+                                         "expires_at": stamp + 7 * 24 * 3600, "max_uses": 1,
+                                         "uses": 0}))
+        return code
+
+    def runs() -> int:
+        return len(log.read_text().splitlines()) if log.exists() else 0
+    return mint, runs
+
+
+def _ask(ws, secret: bytes, topic: str, ticket: str | None, reason: str = "via the link"):
+    """The newcomer's join request as the page's `requestAccess` writes it: kind 9021
+    with `h`, and the link's ticket."""
+    with _session(ws) as plain:
+        trust = plain.trust
+    with ui.TopicSession(trust, LocalSigner(secret), timeout_s=WAIT) as session:
+        tags = [["h", topic], *([["ticket", ticket]] if ticket else [])]
+        event = session.relay.sign(ui.JOIN_REQUEST, tags, reason)
+        session.relay.publish(event)
+    return event.id
+
+
+def _ticket(join_url: str) -> str:
+    return dict(part.split("=", 1) for part in urlsplit(join_url).fragment.split("&")[1:])[
+        "ticket"]
+
+
+@needs_node
+def test_a_topic_invite_carries_a_role_and_a_join_link_and_admits_only_its_presenter(
+        tmp_path, workstation, relay):
+    """/api/topics/<group>/invite mints only for an admin of a topic that exists, and
+    refuses a role it does not know, before the relay's admin is run. It returns the nm1_
+    token, a 1-click join link (the console's /join/ page with the token, topic, role and
+    ticket in the fragment) and records only the ticket's digest, 0600. The engine reads
+    that very link. Admission by ticket grants the minted terms to the one key that
+    presented it, once; a ticket the workstation did not mint, other terms, or a ticket
+    two keys present admit nobody."""
+    mint, runs = _admin_cli(workstation, relay, tmp_path)
+    call(workstation, "POST", "/api/topic/create", {"topic": "retry"})
+    assert "role 'owner'" in call(workstation, "POST", "/api/topics/retry/invite",
+                                  {"role": "owner"}, want=400)["error"]
+    assert "create it first" in call(workstation, "POST", "/api/topics/nowhere/invite", {},
+                                     want=400)["error"]
+    bystander = create_identity("bystander", base=workstation.home)
+    relay.add_member(bystander.pubkey)
+    call(workstation, "POST", "/api/persona", {"name": "bystander"})
+    assert "only an admin" in call(workstation, "POST", "/api/topics/retry/invite", {},
+                                   want=403)["error"]
+    call(workstation, "POST", "/api/persona", {"name": "default"})
+    assert runs() == 0, "nothing is minted for a refused invite"
+
+    mint()
+    minted = call(workstation, "POST", "/api/topics/retry/invite",
+                  {"role": "read-only", "history": "full_history", "member": "roland"})
+    token, ticket = minted["token"], _ticket(minted["join_url"])
+    assert (minted["role"], minted["history"], minted["topic"], runs()) == (
+        "read-only", "full_history", "retry", 1)
+    assert minted["join_url"] == (f"http://{ui.DEFAULT_HOST}:{ui.DEFAULT_PORT}/join/#{token}"
+                                  f"&topic=retry&role=read-only&ticket={ticket}")
+    assert cli._decode_invite_token(token)[2] == "roland", "the CLI joins with it as well"
+    book = workstation.home / "invites/retry.json"
+    assert oct(book.stat().st_mode & 0o777) == "0o600" and ticket not in book.read_text()
+    listed = call(workstation, "GET", "/api/invites")["topics"]["retry"]
+    assert [(t["ticket_sha256"], t["role"], t["member"], t["admitted"]) for t in listed] == [
+        (ui.ticket_digest(ticket), "read-only", "roland", None)]
+    assert ticket not in json.dumps(listed)
+    read = _page_engine(tmp_path, READ_LINKS, ["#" + urlsplit(minted["join_url"]).fragment])
+    assert read == [{"join": token, "topic": "retry", "role": "read-only", "ticket": ticket,
+                     "campaign": "camp"}]
+
+    friend, stranger, peer = _pub(FRIEND_SK), _pub(STRANGER_SK), _pub(PEER_SK)
+    relay.add_member(stranger)
+    relay.add_member(peer)
+    with ui.TopicSession(Trust.load(workstation.home / "nostr.toml"), LocalSigner(FRIEND_SK),
+                         timeout_s=WAIT) as newcomer:
+        assert newcomer.relay.join(cli._decode_invite_token(token)[0]) == "info: welcome"
+    _ask(workstation, FRIEND_SK, "retry", ticket)
+    _ask(workstation, STRANGER_SK, "retry", "a-ticket-nobody-minted")
+    assert "minted no such ticket" in call(workstation, "POST", "/api/topic/grant", {
+        "topic": "retry", "member": stranger, "ticket": "a-ticket-nobody-minted"},
+        want=403)["error"]
+    assert "no pending join request" in call(workstation, "POST", "/api/topic/grant", {
+        "topic": "retry", "member": peer, "ticket": ticket}, want=403)["error"]
+    assert "minted for role 'read-only'" in call(workstation, "POST", "/api/topic/grant", {
+        "topic": "retry", "member": friend, "ticket": ticket, "role": "read-write"},
+        want=403)["error"]
+    admitted = call(workstation, "POST", "/api/topic/grant", {
+        "topic": "retry", "member": _npub(friend), "ticket": ticket})
+    assert (admitted["role"], admitted["mode"], admitted["epochs"], admitted["ticket"]) == (
+        "read-only", "full_history", [1], "admitted")
+    put = next(e for e in relay.stored() if e.id == admitted["put_user"])
+    assert [list(t) for t in put.tags if t[0] == "p"] == [["p", friend, "read-only"]]
+    assert "already admitted" in call(workstation, "POST", "/api/topic/grant", {
+        "topic": "retry", "member": friend, "ticket": ticket}, want=403)["error"]
+    assert call(workstation, "GET", "/api/invites")["topics"]["retry"][0]["admitted"] == friend
+
+    mint()
+    shared = _ticket(call(workstation, "POST", "/api/topics/retry/invite",
+                          {"role": "read-write"})["join_url"])
+    for secret in (PEER_SK, STRANGER_SK):
+        _ask(workstation, secret, "retry", shared)
+    assert "2 keys present this ticket" in call(workstation, "POST", "/api/topic/grant", {
+        "topic": "retry", "member": peer, "ticket": shared}, want=403)["error"]
+    topics = call(workstation, "GET", "/api/topics")["topics"]
+    assert topics[0]["roles"] == {_npub(workstation.pubkey): "read-write",
+                                  _npub(friend): "read-only"}
+    assert {r["ticket"] for r in topics[0]["requests"]} == {shared, "a-ticket-nobody-minted"}
+
+
+@needs_node
+def test_read_only_writes_are_held_and_write_only_members_write_sealed_mail_without_a_key(
+        node, tmp_path, workstation, relay):
+    """A read-only member, admitted by ticket, replays the topic's history; what it posts
+    is held at every console's human gate. A write-only member gets no key ring, not on
+    admission and not when the topic rotates; it writes sealed mail into the admin's
+    `topic:retry` dropbox part, which the admin's gate holds for preview. Downgrading a reader
+    to write-only rotates the topic without it. The bridge's state says which topics a
+    coding agent on this workstation holds an epoch of."""
+    mint, _ = _admin_cli(workstation, relay, tmp_path)
+    friend, newcomer, peer = _pub(FRIEND_SK), _pub(NEWCOMER_SK), _pub(PEER_SK)
+    for pk in (friend, newcomer, peer):
+        relay.add_member(pk)
+    call(workstation, "POST", "/api/topic/create", {"topic": "retry"})
+    call(workstation, "POST", "/api/post", {"group": "retry", "topic": "bus",
+                                            "body": "epoch-1 history"})
+    tickets = {}
+    for secret, role in ((FRIEND_SK, "read-only"), (NEWCOMER_SK, "write-only")):
+        mint()
+        tickets[role] = _ticket(call(workstation, "POST", "/api/topics/retry/invite",
+                                     {"role": role})["join_url"])
+        _ask(workstation, secret, "retry", tickets[role])
+    reader = call(workstation, "POST", "/api/topic/grant", {
+        "topic": "retry", "member": friend, "ticket": tickets["read-only"]})
+    writer = call(workstation, "POST", "/api/topic/grant", {
+        "topic": "retry", "member": newcomer, "ticket": tickets["write-only"]})
+    assert (reader["role"], len(reader["wraps"])) == ("read-only", 1)
+    assert (writer["role"], writer["mode"], "wraps" in writer) == ("write-only", None, False)
+    assert writer["mailbox"] == {"owner": _npub(workstation.pubkey), "part": "topic:retry",
+                                 "scope": "topic_scoped", "trust": "human_gated"}
+
+    _next_second()
+    posted = node({"scenario": "session", "secret": FRIEND_SK.hex(), "trust": workstation.trust,
+                   "timeout_s": WAIT, "topics": ["retry"],
+                   "ops": [{"op": "post", "scope": "retry", "topic": "bus",
+                            "body": "a read-only member's note"}]})
+    assert posted["ops"][0].get("error") is None, "the relay takes it: roles are not its job"
+    seen = posted["scopes"]["retry"]
+    assert [m["body"] for m in seen["topics"]["bus"]["messages"]] == ["epoch-1 history"]
+    assert [(q["body"], q["why"]) for q in seen["quarantine"]] == [
+        ("a read-only member's note", "written by a read-only member")]
+    bridge = {"base": workstation.url, "token": workstation.token}
+    admin_view = node({"scenario": "session", "bridge": bridge, "trust": workstation.trust,
+                       "timeout_s": WAIT, "topics": ["retry"], "root": True, "mailbox": True})
+    assert [q["why"] for q in admin_view["scopes"]["retry"]["quarantine"]] == [
+        "written by a read-only member"]
+
+    wrote = node({"scenario": "session", "secret": NEWCOMER_SK.hex(), "trust": workstation.trust,
+                  "timeout_s": WAIT, "topics": ["retry"],
+                  "ops": [{"op": "mail", "owner": workstation.pubkey, "part": "topic:retry",
+                           "subject": "status", "body": "wave 7 is green"}]})
+    assert wrote["ops"][0].get("error") is None and wrote["keyrings"] == []
+    assert wrote["scopes"]["retry"]["nokey"] is True
+    assert newcomer in wrote["scopes"]["retry"]["members"]
+    box = node({"scenario": "session", "bridge": bridge, "trust": workstation.trust,
+                "timeout_s": WAIT, "root": True, "mailbox": True})["mailbox"]
+    held = [m for m in box["held"] if m["from"] == newcomer]
+    assert [(m["part"], m["granted"], m["body"]["body"]) for m in held] == [
+        ("topic:retry", True, "wave 7 is green")]
+    assert {"peer": newcomer, "active": True, "trust": "human_gated", "scope": "topic_scoped",
+            "parts": ["topic:retry"]} in box["grants"]
+
+    rotated = call(workstation, "POST", "/api/topic/grant", {
+        "topic": "retry", "member": peer, "mode": "forward_only", "role": "read-write"})
+    assert rotated["epoch"] == 2 and _npub(newcomer) not in rotated["recipients"]
+    assert _npub(friend) in rotated["recipients"]
+    _next_second()
+    downgraded = call(workstation, "POST", "/api/topic/grant", {
+        "topic": "retry", "member": friend, "role": "write-only"})
+    assert downgraded["epoch"] == 3 and _npub(friend) not in downgraded["recipients"]
+    after = node({"scenario": "session", "secret": NEWCOMER_SK.hex(), "trust": workstation.trust,
+                  "timeout_s": WAIT, "topics": ["retry"]})
+    assert after["keyrings"] == [], "no rotation ever reached the write-only key"
+
+    assert call(workstation, "GET", "/api/state")["exports"] == {}
+    call(workstation, "POST", "/api/topic/export", {"topic": "retry"})
+    assert call(workstation, "GET", "/api/state")["exports"] == {"retry": [3]}
+
+
+PAGE_GRANTS = """async (NM, c) => {
+  const trust = NM.makeTrust(c.trust), signer = new NM.KeySigner(NM.unhex(c.secret));
+  const relay = new NM.RelayClient(trust.relay, signer,
+                                   { authUrl: trust.relay, timeoutS: c.timeout_s });
+  await relay.connect();
+  const desk = new NM.Desk(trust, signer, relay);
+  const scope = async () => {
+    const { keyrings } = await desk.inbox();
+    const events = await relay.queryAll({ '#h': [c.topic] });
+    return NM.topicScope(trust, c.topic, events, keyrings, relay.pubkey);
+  };
+  await desk.createTopic(c.topic, c.topic);
+  const reader = await desk.grant(await scope(), c.reader, 'full_history', 'read-only');
+  const writer = await desk.grant(await scope(), c.writer, 'full_history', 'write-only');
+  const late = await desk.grant(await scope(), c.late, 'forward_only', 'read-write');
+  let refused = null;
+  try { await desk.grant(await scope(), c.late, 'full_history', 'owner'); }
+  catch (e) { refused = e.message; }
+  const roster = (await scope()).roster;
+  relay.close();
+  return { reader, writer, late, refused, roles: roster.roles };
+}"""
+
+
+@needs_node
+def test_roles_the_page_grants_read_the_same_in_python(tmp_path, workstation, relay):
+    """The page, as a topic's admin with its own key, grants read-only, write-only and
+    read-write. Python reads the same roster and roles from the relay; the write-only key
+    gets no key ring, not even when the page rotates the topic, and a topic_scoped grant
+    into the admin's `topic:<id>` part instead. A role the page does not know is refused."""
+    admin, reader, writer, late = (_pub(k) for k in (FRIEND_SK, PEER_SK, NEWCOMER_SK,
+                                                     STRANGER_SK))
+    for pk in (admin, reader, writer, late):
+        relay.add_member(pk)
+    got = _page_engine(tmp_path, PAGE_GRANTS, {
+        "trust": workstation.trust, "secret": FRIEND_SK.hex(), "timeout_s": WAIT,
+        "topic": "js-roles", "reader": reader, "writer": writer, "late": late})
+    assert (got["reader"]["role"], got["reader"]["epochs"]) == ("read-only", [1])
+    assert got["writer"]["role"] == "write-only" and "wraps" not in got["writer"]
+    assert got["writer"]["mailbox"]["part"] == "topic:js-roles"
+    assert got["late"]["epoch"] == 2 and writer not in got["late"]["recipients"]
+    assert set(got["late"]["recipients"]) == {admin, reader, late}
+    assert "role owner" in got["refused"]
+    trust = Trust.load(workstation.home / "nostr.toml")
+    with ui.TopicSession(trust, LocalSigner(FRIEND_SK), timeout_s=WAIT) as session:
+        state = ui.TopicDesk(session, FRIEND_SK).state("js-roles")
+    assert state.roles == got["roles"] == {admin: "read-write", reader: "read-only",
+                                           writer: "write-only", late: "read-write"}
+    wraps_to_writer = [e for e in relay.stored() if e.kind == ui.GIFT_WRAP
+                       and e.values("p") == [writer]]
+    assert wraps_to_writer == []
+    grant = [e for e in relay.stored() if e.kind == 4420 and e.pubkey == admin]
+    assert [(g.values("p"), g.values("scope"), g.values("part"), g.values("trust"))
+            for g in grant] == [([writer], ["topic_scoped"], ["topic:js-roles"],
+                                 ["human_gated"])]
 
 
 # ================================================================== mailboxes

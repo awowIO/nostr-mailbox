@@ -20,6 +20,15 @@ NIP-42 proof for the pinned relay only, and a blob authorization for the campaig
 server only. `/api/nip44` is the NIP-07 `nip44.encrypt/decrypt` pair, for key rings
 and mailbox envelopes; it needs a key held in the identity file (`local` signer).
 
+Personas. Every identity file under `<home>/identities/` is a persona; `/api/state`
+lists them and `/api/persona` switches the one this console signs as (or creates one,
+0600). Each request runs as the persona active when it arrived, start to finish.
+
+Invite links. The page is also served at `/join` and `/join/`, so a link such as
+`http://127.0.0.1:7890/join/#nm1_…&topic=retry&role=read-only&ticket=…` opens the
+console with the invite filled in. The token stays in the fragment, which a browser
+never sends to a server; redeeming it takes one click on the page.
+
 Topics. A shared topic is a NIP-29 group whose records are ordinary campaign records
 tagged `["epoch", n]` and encrypted under `nip44.campaign_conversation_key(K_n,
 campaign)`, so `Trust(group=topic, campaign_key=K_n)` reads epoch n with the unchanged
@@ -27,12 +36,27 @@ CLI. The keys travel as NIP-59 key rings (rumor 8892 → seal 13 → gift wrap 1
 by the granter's member key: a private relay refuses events whose author is not the key
 that authenticated, so there is no ephemeral wrapper key. `TopicDesk` below is the
 Python half of that protocol; the page carries the other half, and the witnesses in
-tests/test_web_ui.py hold the two to the same wire."""
+tests/test_web_ui.py hold the two to the same wire.
+
+Roles. The admin's 9000 names each member's role in its NIP-29 role slot:
+`read-write` (written `member`, as every 9000 before roles was), `read-only` or
+`write-only`. A read-only member is given the key ring, and every console reader holds
+the messages it writes at the human gate, as it holds a revoked key's late writes. A
+write-only member is never given a key ring: it writes sealed mail (kind 4410) into the
+admin's `topic:<topic>` dropbox part, under a `topic_scoped`, `human_gated` grant. The relay
+does not enforce roles, and neither does the CLI's reader; the console's readers do.
+
+Invite tickets. `/api/topics/<group>/invite` mints a relay invite and a ticket, and
+records only the ticket's sha256 with the role and history it was minted for, in
+`<home>/invites/<group>.json` (0600). The newcomer's join request (9021) presents the
+ticket, and the admin's `/api/topic/grant` with that ticket applies those recorded terms
+to that one key, once."""
 from __future__ import annotations
 
 import argparse
 import base64
 import contextlib
+import copy
 import hashlib
 import hmac
 import ipaddress
@@ -41,7 +65,9 @@ import os
 import re
 import secrets
 import socket
+import stat
 import sys
+import tempfile
 import threading
 import traceback
 import webbrowser
@@ -71,9 +97,11 @@ from .identity import (
     Identity,
     IdentityError,
     SignerServer,
+    create_identity,
     home,
     load_identity,
 )
+from .mailbox import Dropbox
 from .profile import EpochKeys, ProfileError, Trust
 from .relay import INVITE_CLAIM_KIND, INVITE_TTL, NCLI_CONFIG, RelayAdmin, RelayError
 
@@ -97,6 +125,25 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 # the relay and every reader check against the topic's admins anyway.
 CONSOLE_KINDS = frozenset({0, NIP59_SEAL, GIFT_WRAP, PUT_USER, REMOVE_USER, DELETE_EVENT,
                            CREATE_GROUP, JOIN_REQUEST, *MAIL_KINDS})
+# A member's role in a topic, and what the admin's 9000 writes in its NIP-29 role slot.
+ROLES = ("read-write", "read-only", "write-only")
+ROLE_TAG = {"read-write": "member", "read-only": "read-only", "write-only": "write-only"}
+JOIN_PATHS = ("/join", "/join/")
+INVITES = "invites"
+INVITE_BOOK_SCHEMA = "cf.topic-invites/1"
+_TOPIC_INVITE = re.compile(r"^/api/topics/([a-z0-9][a-z0-9_-]{0,63})/invite$")
+_EXPORT = re.compile(r"^([a-z0-9][a-z0-9_-]{0,63})-epoch-([1-9][0-9]*)\.toml$")
+
+
+def role_of(tag: list) -> str:
+    """The role a 9000's `p` tag gives: its third element when that names read-only or
+    write-only, read-write otherwise (NIP-29's `member`, or no role at all)."""
+    named = tag[2] if len(tag) > 2 else ""
+    return named if named in ("read-only", "write-only") else "read-write"
+
+
+def ticket_digest(ticket: str) -> str:
+    return hashlib.sha256(ticket.encode("utf-8")).hexdigest()
 
 
 class ConsoleError(NostrError):
@@ -212,6 +259,7 @@ class TopicState:
     creator: str | None
     admins: frozenset[str]
     members: tuple[str, ...]
+    roles: dict[str, str]
     epochs: dict[int, str]
     conflicts: tuple[int, ...]
     requests: tuple[dict, ...]
@@ -227,6 +275,7 @@ class TopicState:
                 "creator": npub(self.creator) if self.creator else None,
                 "admins": sorted(npub(k) for k in self.admins),
                 "members": [npub(k) for k in self.members],
+                "roles": {npub(k): self.roles[k] for k in self.members},
                 "epochs": sorted(self.epochs), "current": self.current,
                 "conflicts": list(self.conflicts),
                 "requests": [{**r, "npub": npub(r["pubkey"])} for r in self.requests]}
@@ -240,20 +289,24 @@ def topic_state(trust: Trust, topic: str, group_events: list[Event], rings: list
     creator = created[0].pubkey if created else None
     admins = frozenset(trust.operator_pubkeys | ({creator} if creator else set()))
     member: dict[str, bool] = {creator: True} if creator else {}
+    role: dict[str, str] = {creator: "read-write"} if creator else {}
     touched: dict[str, int] = {creator: created[0].created_at} if creator else {}
     for e in order(group_events):
         if (e.kind not in (PUT_USER, REMOVE_USER) or e.values("h")[:1] != [topic]
                 or e.pubkey not in admins):
             continue
-        for pk in e.values("p"):
-            if _SHA256.match(pk):
-                member[pk] = e.kind == PUT_USER
-                touched[pk] = e.created_at
+        for tag in e.tags:
+            if len(tag) > 1 and tag[0] == "p" and _SHA256.match(tag[1]):
+                member[tag[1]] = e.kind == PUT_USER
+                role[tag[1]] = role_of(tag) if e.kind == PUT_USER else role.get(tag[1],
+                                                                                 "read-write")
+                touched[tag[1]] = e.created_at
     declined = {ident for e in group_events
                 if e.kind == DELETE_EVENT and e.pubkey in admins and e.values("h")[:1] == [topic]
                 for ident in e.values("e")}
     requests = tuple(
-        {"id": e.id, "pubkey": e.pubkey, "created_at": e.created_at, "reason": e.content}
+        {"id": e.id, "pubkey": e.pubkey, "created_at": e.created_at, "reason": e.content,
+         "ticket": (e.values("ticket") or [None])[0]}
         for e in order(group_events)
         if e.kind == JOIN_REQUEST and e.values("h")[:1] == [topic] and e.id not in declined
         and not member.get(e.pubkey) and touched.get(e.pubkey, -1) < e.created_at)
@@ -267,9 +320,10 @@ def topic_state(trust: Trust, topic: str, group_events: list[Event], rings: list
             if n in epochs and epochs[n] != key:
                 conflicts.add(n)
             epochs.setdefault(n, key)
+    members = tuple(pk for pk, yes in member.items() if yes)
     return TopicState(topic=topic, name=standing[-1]["name"] if standing else topic,
-                      creator=creator, admins=admins,
-                      members=tuple(pk for pk, yes in member.items() if yes), epochs=epochs,
+                      creator=creator, admins=admins, members=members,
+                      roles={pk: role[pk] for pk in members}, epochs=epochs,
                       conflicts=tuple(sorted(conflicts)), requests=requests)
 
 
@@ -296,10 +350,11 @@ class TopicSession(CampaignSession):
 
 class TopicDesk:
     """Create, grant and revoke shared topics, and resolve their key rings, for the key
-    of one session. `secret` is that key: a key ring is pairwise NIP-44."""
+    of one session. `secret` is that key: a key ring is pairwise NIP-44. `dropbox` is
+    this key's mailbox, which a write-only grant opens a part of."""
 
-    def __init__(self, session: TopicSession, secret: bytes):
-        self.session, self.secret = session, secret
+    def __init__(self, session: TopicSession, secret: bytes, dropbox: Dropbox | None = None):
+        self.session, self.secret, self.dropbox = session, secret, dropbox
         self._rings: list[dict] | None = None
 
     @property
@@ -383,21 +438,38 @@ class TopicDesk:
             raise NotAuthorized(f"only an admin of topic {state.topic!r} grants or revokes; "
                                 "nothing was sent")
 
-    def grant(self, topic: str, member: str, mode: str) -> dict:
+    def grant(self, topic: str, member: str, mode: str, role: str = "read-write") -> dict:
         """full_history: every epoch held goes to the newcomer. forward_only: the topic
-        rotates to epoch k+1 for every member, and the newcomer gets that epoch alone."""
-        if mode not in GRANT_MODES:
+        rotates to epoch k+1 for every member, and the newcomer gets that epoch alone.
+        A read-only member gets the same key ring; a write-only one gets none, and a
+        grant into this key's `topic:<topic>` dropbox part instead (`mode` does not
+        apply)."""
+        if role not in ROLES:
+            raise TopicError(f"role {role!r} must be one of {ROLES}")
+        if role != "write-only" and mode not in GRANT_MODES:
             raise TopicError(f"grant mode {mode!r} must be one of {GRANT_MODES}")
+        if role == "write-only" and self.dropbox is None:
+            raise TopicError("a write-only grant opens a part of this key's dropbox, and this "
+                             "desk was given none; nothing was sent")
         state = self.state(topic)
         self._admin(state)
         member = bech32.pubkey_hex(member)
-        put = self._publish(PUT_USER, [["h", topic], ["p", member, "member"]])
+        put = self._publish(PUT_USER, [["h", topic], ["p", member, ROLE_TAG[role]]])
+        out: dict = {"put_user": put.id, "role": role}
+        if role == "write-only":
+            part = f"topic:{topic}"
+            mail = self.dropbox.grant(member, scope="topic_scoped", parts=[part],
+                                      trust="human_gated", read_replies=True)
+            out.update(mode=None, mailbox={"owner": _npub(self.me), "part": part,
+                                           "scope": mail.scope, "trust": mail.trust})
+            if member in state.members and state.roles.get(member) != "write-only":
+                out.update(self._rotate(state, remove=member))   # it held keys until now
+            return out
         if mode == "full_history":
             wrap = self._ring(member, topic, state.name, state.epochs, state.current,
                               "full_history")
-            return {"put_user": put.id, "mode": mode, "epochs": sorted(state.epochs),
-                    "wraps": [wrap]}
-        return {"put_user": put.id, "mode": mode, **self._rotate(state, add=member)}
+            return {**out, "mode": mode, "epochs": sorted(state.epochs), "wraps": [wrap]}
+        return {**out, "mode": mode, **self._rotate(state, add=member)}
 
     def revoke(self, topic: str, member: str) -> dict:
         state = self.state(topic)
@@ -412,7 +484,8 @@ class TopicDesk:
                 remove: str | None = None) -> dict:
         n = (state.current or 0) + 1
         fresh = os.urandom(32).hex()
-        members = (set(state.members) | {self.me} | ({add} if add else set())) - {remove}
+        readers = {pk for pk in state.members if state.roles.get(pk) != "write-only"}
+        members = (readers | {self.me} | ({add} if add else set())) - {remove}
         wraps = []
         for pk in sorted(members):
             ring = {**state.epochs, n: fresh} if pk == self.me else {n: fresh}
@@ -424,6 +497,25 @@ class TopicDesk:
 
 def _npub(pubkey: str) -> str:
     return bech32.encode(bech32.NPUB, bytes.fromhex(pubkey))
+
+
+_INVITE_NOTE = ("a bearer invite: whoever holds the token joins once. Both links keep it in "
+                "the URL fragment, which a browser never sends to a server. join_url opens "
+                "the newcomer's own `nostr-mailbox ui` at its default address; web_link "
+                "opens the page only where the relay's origin serves it")
+
+
+def _join_url(token: str, *, topic: str | None = None, role: str | None = None,
+              ticket: str | None = None) -> str:
+    """The 1-click link: `nostr-mailbox ui`'s own `/join/` page with the token, and the
+    topic, role and ticket beside it, in the fragment."""
+    extra = "".join(f"&{name}={value}" for name, value in
+                    (("topic", topic), ("role", role), ("ticket", ticket)) if value)
+    return f"http://{DEFAULT_HOST}:{DEFAULT_PORT}/join/#{token}{extra}"
+
+
+def _one_liner(token: str) -> str:
+    return f"uvx --from git+https://github.com/awowIO/nostr-mailbox nostr-mailbox join {token}"
 
 
 # ================================================================ the console
@@ -441,9 +533,10 @@ def _page_csp(page: str) -> str:
 
 
 class Console:
-    """What every request needs: where this workstation keeps its files, and how long to
-    wait for a relay. Files are read per request, so `setup` or `join` run elsewhere is
-    picked up without a restart."""
+    """What every request needs: where this workstation keeps its files, which persona
+    it signs as, and how long to wait for a relay. Files are read per request, so
+    `setup` or `join` run elsewhere is picked up without a restart. A request works on
+    `pinned()`, a copy that keeps the persona it started with."""
 
     def __init__(self, *, base: str | Path | None = None, identity: str = DEFAULT_NAME,
                  trust_path: str | Path | None = None, timeout_s: float = DEFAULT_WAIT_S,
@@ -458,6 +551,15 @@ class Console:
             raise ConsoleError(f"{PAGE} must hold exactly one {TOKEN_SLOT!r}")
         self.page = raw.replace(TOKEN_SLOT, f'<meta name="nm-bridge" content="{self.token}">')
         self.csp = _page_csp(self.page)
+        self.root = self                        # the console every pinned copy came from
+        self._persona_lock = threading.Lock()
+        self._book_lock = threading.Lock()
+
+    def pinned(self) -> Console:
+        """This console as one request sees it: the persona active when the request
+        arrived, for the whole request, whatever `persona` switches meanwhile."""
+        with self.root._persona_lock:
+            return copy.copy(self.root)
 
     # ---- files
     def identity(self) -> Identity | None:
@@ -537,11 +639,105 @@ class Console:
         session.enter(scoped, n)
         return desk
 
+    # ---- personas
+    def personas(self) -> list[dict]:
+        """Every identity file under `<home>/identities/`, by name. One that does not load
+        is listed with the reason, never left out."""
+        folder = self.home / "identities"
+        out = []
+        for path in sorted(folder.glob("*.json")) if folder.is_dir() else ():
+            entry: dict = {"name": path.stem, "active": path.stem == self.identity_name}
+            try:
+                ident = load_identity(path.stem, base=self.home)
+            except IdentityError as exc:
+                entry["error"] = str(exc)
+            else:
+                entry.update(npub=ident.npub, pubkey=ident.pubkey,
+                             signer=ident.signer_spec["type"])
+            out.append(entry)
+        return out
+
+    def persona(self, body: dict) -> dict:
+        """Switch the persona this console signs as, for every tab, from the next request
+        on. `create: true` makes a fresh 0600 key under that name first, and never
+        replaces one that exists."""
+        name = body.get("name")
+        if not isinstance(name, str) or not name:
+            raise ConsoleError("persona needs a name")
+        if body.get("create") is True:
+            create_identity(name, base=self.home)
+        else:
+            load_identity(name, base=self.home)       # it exists and it loads, or it says why
+        with self.root._persona_lock:
+            self.root.identity_name = name
+        self.identity_name = name
+        return self.state()
+
+    def exports(self) -> dict[str, list[int]]:
+        """Which topic epochs `/api/topic/export` has written for a coding agent on this
+        workstation: names only, never a key."""
+        folder = self.home / "exports"
+        held: dict[str, list[int]] = {}
+        for path in sorted(folder.glob("*.toml")) if folder.is_dir() else ():
+            match = _EXPORT.match(path.name)
+            if match:
+                held.setdefault(match.group(1), []).append(int(match.group(2)))
+        return {topic: sorted(epochs) for topic, epochs in held.items()}
+
+    # ---- invite tickets
+    def _book_path(self, topic: str) -> Path:
+        return self.home / INVITES / f"{topic}.json"
+
+    def _book(self, topic: str) -> dict:
+        """The invites minted for one topic: ticket digest → terms. Refused when anyone
+        but this user can read it."""
+        path = self._book_path(topic)
+        try:
+            mode = stat.S_IMODE(path.stat().st_mode)
+        except FileNotFoundError:
+            return {"schema": INVITE_BOOK_SCHEMA, "topic": topic, "tickets": {}}
+        if mode & 0o077:
+            raise ConsoleError(f"{path} is mode {mode:04o}; an invite book must be 0600 "
+                               f"(chmod 600 {path})")
+        try:
+            book = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ConsoleError(f"{path} is unreadable: {exc}") from exc
+        if (not isinstance(book, dict) or book.get("schema") != INVITE_BOOK_SCHEMA
+                or book.get("topic") != topic or not isinstance(book.get("tickets"), dict)):
+            raise ConsoleError(f"{path} is not a {INVITE_BOOK_SCHEMA} book for topic {topic!r}")
+        return book
+
+    def _book_save(self, topic: str, book: dict) -> None:
+        path = self._book_path(topic)
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        fd, staged = tempfile.mkstemp(dir=path.parent, prefix=f".{topic}.", suffix=".part")
+        try:
+            with os.fdopen(fd, "w") as fh:
+                json.dump(book, fh, indent=1, sort_keys=True)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(staged, path)
+        finally:
+            with contextlib.suppress(FileNotFoundError):     # replaced: nothing to clean
+                os.unlink(staged)
+
+    def invites(self) -> dict:
+        """Every topic invite minted here, as the admin's page matches join requests to
+        them: the ticket's digest and its terms, never the ticket."""
+        folder = self.home / INVITES
+        topics = sorted(p.stem for p in folder.glob("*.json")) if folder.is_dir() else []
+        return {"topics": {t: [{"ticket_sha256": digest, **terms}
+                               for digest, terms in sorted(self._book(t)["tickets"].items())]
+                           for t in topics if TOPIC_ID.match(t)}}
+
     # ---- the API
     def state(self) -> dict:
         ident, trust = self.identity(), self.trust()
         out = {"mode": "bridge", "version": __version__, "home": str(self.home),
                "identity": ident.describe() if ident else None, "seat": self.identity_name,
+               "active_persona": self.identity_name, "personas": self.personas(),
+               "exports": self.exports(),
                "trust_file": str(self.trust_path), "trust": None, "role": None,
                "admin": {"configured": self.admin_path.is_file(), "path": str(self.admin_path)},
                "capabilities": {"nip44": bool(ident) and ident.signer_spec["type"] == "local",
@@ -595,21 +791,30 @@ class Console:
         raise ConsoleError(f"op {op!r} must be encrypt or decrypt")
 
     def join(self, body: dict) -> dict:
-        """`nostr-mailbox join <token>` for a workstation with no campaign yet. It never
-        installs plugins: the home is named explicitly, which is the CLI's own switch."""
+        """`nostr-mailbox join <token>` as the active persona (its key is made 0600 if it
+        has none). On a workstation with no campaign the token's becomes this one's; with
+        a campaign, only a token for that same relay and campaign is redeemed, and
+        `nostr.toml` is left as it is. It never installs plugins: the home is named
+        explicitly, which is the CLI's own switch."""
         from . import cli
-        if self.trust_path.is_file():
-            raise Refused(f"this workstation already has a campaign at {self.trust_path}; "
-                          "joining another here would replace it. Use the CLI with --home")
         token = body.get("token")
         if not isinstance(token, str) or not token.startswith("nm1_"):
             raise ConsoleError("join needs an nm1_ invite token")
+        _, bundle, _, _ = cli._decode_invite_token(token)
+        offered = Trust.from_mapping(bundle, source="nm1_ invite token")
+        existing = self.trust()
+        if existing is not None and (offered.relay, offered.campaign) != (existing.relay,
+                                                                          existing.campaign):
+            raise Refused(f"this workstation already has campaign {existing.campaign!r} on "
+                          f"{existing.relay} at {self.trust_path}; this token is for "
+                          f"{offered.campaign!r} on {offered.relay}, and joining it here "
+                          "would replace that. Use the CLI with --home")
         member = body.get("member")
         args = argparse.Namespace(token=token, code_file=None, member=member or None,
-                                  trust=None, home=str(self.home),
+                                  trust=str(self.trust_path), home=str(self.home),
                                   identity=self.identity_name,
                                   timeout_seconds=self.timeout_s)
-        return cli.cmd_relay_join(args)
+        return {**cli.cmd_relay_join(args), "persona": self.identity_name}
 
     def invite(self, body: dict) -> dict:
         from . import cli
@@ -623,22 +828,111 @@ class Console:
         return {"token": token, "member": member, "topic": topic,
                 "max_uses": invite["max_uses"], "expires_at": invite["expires_at"],
                 "web_link": f"{trust.blossom_origin}/{fragment}",
-                "one_liner": f"uvx --from git+https://github.com/awowIO/nostr-mailbox "
-                             f"nostr-mailbox join {token}",
-                "note": "a bearer invite: whoever holds the token joins once. The web link "
-                        "keeps it in the URL fragment, which a browser never sends to a "
-                        "server; it opens the console where the relay's origin serves it"}
+                "join_url": _join_url(token, topic=topic),
+                "one_liner": _one_liner(token), "note": _INVITE_NOTE}
+
+    def topic_invite(self, topic: str, body: dict) -> dict:
+        """A single-use invite into one topic, for one role: a relay invite (the `nm1_`
+        token, which the CLI joins with as well) and a ticket that the newcomer's join
+        request presents, so the admin admits them on the terms minted here. Only an
+        admin of the topic mints one, and the relay invite is minted before anything is
+        recorded."""
+        from . import cli
+        role = str(body.get("role") or "read-write")
+        if role not in ROLES:
+            raise ConsoleError(f"role {role!r} must be one of {ROLES}")
+        history = None if role == "write-only" else str(body.get("history") or "full_history")
+        if history is not None and history not in GRANT_MODES:
+            raise ConsoleError(f"history {history!r} must be one of {GRANT_MODES}")
+        member = body.get("member") or None
+        if member is not None and not isinstance(member, str):
+            raise ConsoleError("member is a name")
+        trust, admin = self.need_trust(), self.admin()
+        with self.session() as session:
+            desk = TopicDesk(session, self.secret())
+            state = desk.state(topic)
+            desk._admin(state)
+            if state.creator is None:
+                raise TopicError(f"topic {topic!r} has no kind 9007 this key can read on "
+                                 f"{trust.relay}: create it first. Nothing was minted")
+            me = session.pubkey
+        invite = admin.create_invite(ttl=str(body.get("ttl") or INVITE_TTL))
+        token = cli._encode_invite_token(trust, invite["code"], member=member)
+        ticket = secrets.token_urlsafe(32)          # as strong as the console's own token
+        with self.root._book_lock:
+            book = self._book(topic)
+            book["tickets"][ticket_digest(ticket)] = {
+                "role": role, "history": history, "member": member, "minted_by": me,
+                "created_at": invite.get("created_at"), "expires_at": invite["expires_at"],
+                "admitted": None, "admitted_at": None}
+            self._book_save(topic, book)
+        return {"token": token, "topic": topic, "role": role, "history": history,
+                "member": member, "max_uses": invite["max_uses"],
+                "expires_at": invite["expires_at"],
+                "join_url": _join_url(token, topic=topic, role=role, ticket=ticket),
+                "web_link": f"{trust.blossom_origin}/#join={token}&topic={topic}&role={role}"
+                            f"&ticket={ticket}",
+                "one_liner": _one_liner(token),
+                "note": _INVITE_NOTE + ". The ticket rides in the link only: a newcomer who "
+                        "joins with the CLI one-liner asks with `topic request-join`, and "
+                        "you choose their role when you approve"}
 
     def topic_create(self, body: dict) -> dict:
         with self.session() as session:
             return TopicDesk(session, self.secret()).create(str(body.get("topic", "")),
                                                             body.get("name") or None)
 
+    def _desk(self, session: TopicSession) -> TopicDesk:
+        ident = self.need_identity()
+        dropbox = Dropbox(session, session.signer,
+                          state_path=self.home / "mail" / f"{ident.name}.json",
+                          user_home=Path.home(), profile_home=self.home)
+        return TopicDesk(session, self.secret(), dropbox)
+
     def topic_grant(self, body: dict) -> dict:
+        """Grant one key a role in a topic. With `ticket`, the terms are the ones that
+        ticket was minted for, and the key must be the one join request presenting it:
+        a ticket two keys present is contested and admits nobody."""
+        topic, member = str(body.get("topic", "")), str(body.get("member", ""))
+        ticket = body.get("ticket")
         with self.session() as session:
-            return TopicDesk(session, self.secret()).grant(
-                str(body.get("topic", "")), str(body.get("member", "")),
-                str(body.get("mode", "")))
+            desk = self._desk(session)
+            if ticket is None:
+                return desk.grant(topic, member, str(body.get("mode", "")),
+                                  str(body.get("role") or "read-write"))
+            if not isinstance(ticket, str) or not ticket:
+                raise ConsoleError("ticket is the string from the invite link")
+            return self._admit(desk, session, topic, bech32.pubkey_hex(member), ticket, body)
+
+    def _admit(self, desk: TopicDesk, session: TopicSession, topic: str, pubkey: str,
+               ticket: str, body: dict) -> dict:
+        state = desk.state(topic)
+        desk._admin(state)
+        with self.root._book_lock:
+            book = self._book(topic)
+            terms = book["tickets"].get(ticket_digest(ticket))
+            if terms is None:
+                raise Refused(f"this workstation minted no such ticket for topic {topic!r}")
+            if terms["admitted"]:
+                raise Refused(f"this ticket already admitted {_npub(terms['admitted'])}")
+            stamp = now(session.clock)
+            if stamp > terms["expires_at"]:
+                raise Refused(f"this ticket expired at {terms['expires_at']} (now {stamp})")
+            presenters = {r["pubkey"] for r in state.requests if r["ticket"] == ticket}
+            if pubkey not in presenters:
+                raise Refused(f"no pending join request from {_npub(pubkey)} presents this "
+                              "ticket")
+            if len(presenters) > 1:
+                raise Refused(f"{len(presenters)} keys present this ticket, so it admits none "
+                              "of them; approve one by hand with the role you choose")
+            for given, minted in (("role", terms["role"]), ("mode", terms["history"])):
+                if body.get(given) not in (None, "", minted):
+                    raise Refused(f"this ticket was minted for {given} {minted!r}, not "
+                                  f"{body.get(given)!r}")
+            granted = desk.grant(topic, pubkey, terms["history"] or "", terms["role"])
+            terms.update(admitted=pubkey, admitted_at=stamp)
+            self._book_save(topic, book)
+        return {**granted, "ticket": "admitted", "member": _npub(pubkey)}
 
     def topic_revoke(self, body: dict) -> dict:
         with self.session() as session:
@@ -822,7 +1116,7 @@ class _Handler(BaseHTTPRequestHandler):
         return value
 
     def _serve(self, route) -> None:
-        console = self.server.console
+        console = self.server.console.pinned()
         try:
             route(console)
         except NotAuthorized as exc:
@@ -842,7 +1136,7 @@ class _Handler(BaseHTTPRequestHandler):
     # ---- routes
     def do_GET(self) -> None:                   # noqa: N802 (stdlib name)
         path = urlsplit(self.path).path
-        if path in ("/", "/index.html"):
+        if path in ("/", "/index.html", *JOIN_PATHS):
             if self.headers.get("Host") not in self.server.allowed_hosts:
                 self._error(HTTPStatus.FORBIDDEN, Refused("not this console's Host"))
                 return
@@ -854,6 +1148,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._serve(lambda c: (self._gate(write=False), self._json(200, c.state())))
         elif path == "/api/topics":
             self._serve(lambda c: (self._gate(write=False), self._json(200, c.topics())))
+        elif path == "/api/invites":
+            self._serve(lambda c: (self._gate(write=False), self._json(200, c.invites())))
         elif path.startswith("/api/blob/"):
             sha256 = path.rsplit("/", 1)[1]
 
@@ -874,6 +1170,7 @@ class _Handler(BaseHTTPRequestHandler):
               "/api/topic/create": Console.topic_create, "/api/topic/grant": Console.topic_grant,
               "/api/topic/revoke": Console.topic_revoke,
               "/api/topic/export": Console.topic_export,
+              "/api/persona": Console.persona,
               "/api/post": Console.post, "/api/ack": Console.ack}
 
     def do_POST(self) -> None:                  # noqa: N802 (stdlib name)
@@ -886,6 +1183,10 @@ class _Handler(BaseHTTPRequestHandler):
             self._serve(put)
             return
         method = self._POSTS.get(path)
+        invited = _TOPIC_INVITE.match(path)
+        if invited:
+            def method(c: Console, body: dict) -> dict:
+                return c.topic_invite(invited.group(1), body)
         if method is None:
             self._error(HTTPStatus.NOT_FOUND, ConsoleError(f"nothing at {path}"))
             return
@@ -994,5 +1295,6 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 __all__ = ["AUTH_KIND", "BLOSSOM_AUTH_KIND", "CONSOLE_KINDS", "Console", "ConsoleServer",
-           "GRANT_MODES", "INVITE_CLAIM_KIND", "KEYRING_KIND", "TopicDesk", "TopicSession",
-           "TopicState", "gift_wrap", "parse_keyring", "serve", "topic_state", "unwrap"]
+           "GRANT_MODES", "INVITE_CLAIM_KIND", "KEYRING_KIND", "ROLES", "TopicDesk",
+           "TopicSession", "TopicState", "gift_wrap", "parse_keyring", "role_of", "serve",
+           "ticket_digest", "topic_state", "unwrap"]
