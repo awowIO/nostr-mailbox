@@ -36,6 +36,10 @@ PAYLOAD = (
     ".agents/plugins",
     "skills",
     "README.md",
+    "docs",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
     "LICENSE",
 )
 PACKAGE_INIT = "skills/nostr-mailbox/nostr_mailbox/__init__.py"

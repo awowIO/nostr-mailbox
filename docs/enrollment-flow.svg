@@ -1,93 +1,61 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 330" width="100%" height="auto" role="img" aria-labelledby="ef-title ef-desc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif">
-  <title id="ef-title">Enrollment and cross-pool encryption flow</title>
-  <desc id="ef-desc">Four steps: Alice creates channel wave-7 and its key K_wave7; Alice invites Bob with a single-use token that carries the relay invite, a group code and K_wave7; seats from both pools sign with their own keys and encrypt with K_wave7 while the relay stores only ciphertext; revoking a member removes it from the roster and rotates the channel to a new epoch key.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="440" viewBox="0 0 880 440"
+     role="img" aria-labelledby="title desc">
+  <title id="title">Enrollment and cross-pool encryption in wave-7</title>
+  <desc id="desc">Alice creates the topic. Bob's seat joins as a reader and writer using its own
+    invite. Each seat signs as itself and uses the shared epoch to encrypt and decrypt posts.
+    When Alice revokes Bob's seat, the remaining readers receive a new epoch key.</desc>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-      <path d="M 0 1.5 L 8.5 5 L 0 8.5 z" fill="#334155"/>
+    <style>
+      text { font: 15px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #17323c; }
+      .heading { font-size: 16px; font-weight: 700; }
+      .number { font-size: 14px; font-weight: 700; fill: #fff; text-anchor: middle; }
+      .code { font: 14px ui-monospace, SFMono-Regular, Consolas, monospace; fill: #124f47; }
+      .card { fill: #fff; stroke: #b7ccca; }
+      .arrow { fill: none; stroke: #146c61; stroke-width: 2; stroke-linejoin: round; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M1 1 9 5 1 9" fill="none" stroke="#146c61" stroke-width="1.7"/>
     </marker>
   </defs>
+  <rect x="1" y="1" width="878" height="438" rx="14" fill="#f4f7f5" stroke="#bdcecc"/>
+  <text x="24" y="36" class="heading">One topic, two agent pools</text>
 
-  <rect x="0" y="0" width="1200" height="330" rx="8" fill="#f8fafc"/>
+  <rect x="24" y="58" width="390" height="151" rx="12" class="card"/>
+  <circle cx="55" cy="91" r="14" fill="#10675b"/>
+  <text x="55" y="96" class="number">1</text>
+  <text x="80" y="97" class="heading">Alice creates wave-7</text>
+  <text x="45" y="130">Her seat becomes the keeper of a private room.</text>
+  <text x="45" y="152">It generates the first epoch key locally.</text>
+  <rect x="45" y="168" width="196" height="27" rx="5" fill="#e0eee8"/>
+  <text x="56" y="186" class="code">topic create wave-7</text>
 
-  <!-- Step 1 -->
-  <rect x="12" y="16" width="268" height="298" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
-  <rect x="12" y="16" width="268" height="38" rx="8" fill="#f1f5f9"/>
-  <text x="28" y="40" font-size="13" font-weight="700" fill="#0f172a">1. Create Channel &amp; Local Pool</text>
+  <path d="M417 132h44" class="arrow" marker-end="url(#arrow)"/>
+  <rect x="466" y="58" width="390" height="151" rx="12" class="card"/>
+  <circle cx="497" cy="91" r="14" fill="#10675b"/>
+  <text x="497" y="96" class="number">2</text>
+  <text x="522" y="97" class="heading">Bob enrolls one seat</text>
+  <text x="487" y="130">His seat redeems a read-write invite. Its own</text>
+  <text x="487" y="152">keyring stores the epochs that Alice granted.</text>
+  <rect x="487" y="168" width="269" height="27" rx="5" fill="#e0eee8"/>
+  <text x="498" y="186" class="code">join --code-file wave-7.token</text>
 
-  <text x="28" y="76" font-size="12" font-weight="600" fill="#0f172a">Command:</text>
-  <rect x="28" y="84" width="236" height="28" rx="4" fill="#0f172a"/>
-  <text x="38" y="102" font-size="11.5" fill="#f8fafc" font-family="monospace">topic create wave-7</text>
+  <path d="M661 212v22H219v19" class="arrow" marker-end="url(#arrow)"/>
+  <rect x="24" y="259" width="390" height="157" rx="12" class="card"/>
+  <circle cx="55" cy="292" r="14" fill="#10675b"/>
+  <text x="55" y="297" class="number">3</text>
+  <text x="80" y="298" class="heading">The two seats exchange a message</text>
+  <text x="45" y="331">Alice signs her post. The relay delivers it to Bob,</text>
+  <text x="45" y="353">who opens it with the same epoch key.</text>
+  <rect x="45" y="371" width="222" height="27" rx="5" fill="#e0eee8"/>
+  <text x="56" y="389" class="code">--topic wave-7 watch bus</text>
 
-  <text x="28" y="136" font-size="12" font-weight="600" fill="#0f172a">What happens:</text>
-  <text x="28" y="156" font-size="12" fill="#334155">• Generates key <tspan font-family="monospace" font-weight="600">K_wave7</tspan> in</text>
-  <text x="38" y="174" font-size="11.5" fill="#0f172a" font-family="monospace">keyrings/wave-7.json</text>
-  <text x="28" y="198" font-size="12" fill="#334155">• Alice's seats (<tspan font-family="monospace">alice-seat-1..4</tspan>)</text>
-  <text x="38" y="216" font-size="12" fill="#334155">on this machine share that keyring.</text>
-  <text x="28" y="242" font-size="12" fill="#334155">• Relay roster for <tspan font-family="monospace">#wave-7</tspan>:</text>
-  <text x="38" y="260" font-size="11.5" fill="#0f172a" font-family="monospace">[alice]</text>
-  <text x="28" y="284" font-size="12" fill="#334155">• Each seat is admitted with its</text>
-  <text x="38" y="302" font-size="12" fill="#334155">own key, like any member.</text>
-
-  <path d="M282 165 L312 165" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-
-  <!-- Step 2 -->
-  <rect x="316" y="16" width="268" height="298" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
-  <rect x="316" y="16" width="268" height="38" rx="8" fill="#f1f5f9"/>
-  <text x="332" y="40" font-size="13" font-weight="700" fill="#0f172a">2. Invite Bob &amp; Bob's Pool</text>
-
-  <text x="332" y="76" font-size="12" font-weight="600" fill="#0f172a">Commands:</text>
-  <rect x="332" y="84" width="236" height="62" rx="4" fill="#0f172a"/>
-  <text x="342" y="101" font-size="11" fill="#f8fafc" font-family="monospace">topic invite wave-7 --for bob</text>
-  <text x="342" y="118" font-size="11" fill="#94a3b8" font-family="monospace">  --role read-write</text>
-  <text x="342" y="137" font-size="11" fill="#f8fafc" font-family="monospace">join &lt;nm1_token | join link&gt;</text>
-
-  <text x="332" y="170" font-size="12" font-weight="600" fill="#0f172a">What happens:</text>
-  <text x="332" y="190" font-size="12" fill="#334155">• The single-use token carries the</text>
-  <text x="342" y="208" font-size="12" fill="#334155">relay invite, group code and <tspan font-family="monospace" font-weight="600">K_wave7</tspan>.</text>
-  <text x="332" y="232" font-size="12" fill="#334155">• Relay admits <tspan font-family="monospace">bob</tspan> to the <tspan font-family="monospace">#wave-7</tspan></text>
-  <text x="342" y="250" font-size="12" fill="#334155">roster; each of Bob's seats</text>
-  <text x="342" y="268" font-size="12" fill="#334155">redeems a token of its own.</text>
-  <text x="332" y="292" font-size="12" fill="#334155">• Bob's machine stores <tspan font-family="monospace" font-weight="600">K_wave7</tspan> in</text>
-  <text x="342" y="308" font-size="11.5" fill="#0f172a" font-family="monospace">keyrings/wave-7.json</text>
-
-  <path d="M586 165 L616 165" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-
-  <!-- Step 3 -->
-  <rect x="620" y="16" width="268" height="298" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
-  <rect x="620" y="16" width="268" height="38" rx="8" fill="#f1f5f9"/>
-  <text x="636" y="40" font-size="13" font-weight="700" fill="#0f172a">3. Cross-Pool Encrypted Bus</text>
-
-  <text x="636" y="76" font-size="12" font-weight="600" fill="#0f172a">On send (<tspan font-family="monospace">alice-seat-2</tspan>):</text>
-  <text x="636" y="96" font-size="12" fill="#334155">• Signs with the <tspan font-family="monospace">alice-seat-2</tspan> key</text>
-  <text x="636" y="114" font-size="12" fill="#334155">• Encrypts the body with <tspan font-family="monospace" font-weight="600">K_wave7</tspan></text>
-
-  <text x="636" y="144" font-size="12" font-weight="600" fill="#0f172a">On relay (<tspan font-family="monospace">relay.example.com</tspan>):</text>
-  <text x="636" y="164" font-size="12" fill="#334155">• Checks the roster, stores the</text>
-  <text x="646" y="182" font-size="12" fill="#334155">ciphertext, fans it out to members.</text>
-
-  <text x="636" y="212" font-size="12" font-weight="600" fill="#0f172a">On receive (both pools):</text>
-  <text x="636" y="232" font-size="12" fill="#334155">• <tspan font-family="monospace">alice-seat-1..4</tspan> &amp; <tspan font-family="monospace">bob-seat-1..4</tspan></text>
-  <text x="646" y="250" font-size="12" fill="#334155">decrypt locally with <tspan font-family="monospace" font-weight="600">K_wave7</tspan>.</text>
-  <text x="636" y="276" font-size="12" fill="#334155">• The relay never holds <tspan font-family="monospace" font-weight="600">K_wave7</tspan>.</text>
-
-  <path d="M890 165 L920 165" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-
-  <!-- Step 4 -->
-  <rect x="924" y="16" width="264" height="298" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
-  <rect x="924" y="16" width="264" height="38" rx="8" fill="#f1f5f9"/>
-  <text x="940" y="40" font-size="13" font-weight="700" fill="#0f172a">4. Evict &amp; Rotate Key</text>
-
-  <text x="940" y="76" font-size="12" font-weight="600" fill="#0f172a">Command:</text>
-  <rect x="940" y="84" width="232" height="28" rx="4" fill="#0f172a"/>
-  <text x="950" y="102" font-size="11.5" fill="#f8fafc" font-family="monospace">topic revoke wave-7 &lt;npub&gt;</text>
-
-  <text x="940" y="136" font-size="12" font-weight="600" fill="#0f172a">What happens:</text>
-  <text x="940" y="156" font-size="12" fill="#334155">1. Relay removes the key from the</text>
-  <text x="950" y="174" font-size="12" fill="#334155"><tspan font-family="monospace">#wave-7</tspan> roster (<tspan font-family="monospace">kind 9001</tspan>) and</text>
-  <text x="950" y="192" font-size="12" fill="#334155">refuses its reads and writes.</text>
-  <text x="940" y="218" font-size="12" fill="#334155">2. Client rotates to a new epoch key</text>
-  <text x="950" y="236" font-size="12" fill="#334155"><tspan font-family="monospace" font-weight="600">K_wave7_v2</tspan> and gift-wraps it only</text>
-  <text x="950" y="254" font-size="12" fill="#334155">to the remaining members.</text>
-  <text x="940" y="280" font-size="12" fill="#334155">3. The revoked key keeps the epochs</text>
-  <text x="950" y="298" font-size="12" fill="#334155">it already held, nothing newer.</text>
+  <path d="M417 336h44" class="arrow" marker-end="url(#arrow)"/>
+  <rect x="466" y="259" width="390" height="157" rx="12" fill="#193842"/>
+  <circle cx="497" cy="292" r="14" fill="#c4e7d9"/>
+  <text x="497" y="297" class="number" style="fill:#193842">4</text>
+  <text x="522" y="298" class="heading" style="fill:#f6fbfb">Alice revokes Bob's seat</text>
+  <text x="487" y="331" style="fill:#f6fbfb">Only remaining readers receive the new key.</text>
+  <text x="487" y="353" style="fill:#f6fbfb">Bob keeps the epochs he received earlier.</text>
+  <rect x="487" y="371" width="260" height="27" rx="5" fill="#e0eee8"/>
+  <text x="498" y="389" class="code">topic revoke wave-7 BOB_NPUB</text>
 </svg>

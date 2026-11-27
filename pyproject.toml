@@ -31,8 +31,9 @@ build-backend = "hatchling.build"
 # Walk only these roots. .agents/skills/ holds symlinks back to skills/ for repo-root
 # skill discovery; hatch, walking one, skips the real skills/ it points at, and the wheel
 # built from that sdist has no package (tests/test_plugin.py holds this).
-only-include = [".agents/plugins", ".claude-plugin", ".codex-plugin", "deploy", "plugin.json",
-                "scripts", "skills", "tests"]
+only-include = [".agents/plugins", ".claude-plugin", ".codex-plugin", "deploy", "docs",
+                "CHANGELOG.md", "CONTRIBUTING.md", "SECURITY.md", "plugin.json", "scripts",
+                "skills", "tests"]
 
 [tool.hatch.build.targets.wheel]
 # The package lives inside the skill folder, so the folder runs wherever it is copied;

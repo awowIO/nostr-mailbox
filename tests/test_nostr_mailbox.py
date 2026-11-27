@@ -2072,9 +2072,10 @@ def test_every_command_line_in_the_skill_document_parses():
     assert seen == offered, f"commands the skill never shows: {sorted(offered - seen)}"
 
 
-def test_every_command_line_in_the_readme_parses():
-    """People copy from the README too: each `nostr-mailbox …` line must still parse."""
-    text = (REPO / "README.md").read_text().replace("\\\n", " ")
+def test_every_command_line_in_the_documentation_parses():
+    """Commands copied from the README and the linked guides must still parse."""
+    guides = [REPO / "README.md", *sorted((REPO / "docs").glob("*.md"))]
+    text = "\n".join(path.read_text() for path in guides).replace("\\\n", " ")
     lines = [line.split("nostr-mailbox", 1)[1] for line in text.splitlines()
              if line.startswith("nostr-mailbox ")]
     parser, seen = cli.build_parser(), set()
@@ -2082,11 +2083,14 @@ def test_every_command_line_in_the_readme_parses():
         command = re.sub(r"<[^>]+>", "placeholder", line.split("  #")[0])
         seen.add(parser.parse_args(shlex.split(command)).func.__name__)
     walkthrough = {f"cmd_{name}" for name in (
-        "init", "relay_add", "relay_invite", "relay_join", "relay_check", "relay_revoke",
+        "setup", "init", "relay_add", "relay_invite", "relay_join", "relay_check", "relay_revoke",
+        "topic_create", "topic_invite", "topic_request_join", "topic_approve", "topic_sync",
+        "topic_revoke", "checkpoint_put", "checkpoint_get", "acl_grant", "mail_send", "mail_read",
         "post", "watch", "ack", "todo", "triage", "resolve", "blob_put", "blob_get",
-        "condition_open", "claim_put", "claim_decide", "handoff_materialize",
+        "condition_open", "claim_put", "claim_decide", "handoff_send", "handoff_read",
+        "handoff_materialize",
         "directive_send", "directive_read", "directive_adopt")}
-    assert walkthrough <= seen, f"the README never shows {sorted(walkthrough - seen)}"
+    assert walkthrough <= seen, f"the documentation never shows {sorted(walkthrough - seen)}"
 
 
 def test_the_skill_folder_runs_anywhere_on_the_standard_library_alone(tmp_path):
