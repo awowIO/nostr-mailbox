@@ -71,7 +71,15 @@ Pair Coding Agent. `/api/topic/export` gives a coding agent on this workstation 
 the way the CLI holds one: its declaration under `<home>/topics/` and this persona's own
 keyring, every epoch under its own number. `/api/state` names the command prefix
 (`--home`, `--persona` when they are not the defaults) that makes the CLI act as this
-console does."""
+console does.
+
+MCP. The routes of `nostr-mailbox mcp --http` (`mcp_http`) are served here too: `/mcp`
+(Streamable HTTP), `/sse` and `/messages` (HTTP+SSE), `/openapi.json` and
+`/tools/<tool>`, so while the console runs, `<console>/mcp` is an MCP server. They keep
+this console's Host rule and ask for the home's bearer (`<home>/mcp.token`, made 0600 on
+first start), never the page's token, and they answer CORS for loopback origins only. A
+call runs as the persona its request names in `X-NM-Persona`, else as the console's
+default persona, like every request here. `/api/state` says where they are."""
 from __future__ import annotations
 
 import argparse
@@ -80,7 +88,6 @@ import contextlib
 import copy
 import hashlib
 import hmac
-import ipaddress
 import json
 import os
 import re
@@ -126,6 +133,7 @@ from .identity import (
     load_identity,
 )
 from .mailbox import Dropbox
+from .mcp_http import TOKEN_FILE, McpHttp, is_loopback, load_token
 from .profile import EpochKeys, ProfileError, Trust, slug
 from .relay import INVITE_CLAIM_KIND, INVITE_TTL, NCLI_CONFIG, RelayAdmin, RelayError
 
@@ -795,6 +803,9 @@ class Console:
                "cli": self.cli_prefix(*(() if default else ("--trust", str(self.trust_path)))),
                "trust_file": str(self.trust_path), "trust": None, "role": None,
                "admin": {"configured": self.admin_path.is_file(), "path": str(self.admin_path)},
+               "mcp": {"path": "/mcp", "sse": "/sse", "openapi": "/openapi.json",
+                       "tools": "/tools/", "auth": "bearer",
+                       "token_file": str(self.home / TOKEN_FILE)},
                "capabilities": {"nip44": bool(ident) and ident.signer_spec["type"] == "local",
                                 "invite": self.admin_path.is_file(),
                                 "join": trust is None}}
@@ -1135,6 +1146,18 @@ class _Server(ThreadingHTTPServer):
         names = {str(host), "localhost"}
         self.allowed_hosts = {f"[{h}]:{port}" if ":" in h else f"{h}:{port}" for h in names}
         self.origins = {f"http://{h}" for h in self.allowed_hosts}
+        self.mcp = McpHttp(token=load_token(console.home / TOKEN_FILE), defaults=self._mcp_call,
+                           host_ok=lambda named: named in self.allowed_hosts)
+
+    def _mcp_call(self, handler: BaseHTTPRequestHandler) -> dict:
+        """What an MCP call through the console runs as: the persona its request names in
+        X-NM-Persona, else the console's default persona, as every request here; in the
+        console's own home and campaign, with its patience."""
+        console = self.console.pinned(handler.headers.get(PERSONA_HEADER))
+        default = console.trust_path == console.home / "nostr.toml"
+        return {"home_dir": console.home, "default_persona": console.identity_name,
+                "trust": None if default else str(console.trust_path),
+                "timeout_seconds": console.timeout_s}
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -1231,7 +1254,16 @@ class _Handler(BaseHTTPRequestHandler):
             self._error(HTTPStatus.INTERNAL_SERVER_ERROR, exc)
 
     # ---- routes
+    def _mcp(self) -> bool:
+        """Serve the MCP routes (`mcp_http`) when the request is for one of them."""
+        if not McpHttp.owns(self.path):
+            return False
+        self.server.mcp.handle(self)
+        return True
+
     def do_GET(self) -> None:                   # noqa: N802 (stdlib name)
+        if self._mcp():
+            return
         path = urlsplit(self.path).path
         if path in ("/", "/index.html", *JOIN_PATHS):
             if self.headers.get("Host") not in self.server.allowed_hosts:
@@ -1272,6 +1304,8 @@ class _Handler(BaseHTTPRequestHandler):
               "/api/post": Console.post, "/api/ack": Console.ack}
 
     def do_POST(self) -> None:                  # noqa: N802 (stdlib name)
+        if self._mcp():
+            return
         path = urlsplit(self.path).path
         topic = _TOPIC_BLOB.fullmatch(path)
         if path == "/api/blob" or topic:
@@ -1291,14 +1325,13 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self._serve(lambda c: self._json(200, method(c, self._body())), write=True)
 
+    def _mcp_only(self) -> None:
+        """DELETE and OPTIONS: MCP's (a session's end, a CORS preflight), nothing else's."""
+        if not self._mcp():
+            self._error(HTTPStatus.NOT_FOUND,
+                        ConsoleError(f"nothing at {urlsplit(self.path).path} for {self.command}"))
 
-def _loopback(host: str) -> bool:
-    if host == "localhost":
-        return True
-    try:
-        return ipaddress.ip_address(host).is_loopback
-    except ValueError:
-        return False
+    do_DELETE = do_OPTIONS = _mcp_only          # noqa: N815 (stdlib names)
 
 
 class ConsoleServer:
@@ -1306,7 +1339,7 @@ class ConsoleServer:
     free port, which is how the witnesses run it."""
 
     def __init__(self, console: Console, *, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT):
-        if not _loopback(host):
+        if not is_loopback(host):
             raise Refused(f"{host!r} is not a loopback address. This console signs as "
                           "your key for whoever loads its page, so it listens on "
                           "127.0.0.1, ::1 or localhost only")
@@ -1325,6 +1358,7 @@ class ConsoleServer:
         return self
 
     def stop(self) -> None:
+        self._server.mcp.close()                # its open streams end, and their threads
         self._server.shutdown()
         self._server.server_close()
         self._thread.join()
@@ -1345,6 +1379,8 @@ def serve(args) -> dict:
     print(json.dumps({"serving": server.url, "npub": ident.npub if ident else None,
                       "trust_file": str(console.trust_path),
                       "campaign": (t.campaign if (t := console.trust()) else None),
+                      "mcp": server.url + "/mcp",
+                      "mcp_token_file": str(console.home / TOKEN_FILE),
                       "stop": "Ctrl-C"}), flush=True)
     if args.open:
         webbrowser.open(server.url + "/")

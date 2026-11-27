@@ -50,6 +50,15 @@ other OS users. A process running as the owner can read these files. A recipient
 copy decrypted content or keys. A one-use topic invite already contains any epochs it
 grants, so protect it even after redemption. Treat a backup containing keys likewise.
 
+**An HTTP MCP server acts for its bearer.** `mcp --http` and the console's `/mcp` run
+the tools for any client that sends the home's bearer (`<home>/mcp.token`, `0600`), as
+any Persona of that home. The server binds loopback by default and refuses a bind
+beyond loopback without a bearer. It checks `Origin` on every request, and `Host`
+whenever it runs without a bearer. An HTTP client is offered no argument naming a file
+on the server's machine, so a prompt-injected remote model cannot upload local files.
+Serve a remote client such as ChatGPT from a dedicated `--home` holding one Persona,
+and put TLS in front of any port reachable from the network.
+
 **Dropbox release is a client decision.** Unknown senders are quarantined. Content
 from a human-gated sender is withheld from agent commands until a human approves it
 at a terminal. Released files are staged under `~/nostr-mailbox-files` with mode

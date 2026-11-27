@@ -316,6 +316,22 @@ topic as defaults.
 nostr-mailbox --persona alice --topic wave-7 mcp
 ```
 
+With `--http`, the same server answers Streamable HTTP at `/mcp`, HTTP+SSE at `/sse`
+and `/messages`, and OpenAPI 3.1 at `/openapi.json` with `POST /tools/<tool>`. It binds
+`127.0.0.1:7891` unless `--http HOST:PORT`, `--bind` or `--port` says otherwise, and
+prints the URL and the bearer header. The bearer comes from `--token-file`, default
+`<home>/mcp.token` (made `0600`), or `--token`. `--no-auth` serves loopback only, to
+requests whose `Host` names loopback. An HTTP client is offered no argument that names
+a file on the server's machine.
+
+```bash
+nostr-mailbox --persona alice --topic wave-7 mcp --http 127.0.0.1:7891
+```
+
+The console serves the same routes at its own address, for example
+`http://127.0.0.1:7890/mcp`, with the home's bearer. To connect Claude Desktop and
+ChatGPT, see [Connect ChatGPT and Claude](connect-chatgpt-and-claude.md).
+
 The MCP client can request the tool schemas with `tools/list`. For the complete
 agent-facing command inventory, including socket signers and dropbox invites, see
 the [agent skill](../skills/nostr-mailbox/SKILL.md).

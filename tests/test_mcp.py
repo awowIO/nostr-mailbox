@@ -3,21 +3,32 @@ that really runs.
 
 Nothing is mocked. `LoopbackRelay` is a server on a loopback TCP socket speaking the
 same NIP-01/29/42/43 and Blossom a deployed relay does. Every tool call below travels
-the wire: a JSON-RPC request through `serve_stdio`, its reply parsed back. Each machine
-is its own home directory, and every file a tool writes is a real file."""
+the wire: a JSON-RPC request through `serve_stdio`, or over real HTTP to a server on a
+loopback port (`mcp_http`, the console), its reply parsed back. Each machine is its own
+home directory, and every file a tool writes is a real file. The Claude Desktop entry is
+written by the real installer and launched the way an MCP stdio client launches it.
+
+What these witnesses cannot show: ChatGPT and Claude Desktop themselves. The OpenAPI
+document is held to what a GPT Action imports (OpenAPI 3.1, an operationId and a short
+description per operation, a bearer scheme); the import itself needs ChatGPT."""
 import hashlib
+import http.client
 import io
 import json
 import os
+import shutil
+import signal
 import socket
 import stat
 import subprocess
 import sys
+import time
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 
-from nostr_mailbox import LoopbackRelay, Trust, bech32, cli, mcp
+from nostr_mailbox import LoopbackRelay, Trust, bech32, cli, mcp, mcp_http, ui
 from nostr_mailbox.keyring import KeyRing
 from nostr_mailbox.relay import MAX_MESSAGE_BYTES
 
@@ -511,3 +522,535 @@ def test_the_mcp_subcommand_forwards_trust_topic_and_timeout_seconds(cli_run, tm
         assert [r["route"] for r in cli_run(machine, "operator", "--topic", "wave", "route",
                                             "list")["routes"]] == ["r1"]
         assert cli_run(machine, "operator", "route", "list")["routes"] == []
+
+
+# ================================================================== MCP over HTTP
+BEARER = "witness-bearer-0123456789abcdefghijklmnopqrstuvwxyzABCDEF"
+STREAMABLE = {"Accept": "application/json, text/event-stream"}
+
+
+def _http(url: str, method: str, path: str, body=None, *, token: str | None = BEARER,
+          headers: dict | None = None) -> tuple[int, http.client.HTTPResponse, bytes]:
+    """One request to a server on loopback, on its own connection: status, response, body."""
+    parts = urlsplit(url)
+    conn = http.client.HTTPConnection(parts.hostname, parts.port, timeout=WAIT)
+    sent = {**({"Authorization": f"Bearer {token}"} if token else {}), **(headers or {})}
+    data = None
+    if body is not None:
+        data = json.dumps(body).encode()
+        sent.setdefault("Content-Type", "application/json")
+    try:
+        conn.request(method, path, body=data, headers=sent)
+        response = conn.getresponse()
+        payload = response.read()
+    finally:
+        conn.close()
+    return response.status, response, payload
+
+
+def _rpc(url: str, message, *, session: str | None = None, token: str | None = BEARER,
+         headers: dict | None = None) -> tuple[int, http.client.HTTPResponse, object]:
+    sent = {**STREAMABLE, **({mcp_http.SESSION_HEADER: session} if session else {}),
+            **(headers or {})}
+    status, response, payload = _http(url, "POST", "/mcp", message, token=token, headers=sent)
+    return status, response, json.loads(payload) if payload else None
+
+
+def _call(name: str, arguments: dict, req_id: int = 7) -> dict:
+    return {"jsonrpc": "2.0", "id": req_id, "method": "tools/call",
+            "params": {"name": name, "arguments": arguments}}
+
+
+def _event(stream) -> dict:
+    """The next server-sent event on `stream` (a comment-only one as `comment`)."""
+    fields: dict = {}
+    while (line := stream.readline()) not in (b"\n", b""):
+        text = line.decode().rstrip("\n")
+        if text.startswith(":"):
+            fields["comment"] = text[1:].strip()
+            continue
+        name, _, value = text.partition(": ")
+        fields[name] = f"{fields[name]}\n{value}" if name in fields else value
+    return fields
+
+
+def _open_stream(url: str, path: str, headers: dict):
+    parts = urlsplit(url)
+    conn = http.client.HTTPConnection(parts.hostname, parts.port, timeout=WAIT)
+    conn.request("GET", path, headers={"Authorization": f"Bearer {BEARER}",
+                                       "Accept": "text/event-stream", **headers})
+    return conn, conn.getresponse()
+
+
+def _bodies(cli_run, home: Path, persona: str, topic: str) -> list[str]:
+    return [m["body"] for m in cli_run(home, persona, "--topic", topic, "read")["messages"]]
+
+
+def test_streamable_http_carries_the_tools_with_sessions_a_bearer_and_cors(cli_run, tmp_path):
+    """`POST /mcp` with a real relay behind it: initialize opens a session, a notification
+    is answered 202, tools/list offers no file argument, a post lands in the topic, a batch
+    and an SSE-only client are each answered. Without the bearer, with a foreign Origin,
+    an unknown version or session, or an oversized body, nothing runs. `GET /mcp` holds a
+    stream open until `DELETE /mcp` closes its session."""
+    with LoopbackRelay(member_claims=True) as relay:
+        ops = tmp_path / "ops"
+        _setup(cli_run, relay, ops, "operator", "camp")
+        cli_run(ops, "operator", "topic", "create", "wave")
+        with mcp_http.McpServer(token=BEARER, port=0, home_dir=ops, default_persona="operator",
+                                timeout_seconds=WAIT, quiet=True) as server:
+            url = server.url
+            init = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                    "params": {"protocolVersion": "2025-11-25", "capabilities": {},
+                               "clientInfo": {"name": "witness", "version": "0"}}}
+            for token, said in [(None, "missing"), ("guess", "wrong")]:
+                status, response, body = _rpc(url, init, token=token)
+                assert status == 401 and "missing or wrong bearer token" in body["error"], said
+                assert response.getheader("WWW-Authenticate") == 'Bearer realm="nostr-mailbox"'
+            assert server.routes.sessions() == 0, "a refused initialize opens nothing"
+
+            status, response, opened = _rpc(url, init)
+            sid = response.getheader(mcp_http.SESSION_HEADER)
+            assert status == 200 and sid and opened["result"]["protocolVersion"] == "2025-11-25"
+            assert response.getheader("Content-Type").startswith("application/json")
+            versioned = {mcp_http.VERSION_HEADER: "2025-11-25"}
+            status, _, body = _rpc(url, {"jsonrpc": "2.0", "method": "notifications/initialized"},
+                                   session=sid, headers=versioned)
+            assert (status, body) == (202, None)
+
+            _, _, listed = _rpc(url, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+                                session=sid, headers=versioned)
+            offered = {t["name"]: t["inputSchema"]["properties"] for t in listed["result"]["tools"]}
+            assert sorted(offered) == sorted(mcp.HANDLERS)
+            assert "files" not in offered["mailbox_post"], "no file on this machine is offered"
+            assert "code_file" not in offered["mailbox_invite"]
+
+            _, _, posted = _rpc(url, _call("mailbox_post", {"channel": "wave",
+                                                            "body": "over streamable http"}),
+                                session=sid)
+            assert posted["result"]["isError"] is False
+            assert posted["result"]["structuredContent"]["channel"] == "wave"
+            assert _bodies(cli_run, ops, "operator", "wave") == ["over streamable http"]
+            secret = tmp_path / "id_ed25519"
+            secret.write_text("a key an HTTP client must not upload")
+            _, _, refused = _rpc(url, _call("mailbox_post", {"channel": "wave", "body": "x",
+                                                             "files": [str(secret)]}),
+                                 session=sid)
+            assert refused["error"]["code"] == -32602
+            assert "names a file on the server's machine" in refused["error"]["message"]
+            assert len(relay.blossom.blobs) == 0, "nothing was uploaded"
+
+            _, _, batch = _rpc(url, [{"jsonrpc": "2.0", "id": 3, "method": "ping"},
+                                     {"jsonrpc": "2.0", "method": "notifications/cancelled"},
+                                     _call("mailbox_list", {}, 4)], session=sid)
+            assert [r["id"] for r in batch] == [3, 4]
+            assert batch[1]["result"]["structuredContent"]["active_persona"] == "operator"
+
+            status, response, raw = _http(url, "POST", "/mcp",
+                                          {"jsonrpc": "2.0", "id": 5, "method": "ping"},
+                                          headers={"Accept": "text/event-stream",
+                                                   mcp_http.SESSION_HEADER: sid})
+            assert status == 200 and response.getheader("Content-Type").startswith(
+                "text/event-stream")
+            event = _event(io.BytesIO(raw))
+            assert event["event"] == "message" and json.loads(event["data"]) == {
+                "jsonrpc": "2.0", "id": 5, "result": {}}
+
+            status, _, body = _rpc(url, {"jsonrpc": "2.0", "id": 6, "method": "ping"},
+                                   session=sid, headers={mcp_http.VERSION_HEADER: "1999-01-01"})
+            assert status == 400 and "is not one this server speaks" in body["error"]["message"]
+            status, _, body = _rpc(url, {"jsonrpc": "2.0", "id": 6, "method": "ping"},
+                                   session="never-opened")
+            assert status == 404 and body["error"]["code"] == -32001
+            status, _, body = _rpc(url, {"jsonrpc": "2.0", "id": 6, "method": "ping"})
+            assert status == 200 and body["result"] == {}, "no session named: served as is"
+
+            # CORS: a loopback origin (a local inspector) is answered, another site is not
+            local = {"Origin": "http://localhost:6274"}
+            status, response, _ = _http(url, "OPTIONS", "/mcp", token=None, headers={
+                **local, "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "authorization, content-type, mcp-session-id"})
+            assert status == 204
+            assert response.getheader("Access-Control-Allow-Origin") == local["Origin"]
+            assert response.getheader("Access-Control-Allow-Methods") == \
+                "GET, POST, DELETE, OPTIONS"
+            allowed = {h.strip() for h in response.getheader(
+                "Access-Control-Allow-Headers").split(",")}
+            assert {"Authorization", "Content-Type", "Accept", "Mcp-Session-Id"} <= allowed
+            assert response.getheader("Access-Control-Expose-Headers") == "Mcp-Session-Id"
+            status, response, _ = _rpc(url, {"jsonrpc": "2.0", "id": 8, "method": "ping"},
+                                       headers=local)
+            assert status == 200 and response.getheader("Access-Control-Allow-Origin") == \
+                local["Origin"]
+            status, _, body = _rpc(url, _call("mailbox_post", {"channel": "wave", "body": "no"}),
+                                   headers={"Origin": "https://evil.example"})
+            assert status == 403 and "another site is not served" in body["error"]
+            assert _bodies(cli_run, ops, "operator", "wave") == ["over streamable http"]
+
+            # a body over the frame cap is refused from its declared length, unread
+            parts = urlsplit(url)
+            conn = http.client.HTTPConnection(parts.hostname, parts.port, timeout=WAIT)
+            conn.putrequest("POST", "/mcp")
+            for name, value in {"Authorization": f"Bearer {BEARER}",
+                                "Content-Type": "application/json",
+                                "Content-Length": str(4 * mcp.MAX_FRAME_BYTES)}.items():
+                conn.putheader(name, value)
+            conn.endheaders()
+            response = conn.getresponse()
+            said = json.loads(response.read())["error"]["message"]
+            conn.close()
+            assert response.status == 413
+            assert f"400% of the {mcp.MAX_FRAME_BYTES:,}-byte cap" in said and "unread" in said
+
+            # GET /mcp holds a stream for the session; DELETE /mcp ends both
+            conn, stream = _open_stream(url, "/mcp", {mcp_http.SESSION_HEADER: sid})
+            assert stream.status == 200 and stream.getheader(mcp_http.SESSION_HEADER) == sid
+            assert _event(stream)["comment"].startswith("ready")
+            status, _, raw = _http(url, "DELETE", "/mcp", headers={mcp_http.SESSION_HEADER: sid})
+            assert status == 200 and json.loads(raw) == {"closed": sid}
+            assert stream.read() == b"", "the stream ended when its session closed"
+            conn.close()
+            status, _, body = _rpc(url, {"jsonrpc": "2.0", "id": 9, "method": "ping"},
+                                   session=sid)
+            assert status == 404, "a closed session is not served again"
+            assert _http(url, "GET", "/mcp", headers={"Accept": "application/json"})[0] == 406
+
+
+def test_the_sse_transport_answers_on_the_stream_and_in_the_body(cli_run, tmp_path):
+    """MCP 2024-11-05: `GET /sse` names its `/messages` endpoint first. Every request
+    posted there is answered both in the response body and as an `event: message` on the
+    stream, a post landing on the real relay; a notification is answered 202 and puts
+    nothing on the stream. When the client leaves, its session ends with it."""
+    with LoopbackRelay(member_claims=True) as relay:
+        ops = tmp_path / "ops"
+        _setup(cli_run, relay, ops, "operator", "camp")
+        cli_run(ops, "operator", "topic", "create", "wave")
+        with mcp_http.McpServer(token=BEARER, port=0, home_dir=ops, default_persona="operator",
+                                timeout_seconds=WAIT, quiet=True) as server:
+            url = server.url
+            assert _http(url, "GET", "/sse", token=None)[0] == 401
+            conn, stream = _open_stream(url, "/sse", {})
+            assert stream.getheader("Content-Type").startswith("text/event-stream")
+            endpoint = _event(stream)
+            assert endpoint["event"] == "endpoint"
+            assert endpoint["data"].startswith("/messages?session_id=")
+            sid = endpoint["data"].split("=", 1)[1]
+
+            def message(body) -> tuple[int, object]:
+                status, _, raw = _http(url, "POST", endpoint["data"], body)
+                return status, json.loads(raw) if raw else None
+
+            status, opened = message({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                                      "params": {"protocolVersion": "2024-11-05"}})
+            assert status == 200 and opened["result"]["protocolVersion"] == "2024-11-05"
+            pushed = _event(stream)
+            assert pushed["event"] == "message" and json.loads(pushed["data"]) == opened
+            assert message({"jsonrpc": "2.0", "method": "notifications/initialized"}) == (202, None)
+
+            status, posted = message(_call("mailbox_post", {"channel": "wave",
+                                                            "body": "over http+sse"}, 2))
+            assert status == 200 and posted["result"]["isError"] is False
+            pushed = _event(stream)
+            assert json.loads(pushed["data"]) == posted, "the notification put nothing between"
+            assert _bodies(cli_run, ops, "operator", "wave") == ["over http+sse"]
+
+            status, _, raw = _http(url, "POST", "/messages?session_id=never-opened",
+                                   {"jsonrpc": "2.0", "id": 3, "method": "ping"})
+            assert status == 404 and json.loads(raw)["error"]["code"] == -32001
+            status, _, raw = _http(url, "POST", "/messages",
+                                   {"jsonrpc": "2.0", "id": 3, "method": "ping"})
+            assert status == 400 and "names its session" in json.loads(raw)["error"]["message"]
+            status, _, raw = _http(url, "POST", "/mcp", {"jsonrpc": "2.0", "id": 3,
+                                                         "method": "ping"},
+                                   headers={mcp_http.SESSION_HEADER: sid})
+            assert status == 404, "an SSE session is not a Streamable HTTP one"
+
+            assert server.routes.sessions() == 1
+            stream.close()
+            conn.close()
+            deadline = time.monotonic() + WAIT          # the server learns it at once; the
+            while server.routes.sessions() and time.monotonic() < deadline:   # test waits
+                time.sleep(0.01)                        # only for its own thread to see it
+            assert server.routes.sessions() == 0, "the session ended with its stream"
+            assert message({"jsonrpc": "2.0", "id": 4, "method": "ping"})[0] == 404
+
+
+def test_openapi_describes_each_tool_and_its_route_runs_it(cli_run, tmp_path):
+    """`GET /openapi.json` (no bearer: ChatGPT imports it by URL) is an OpenAPI 3.1
+    document with one operation per tool and a bearer scheme, its server the origin the
+    request reached. `POST /tools/<tool>` runs the tool on the real relay and answers what
+    it says, or a status and why."""
+    with LoopbackRelay(member_claims=True) as relay:
+        ops = tmp_path / "ops"
+        _setup(cli_run, relay, ops, "operator", "camp")
+        cli_run(ops, "operator", "topic", "create", "wave")
+        with mcp_http.McpServer(token=BEARER, port=0, home_dir=ops, default_persona="operator",
+                                timeout_seconds=WAIT, quiet=True) as server:
+            url = server.url
+            status, _, raw = _http(url, "GET", "/openapi.json", token=None)
+            doc = json.loads(raw)
+            assert status == 200 and doc["openapi"] == "3.1.0"
+            assert doc["servers"] == [{"url": url}]
+            assert doc["components"]["securitySchemes"]["bearerAuth"] == {
+                **doc["components"]["securitySchemes"]["bearerAuth"],
+                "type": "http", "scheme": "bearer"}
+            assert doc["security"] == [{"bearerAuth": []}]
+            assert sorted(doc["paths"]) == sorted(f"/tools/{n}" for n in mcp.HANDLERS)
+            for name in mcp.HANDLERS:
+                operation = doc["paths"][f"/tools/{name}"]["post"]
+                assert operation["operationId"] == name and operation["summary"]
+                assert len(operation["description"]) <= \
+                    mcp_http.GPT_OPERATION_DESCRIPTION_CHARS
+                schema = operation["requestBody"]["content"]["application/json"]["schema"]
+                assert schema["type"] == "object"
+                assert {"200", "400", "401", "422"} <= set(operation["responses"])
+            assert "files" not in doc["paths"]["/tools/mailbox_post"]["post"]["requestBody"][
+                "content"]["application/json"]["schema"]["properties"]
+            proxied = json.loads(_http(url, "GET", "/openapi.json", token=None, headers={
+                "X-Forwarded-Proto": "https", "X-Forwarded-Host": "mcp.example.org"})[2])
+            assert proxied["servers"] == [{"url": "https://mcp.example.org"}]
+
+            assert _http(url, "POST", "/tools/mailbox_list", {}, token=None)[0] == 401
+            status, _, raw = _http(url, "POST", "/tools/mailbox_list", {})
+            assert status == 200 and json.loads(raw)["active_persona"] == "operator"
+            status, _, raw = _http(url, "POST", "/tools/mailbox_list",
+                                   headers={"Content-Length": "0"})
+            assert status == 200, "a tool without arguments takes an empty body"
+
+            status, _, raw = _http(url, "POST", "/tools/mailbox_post",
+                                   {"channel": "wave", "body": "from a GPT action"})
+            assert status == 200 and json.loads(raw)["channel"] == "wave"
+            assert _bodies(cli_run, ops, "operator", "wave") == ["from a GPT action"]
+            status, _, raw = _http(url, "POST", "/tools/mailbox_watch",
+                                   {"channel": "wave", "history": True})
+            assert [m["body"] for m in json.loads(raw)["messages"]] == ["from a GPT action"]
+
+            for body, want, said in [
+                    ({"channel": "wavee", "body": "typo"}, 422, "holds no channel 'wavee'"),
+                    ({"channel": "wave"}, 400, "needs ['body']"),
+                    ({"channel": "wave", "body": "x", "files": ["/etc/hosts"]}, 400,
+                     "names a file on the server's machine")]:
+                status, _, raw = _http(url, "POST", "/tools/mailbox_post", body)
+                assert status == want and said in json.loads(raw)["error"], body
+            status, _, raw = _http(url, "POST", "/tools/mailbox_teleport", {})
+            assert status == 404 and "mailbox_teleport" in json.loads(raw)["error"]
+            assert _http(url, "GET", "/tools/mailbox_list")[0] == 405
+            status, _, raw = _http(url, "POST", "/tools/mailbox_list",
+                                   headers={"Content-Type": "text/plain", "Content-Length": "2"})
+            assert status == 415 and "send JSON" in json.loads(raw)["error"]
+
+
+def test_mcp_http_prints_its_bearer_keeps_it_0600_and_serves_until_ctrl_c(tmp_path):
+    """`nostr-mailbox mcp --http 127.0.0.1:0`, a real process: one JSON line names the
+    URL and the bearer header, the token it made is 0600 in the home and the same on the
+    next start, and Ctrl-C stops it with exit 0. `--no-auth` serves loopback only, to a
+    Host naming loopback; a bind beyond loopback without a bearer, a token file others can
+    read, and an HTTP flag without HTTP each exit 1."""
+    env = {**{k: v for k, v in os.environ.items() if k not in ENV}, "PYTHONPATH": str(SKILL)}
+    home = tmp_path / "home"
+
+    def start(*flags, at: Path = home) -> tuple[subprocess.Popen, dict]:
+        proc = subprocess.Popen([sys.executable, "-m", "nostr_mailbox", "--home", str(at),
+                                 "--persona", "scout", "mcp", *flags], env=env,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        line = proc.stdout.readline()
+        assert line, proc.stderr.read()
+        return proc, json.loads(line)
+
+    def stop(proc: subprocess.Popen) -> dict:
+        proc.send_signal(signal.SIGINT)
+        out, err = proc.communicate(timeout=WAIT)
+        assert proc.returncode == 0, err
+        return json.loads(out)
+
+    proc, up = start("--http", "127.0.0.1:0")
+    try:
+        token = (home / "mcp.token").read_text().strip()
+        assert stat.S_IMODE((home / "mcp.token").stat().st_mode) == 0o600
+        assert (up["token_file"], up["header"], up["persona"]) == (
+            str(home / "mcp.token"), f"Authorization: Bearer {token}", "scout")
+        assert up["mcp"] == up["serving"] + "/mcp" and up["auth"] == "bearer"
+        assert up["claude_code"].startswith(f"claude mcp add --transport http nostr-mailbox "
+                                            f"{up['mcp']} --header")
+        status, response, body = _rpc(up["serving"], {"jsonrpc": "2.0", "id": 1,
+                                                      "method": "initialize", "params": {}},
+                                      token=token)
+        assert status == 200 and response.getheader(mcp_http.SESSION_HEADER)
+        assert body["result"]["protocolVersion"] == mcp.PROTOCOL_VERSIONS[0]
+    finally:
+        stopped = stop(proc)
+    assert stopped == {"stopped": up["serving"]}
+    proc, again = start("--port", "0")
+    stop(proc)
+    assert again["header"] == up["header"], "the bearer is kept, not made anew"
+
+    bare = tmp_path / "bare"
+    proc, up = start("--http", "127.0.0.1:0", "--no-auth", at=bare)
+    try:
+        assert up["auth"].startswith("none") and up["header"] is None
+        assert not (bare / "mcp.token").exists(), "--no-auth makes no token"
+        port = urlsplit(up["serving"]).port
+        status, _, body = _rpc(up["serving"], {"jsonrpc": "2.0", "id": 1, "method": "ping"},
+                               token=None)
+        assert (status, body["result"]) == (200, {})
+        status, _, body = _rpc(up["serving"], {"jsonrpc": "2.0", "id": 1, "method": "ping"},
+                               token=None, headers={"Host": f"rebound.example:{port}"})
+        assert status == 403 and "another name" in body["error"]
+    finally:
+        stop(proc)
+
+    loose = tmp_path / "loose.token"
+    loose.write_text("a-token-others-can-read\n")
+    os.chmod(loose, 0o644)
+    for flags, said in [(["--http", "0.0.0.0:0", "--no-auth"], "not a loopback address"),
+                        (["--http", "127.0.0.1:0", "--token-file", str(loose)], "must be 0600"),
+                        (["--token", "abc"], "stdio has none"),
+                        (["--http", "7000", "--bind", "127.0.0.1:7001"], "give one"),
+                        (["--http", "127.0.0.1:7000", "--port", "7001"], "two ports")]:
+        done = subprocess.run([sys.executable, "-m", "nostr_mailbox", "--home", str(bare),
+                               "mcp", *flags], env=env, capture_output=True, text=True,
+                              timeout=WAIT, stdin=subprocess.DEVNULL)
+        assert done.returncode == 1 and said in done.stderr, (flags, done.stderr)
+    assert not (bare / "mcp.token").exists()
+
+
+def test_the_console_serves_the_same_mcp_routes_at_its_own_mcp(cli_run, tmp_path):
+    """While `nostr-mailbox ui` runs, `<console>/mcp` is an MCP server: it asks for the
+    home's bearer (made 0600 at start), never the page's token, keeps the console's Host
+    rule, and runs as the persona X-NM-Persona names, else as the console's default. A
+    post through it lands on the real relay; `/api/state` says where it is."""
+    with LoopbackRelay(member_claims=True) as relay:
+        ops = tmp_path / "ops"
+        _setup(cli_run, relay, ops, "operator", "camp")
+        cli_run(ops, "operator", "topic", "create", "wave")
+        cli_run(ops, "scout", "init")
+        console = ui.Console(base=ops, identity="operator", timeout_s=WAIT, quiet=True)
+        with ui.ConsoleServer(console, port=0) as server:
+            url = server.url
+            token = (ops / "mcp.token").read_text().strip()
+            assert stat.S_IMODE((ops / "mcp.token").stat().st_mode) == 0o600
+            assert _rpc(url, {"jsonrpc": "2.0", "id": 1, "method": "ping"},
+                        token=console.token)[0] == 401, "the page's token is not the bearer"
+            port = urlsplit(url).port
+            status, _, body = _rpc(url, {"jsonrpc": "2.0", "id": 1, "method": "ping"},
+                                   token=token, headers={"Host": f"rebound.example:{port}"})
+            assert status == 403
+
+            _, _, listed = _rpc(url, _call("mailbox_list", {}), token=token)
+            assert listed["result"]["structuredContent"]["active_persona"] == "operator"
+            _, _, listed = _rpc(url, _call("mailbox_list", {}), token=token,
+                                headers={ui.PERSONA_HEADER: "scout"})
+            assert listed["result"]["structuredContent"]["active_persona"] == "scout"
+            status, _, body = _rpc(url, _call("mailbox_list", {}), token=token,
+                                   headers={ui.PERSONA_HEADER: "Not A Name"})
+            assert status == 400 and "must match" in body["error"]
+
+            _, _, posted = _rpc(url, _call("mailbox_post", {"channel": "wave",
+                                                            "body": "through the console"}),
+                                token=token)
+            assert posted["result"]["isError"] is False
+            assert _bodies(cli_run, ops, "operator", "wave") == ["through the console"]
+            status, _, raw = _http(url, "POST", "/tools/mailbox_list", {}, token=token)
+            assert status == 200 and json.loads(raw)["active_persona"] == "operator"
+            assert json.loads(_http(url, "GET", "/openapi.json", token=None)[2])[
+                "servers"] == [{"url": url}]
+
+            parts = urlsplit(url)
+            conn = http.client.HTTPConnection(parts.hostname, parts.port, timeout=WAIT)
+            conn.request("GET", "/api/state", headers={ui.TOKEN_HEADER: console.token})
+            state = json.loads(conn.getresponse().read())
+            conn.close()
+            assert state["mcp"] == {"path": "/mcp", "sse": "/sse", "openapi": "/openapi.json",
+                                    "tools": "/tools/", "auth": "bearer",
+                                    "token_file": str(ops / "mcp.token")}
+            status, response, _ = _http(url, "OPTIONS", "/api/state", token=None,
+                                        headers={"Origin": "http://localhost:6274"})
+            assert status == 404 and response.getheader("Access-Control-Allow-Origin") is None, \
+                "the console's own API still answers no CORS"
+
+
+# ====================================================== Claude Desktop, installed
+SYNC = Path(__file__).resolve().parents[1] / "scripts/sync_plugin.py"
+
+
+def test_the_installer_merges_claude_desktop_and_the_entry_it_writes_launches(cli_run,
+                                                                              tmp_path):
+    """`sync_plugin.py --install --harness claude-desktop` merges one entry into an
+    existing claude_desktop_config.json: every other key and server kept, its mode kept,
+    no staging file left. The entry, launched the way an MCP stdio client launches it (its
+    command, args and env alone), answers as the persona claude-desktop. Running again
+    changes nothing; a dry run writes nothing; a config that is not JSON, or a symlink, is
+    refused and left as it is. A full --install finds Claude Desktop by its folder."""
+    fake_home = tmp_path / "home"
+    config = tmp_path / "Claude/claude_desktop_config.json"
+    config.parent.mkdir()
+    before = {"globalShortcut": "Ctrl+Space",
+              "mcpServers": {"other": {"command": "other-server", "args": ["--flag"]}}}
+    config.write_text(json.dumps(before, indent=2))
+    os.chmod(config, 0o640)
+    env = {**{k: v for k, v in os.environ.items() if k not in ENV}, "HOME": str(fake_home)}
+
+    def install(*extra, at: Path = config, environ: dict = env):
+        return subprocess.run([sys.executable, str(SYNC), "--install", "--claude-desktop-config",
+                               str(at), *extra], capture_output=True, text=True, env=environ,
+                              check=False)
+
+    planned = install("--harness", "claude-desktop", "--dry-run")
+    assert planned.returncode == 0, planned.stderr
+    assert f"merge mcpServers.nostr-mailbox into {config}" in planned.stdout
+    assert json.loads(config.read_text()) == before, "a dry run writes nothing"
+
+    done = install("--harness", "claude-desktop")
+    assert done.returncode == 0, done.stderr
+    merged = json.loads(config.read_text())
+    binary = fake_home / ".local/bin/nostr-mailbox"
+    entry = merged["mcpServers"]["nostr-mailbox"]
+    assert entry == {"command": str(binary), "args": ["--persona", "claude-desktop", "mcp"],
+                     "env": {"PATH": os.environ["PATH"]}}
+    assert {k: v for k, v in merged.items() if k != "mcpServers"} == {
+        "globalShortcut": "Ctrl+Space"}
+    assert merged["mcpServers"]["other"] == before["mcpServers"]["other"]
+    assert list(merged["mcpServers"]) == ["other", "nostr-mailbox"]
+    assert stat.S_IMODE(config.stat().st_mode) == 0o640
+    assert sorted(p.name for p in config.parent.iterdir()) == [config.name]
+
+    # launched as Claude Desktop launches it: nothing of this shell but its default set
+    ops = fake_home / ".config/nostr-mailbox"
+    cli_run(ops, "claude-desktop", "init")
+    launched = subprocess.run(
+        [entry["command"], *entry["args"]],
+        input=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                          "params": {"protocolVersion": "2025-06-18"}}) + "\n"
+        + json.dumps(_call("mailbox_list", {}, 2)) + "\n",
+        capture_output=True, text=True, timeout=WAIT,
+        env={"HOME": str(fake_home), **entry["env"]})
+    assert launched.returncode == 0, launched.stderr
+    init, listed = _replies(launched.stdout.encode())
+    assert init["result"]["serverInfo"]["name"] == "nostr-mailbox"
+    seen = listed["result"]["structuredContent"]
+    assert (seen["home"], seen["active_persona"]) == (str(ops), "claude-desktop")
+
+    again = install("--harness", "claude-desktop")
+    assert again.returncode == 0 and "unchanged" in again.stdout
+
+    broken = tmp_path / "broken/claude_desktop_config.json"
+    broken.parent.mkdir()
+    broken.write_text('{"mcpServers": {')
+    refused = install("--harness", "claude-desktop", at=broken)
+    assert refused.returncode != 0 and "is not JSON" in refused.stderr
+    assert broken.read_text() == '{"mcpServers": {'
+    linked = tmp_path / "linked/claude_desktop_config.json"
+    linked.parent.mkdir()
+    linked.symlink_to(config)
+    refused = install("--harness", "claude-desktop", at=linked)
+    assert refused.returncode != 0 and "refusing to write through the symlink" in refused.stderr
+
+    # a full --install: with no other harness on PATH or under HOME, it finds this one
+    found = tmp_path / "found/claude_desktop_config.json"
+    found.parent.mkdir()
+    bare_path = os.pathsep.join([str(Path(sys.executable).parent), "/usr/bin", "/bin"])
+    assert not any(shutil.which(h, path=bare_path) for h in ("claude", "codex", "agy", "pi",
+                                                              "opencode"))
+    detected = install(at=found, environ={**env, "PATH": bare_path})
+    assert detected.returncode == 0, detected.stderr
+    assert json.loads(found.read_text())["mcpServers"]["nostr-mailbox"]["env"] == {
+        "PATH": bare_path}

@@ -82,6 +82,7 @@ python3 scripts/sync_plugin.py --install --harness opencode
 <summary>Connect an MCP client</summary>
 
 Install the standalone CLI, then add this entry to your client's MCP configuration.
+The client starts the server over stdio.
 
 ```json
 {
@@ -93,6 +94,23 @@ Install the standalone CLI, then add this entry to your client's MCP configurati
   }
 }
 ```
+
+For Streamable HTTP, HTTP+SSE and OpenAPI, serve it on `127.0.0.1:7891`. It prints the
+URL and the bearer header to send; the token is kept in `<home>/mcp.token`, mode 0600.
+While `nostr-mailbox ui` runs, the console's own `/mcp` serves the same tools.
+
+```bash
+nostr-mailbox mcp --http
+```
+
+Claude Desktop, from a checkout:
+
+```bash
+python3 scripts/sync_plugin.py --install --harness claude-desktop
+```
+
+To reach ChatGPT through a Custom GPT Action, see
+[Connect ChatGPT and Claude](docs/connect-chatgpt-and-claude.md).
 
 </details>
 
@@ -154,7 +172,9 @@ one room. A seat can work across Orgs with a separate trust declaration for each
 ## MCP tools
 
 Each tool accepts a `persona`. Use `mailbox_list` to see which Org or topic the server
-uses for `bus`.
+uses for `bus`. The same six tools are served over stdio (`nostr-mailbox mcp`), over HTTP
+(`mcp --http`: `/mcp`, `/sse`) and as OpenAPI operations (`/openapi.json`,
+`POST /tools/<tool>`).
 
 | Tool | Required inputs | Purpose |
 | --- | --- | --- |
@@ -168,6 +188,7 @@ uses for `bus`.
 ## Documentation map
 
 - [CLI reference](docs/cli-reference.md) · From the first invite to a verified handoff.
+- [Connect ChatGPT and Claude](docs/connect-chatgpt-and-claude.md) · ChatGPT, Claude Desktop and Claude Code in one encrypted channel.
 - [Protocol and ACLs](docs/protocol-and-acls.md) · Permission matrix, key delivery and wire kinds.
 - [Self-hosting and relays](docs/self-hosting-and-relays.md) · Deployment targets and split-horizon setup.
 - [Agent skill](skills/nostr-mailbox/SKILL.md) · Operating instructions for a harness.

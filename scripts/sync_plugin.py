@@ -5,6 +5,7 @@
     python3 scripts/sync_plugin.py --write      # regenerate it from plugin.json
     python3 scripts/sync_plugin.py --install    # install into Claude Code, Codex and Antigravity
     python3 scripts/sync_plugin.py --install --harness codex --dry-run
+    python3 scripts/sync_plugin.py --install --harness claude-desktop
 
 plugin.json is the single source of truth. Generated:
   .claude-plugin/plugin.json        Claude Code plugin manifest
@@ -13,16 +14,20 @@ plugin.json is the single source of truth. Generated:
   .agents/plugins/marketplace.json  Codex marketplace
   .agents/skills/<skill>            relative symlinks to skills/<skill>: repo-root skill discovery
 Antigravity (and Gemini CLI) load the package from ~/.gemini/config/plugins/<name>.
+Claude Desktop launches the MCP server named in its claude_desktop_config.json: --install
+merges `nostr-mailbox` into its `mcpServers`, run as the persona `claude-desktop`.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -262,6 +267,103 @@ def skill_harness_dirs() -> dict[str, Path]:
     }
 
 
+DESKTOP_SERVER, DESKTOP_PERSONA = "nostr-mailbox", "claude-desktop"
+# What an MCP stdio client (Claude Desktop among them) passes a server by default, beside
+# the `env` of its entry: nothing else of the installing shell reaches the server.
+STDIO_ENV = (("APPDATA", "HOMEDRIVE", "HOMEPATH", "LOCALAPPDATA", "PATH", "PROCESSOR_ARCHITECTURE",
+              "SYSTEMDRIVE", "SYSTEMROOT", "TEMP", "USERNAME", "USERPROFILE", "PROGRAMFILES")
+             if os.name == "nt" else ("HOME", "LOGNAME", "PATH", "SHELL", "TERM", "USER"))
+
+
+def claude_desktop_config() -> Path:
+    """Where Claude Desktop reads its MCP servers on this platform."""
+    if sys.platform == "darwin":
+        return Path.home() / "Library/Application Support/Claude/claude_desktop_config.json"
+    if os.name == "nt":
+        return Path(os.environ["APPDATA"]) / "Claude/claude_desktop_config.json"
+    config = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+    return config / "Claude/claude_desktop_config.json"
+
+
+def desktop_entry(binary: Path) -> dict:
+    """The `mcpServers` entry: the installed binary, as the persona claude-desktop, over
+    stdio. A desktop app starts it with a bare PATH, under which the binary's
+    `/usr/bin/env python3` finds no Python 3.12 (macOS ships 3.9), so the entry carries
+    the PATH this installer runs with: the server finds the python3, and the kubectl or
+    docker an admin command reaches the relay with, that this shell does."""
+    return {"command": str(binary), "args": ["--persona", DESKTOP_PERSONA, "mcp"],
+            "env": {"PATH": os.environ["PATH"]}}
+
+
+def launch_once(entry: dict) -> None:
+    """Start `entry` as an MCP stdio client does (its command and args, the default
+    environment and its `env`) and require it to answer `initialize`; stdin then ends,
+    so it exits. A server that cannot start is never written into a config."""
+    request = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+               "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                          "clientInfo": {"name": "sync_plugin", "version": "0"}}}
+    env = {**{k: os.environ[k] for k in STDIO_ENV if k in os.environ}, **entry["env"]}
+    command = [entry["command"], *entry["args"]]
+    done = subprocess.run(command, input=json.dumps(request) + "\n", capture_output=True,
+                          text=True, env=env, check=False)
+    lines = done.stdout.splitlines()
+    try:
+        name = json.loads(lines[0])["result"]["serverInfo"]["name"] if lines else None
+    except (json.JSONDecodeError, KeyError, TypeError):
+        name = None
+    if done.returncode != 0 or name != "nostr-mailbox":
+        raise SystemExit(f"{shlex.join(command)} did not answer an MCP initialize (exit "
+                         f"{done.returncode}); nothing was written. stdout: {done.stdout!r} "
+                         f"stderr: {done.stderr!r}")
+
+
+def install_claude_desktop(config: Path, binary: Path, dry_run: bool) -> None:
+    """Merge `desktop_entry(binary)` into Claude Desktop's config as mcpServers.nostr-mailbox.
+    Every other key and server is kept. The file is replaced whole (a sibling temp file,
+    then os.replace), keeps its mode (0600 when new), and is never written through a
+    symlink; the entry is launched once first (`launch_once`)."""
+    if config.is_symlink():
+        raise SystemExit(f"refusing to write through the symlink {config}; edit its target, "
+                         "or replace the link with a file")
+    current: dict = {}
+    if config.exists():
+        text = config.read_text()
+        try:
+            current = json.loads(text) if text.strip() else {}
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"{config} is not JSON ({exc}); it is left as it is: fix it, "
+                             "or move it aside") from exc
+        if not isinstance(current, dict):
+            raise SystemExit(f"{config} holds a {type(current).__name__}, not a JSON object")
+    servers = current.get("mcpServers", {})
+    if not isinstance(servers, dict):
+        raise SystemExit(f"{config}: mcpServers is a {type(servers).__name__}, not an object")
+    entry = desktop_entry(binary)
+    launched = shlex.join([entry["command"], *entry["args"]])
+    if servers.get(DESKTOP_SERVER) == entry:
+        print(f"unchanged {config}: mcpServers.{DESKTOP_SERVER} runs {launched}", flush=True)
+        return
+    print(f"merge mcpServers.{DESKTOP_SERVER} into {config}: {launched}", flush=True)
+    if dry_run:
+        return
+    launch_once(entry)
+    merged = {**current, "mcpServers": {**servers, DESKTOP_SERVER: entry}}
+    mode = stat.S_IMODE(config.stat().st_mode) if config.exists() else 0o600
+    config.parent.mkdir(parents=True, exist_ok=True)
+    fd, staged = tempfile.mkstemp(dir=config.parent, prefix=f".{config.name}.", suffix=".part")
+    try:
+        with os.fdopen(fd, "w") as stream:
+            stream.write(json.dumps(merged, indent=2, ensure_ascii=False) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(staged, mode)
+        os.replace(staged, config)
+    finally:
+        with contextlib.suppress(FileNotFoundError):    # replaced: nothing left to clean
+            os.unlink(staged)
+    print("Restart Claude Desktop to load it.", flush=True)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -273,8 +375,14 @@ def main() -> int:
     parser.add_argument(
         "--harness",
         action="append",
-        choices=["claude", "codex", "antigravity", "pi", "copilot", "cursor", "opencode"],
+        choices=["claude", "codex", "antigravity", "pi", "copilot", "cursor", "opencode",
+                 "claude-desktop"],
         help="repeat to pick harnesses (default: detected harnesses)",
+    )
+    parser.add_argument(
+        "--claude-desktop-config",
+        type=Path,
+        help="Claude Desktop's claude_desktop_config.json (default: this platform's)",
     )
     parser.add_argument(
         "--antigravity-dir",
@@ -316,10 +424,12 @@ def main() -> int:
             harnesses.append("cursor")
         if (Path.home() / ".copilot").is_dir():
             harnesses.append("copilot")
+        if (args.claude_desktop_config or claude_desktop_config()).parent.is_dir():
+            harnesses.append("claude-desktop")
     if not harnesses:
         raise SystemExit(
-            "No harness detected. Choose --harness antigravity/pi/copilot/cursor/opencode "
-            "or run the standalone CLI."
+            "No harness detected. Choose --harness antigravity/pi/copilot/cursor/opencode/"
+            "claude-desktop or run the standalone CLI."
         )
     for harness in harnesses:
         if (
@@ -337,7 +447,7 @@ def main() -> int:
             install_codex(meta["name"], args.dry_run)
         elif harness == "antigravity":
             copy_package(args.antigravity_dir / meta["name"], args.dry_run)
-        else:
+        elif harness != "claude-desktop":   # after the binary it launches is linked, below
             copy_skill_dir(skill_harness_dirs()[harness] / meta["name"], args.dry_run)
     bin_dir = Path.home() / ".local/bin"
     bin_target = bin_dir / "nostr-mailbox"
@@ -350,6 +460,9 @@ def main() -> int:
         if bin_target.is_symlink() or bin_target.exists():
             bin_target.unlink()
         bin_target.symlink_to(script_src)
+    if "claude-desktop" in harnesses:
+        install_claude_desktop(args.claude_desktop_config or claude_desktop_config(), bin_target,
+                               args.dry_run)
     print(
         "Install planned (dry run)."
         if args.dry_run

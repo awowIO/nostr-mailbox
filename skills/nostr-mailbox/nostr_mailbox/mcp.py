@@ -1,4 +1,5 @@
-"""A local Model Context Protocol server on stdio: `nostr-mailbox mcp`.
+"""A local Model Context Protocol server: `nostr-mailbox mcp`, on stdio; and the tools
+every transport serves (`mcp_http` carries them over HTTP, `--http`).
 
 Six tools, each the CLI commands it names, run in this process against this machine's
 home (`--home`), as one of its personas (`--persona`, an identity under `identities/`):
@@ -26,7 +27,13 @@ The wire is JSON-RPC 2.0, one message per line or Content-Length framed; each re
 framed the way its request was. A frame holds at most `MAX_FRAME_BYTES`. A tool argument
 never becomes a command-line flag: every option is passed as `--flag=value` and every
 positional after `--`. While a tool runs, stdout is redirected to stderr and stdin
-refuses reads, because both carry the protocol."""
+refuses reads, because on stdio both carry the protocol.
+
+One tool call runs at a time in a process, whichever transport brought it: the commands
+share this home's ledgers and keyrings, each written whole by one command. A client that
+may be on another machine (`local_files=False`, every HTTP client) is offered no
+argument naming a file here (`LOCAL_FILE_ARGUMENTS`), and one that sends it is refused:
+over HTTP, `files` would upload whatever this machine can read into the channel."""
 from __future__ import annotations
 
 import argparse
@@ -36,6 +43,7 @@ import json
 import os
 import re
 import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
@@ -52,7 +60,7 @@ from .profile import CLAIM_EFFECTS, DECISION_OUTCOMES, ROUTE_STATES, Trust, slug
 from .relay import MAX_MESSAGE_BYTES
 
 # Newest first: a client asking for one of these gets it, any other gets the newest.
-PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
+PROTOCOL_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
 INSTRUCTIONS = (
     "A cross-machine agent mailbox over a private Nostr relay. Call mailbox_list first: it "
     "names this machine's personas, orgs and channels, and what 'bus' means on this "
@@ -71,6 +79,14 @@ class ToolError(NostrError):
 
 class InvalidArguments(ToolError):
     """Arguments that do not match the tool's input schema (JSON-RPC -32602)."""
+
+
+class _Refusing(argparse.ArgumentParser):
+    """The CLI's parser for a tool call: what it refuses is raised as the CLI would print
+    it, never written to the process's stderr, which another thread may be writing."""
+
+    def error(self, message: str):
+        raise ToolError(f"{self.prog}: error: {message}")
 
 
 class FrameError(NostrError):
@@ -150,6 +166,9 @@ _CHANNEL = {"type": "string",
             "description": "'bus' (the org's own bus; with no org, what mailbox_list says "
                            "it means on this server) or a topic held on this machine."}
 
+_FILES_NOTE = (" Each file is sealed under the channel's key, uploaded as a blob, and "
+               "attached as a blob:<sha256> ref.")
+
 TOOLS: list[dict] = [
     {
         "name": "mailbox_list",
@@ -213,9 +232,7 @@ TOOLS: list[dict] = [
     },
     {
         "name": "mailbox_post",
-        "description": "Post a message to a channel. Each file is sealed under the "
-                       "channel's key, uploaded as a blob, and attached as a blob:<sha256> "
-                       "ref.",
+        "description": "Post a message to a channel." + _FILES_NOTE,
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -292,21 +309,50 @@ TOOLS: list[dict] = [
         },
     },
 ]
-_SCHEMAS = {tool["name"]: tool["inputSchema"] for tool in TOOLS}
+# The arguments that name a file on this machine: offered to a local client only.
+LOCAL_FILE_ARGUMENTS = {"mailbox_post": "files", "mailbox_invite": "code_file"}
+
+
+def _remote(tool: dict) -> dict:
+    """`tool` as a client on another machine sees it: without its file argument."""
+    arg = LOCAL_FILE_ARGUMENTS.get(tool["name"])
+    if arg is None:
+        return tool
+    schema = tool["inputSchema"]
+    return {**tool, "description": tool["description"].replace(_FILES_NOTE, ""),
+            "inputSchema": {**schema, "properties": {k: v for k, v in schema["properties"].items()
+                                                     if k != arg}}}
+
+
+REMOTE_TOOLS: list[dict] = [_remote(tool) for tool in TOOLS]
+
+
+def tools(*, local_files: bool = True) -> list[dict]:
+    """The tools a client is offered: every argument for a client on this machine, none
+    naming a file here for one that may be elsewhere (an HTTP client)."""
+    return TOOLS if local_files else REMOTE_TOOLS
+
+
+_SCHEMAS = {True: {tool["name"]: tool["inputSchema"] for tool in TOOLS},
+            False: {tool["name"]: tool["inputSchema"] for tool in REMOTE_TOOLS}}
 _JSON_TYPES = {"string": str, "number": (int, float), "boolean": bool, "array": list,
                "object": dict}
 
 
-def _check_arguments(name: str, arguments) -> dict:
-    """The arguments, checked against the tool's schema. A null is an absent argument."""
+def _check_arguments(name: str, arguments, *, local_files: bool = True) -> dict:
+    """The arguments, checked against the tool's schema as this client is offered it. A
+    null is an absent argument."""
     if not isinstance(arguments, dict):
         raise InvalidArguments(f"{name}: arguments must be an object")
     args = {k: v for k, v in arguments.items() if v is not None}
-    schema = _SCHEMAS[name]
+    schema = _SCHEMAS[local_files][name]
     props = schema["properties"]
     unknown = sorted(set(args) - set(props))
     if unknown:
-        raise InvalidArguments(f"{name} takes {sorted(props)}; unknown: {unknown}")
+        held = LOCAL_FILE_ARGUMENTS.get(name)
+        why = (f" ({held} names a file on the server's machine, and this client may be on "
+               "another: it is offered to stdio clients only)" if held in unknown else "")
+        raise InvalidArguments(f"{name} takes {sorted(props)}; unknown: {unknown}{why}")
     missing = [key for key in schema.get("required", ()) if key not in args]
     if missing:
         raise InvalidArguments(f"{name} needs {missing}")
@@ -336,8 +382,9 @@ class _ProtocolStdin(io.TextIOBase):
         return False
 
     def read(self, size: int | None = -1) -> str:
-        raise ToolError("this tool takes its input as arguments: stdin carries the MCP "
-                        "protocol (a '-' value means stdin to the CLI)")
+        raise ToolError("this tool takes its input as arguments, never from stdin: on "
+                        "stdio, stdin carries the MCP protocol (a '-' value means stdin to "
+                        "the CLI)")
 
     def readline(self, size: int | None = -1) -> str:
         return self.read(size)
@@ -396,13 +443,7 @@ class _Call:
                 *_options(options)]
         if positionals:
             argv += ["--", *(_scalar("argument", p) for p in positionals)]
-        said = io.StringIO()
-        try:
-            with contextlib.redirect_stderr(said):
-                args = cli.build_parser().parse_args(argv)
-        except SystemExit:
-            lines = said.getvalue().strip().splitlines()
-            raise ToolError(lines[-1] if lines else f"cannot run {' '.join(command)}") from None
+        args = cli.build_parser(parser_class=_Refusing).parse_args(argv)
         cli._from_environment(args)
         return args
 
@@ -741,6 +782,11 @@ def _tool_board(call: _Call, args: dict) -> dict:
     return out
 
 
+# One tool call at a time in this process, as on stdio (see the module docstring): the
+# commands share the home's ledgers and keyrings, and `_protocol_safe` swaps the
+# process's own stdin and stdout while one runs.
+_ONE_AT_A_TIME = threading.Lock()
+
 HANDLERS = {"mailbox_list": _tool_list, "mailbox_invite": _tool_invite,
             "mailbox_join": _tool_join, "mailbox_post": _tool_post,
             "mailbox_watch": _tool_watch, "mailbox_board": _tool_board}
@@ -748,17 +794,21 @@ HANDLERS = {"mailbox_list": _tool_list, "mailbox_invite": _tool_invite,
 
 def call_tool(name: str, arguments: dict | None, *, home_dir: str | Path | None = None,
               default_persona: str | None = None, trust: str | None = None,
-              topic: str | None = None, timeout_seconds: float = DEFAULT_WAIT_S) -> dict:
+              topic: str | None = None, timeout_seconds: float = DEFAULT_WAIT_S,
+              local_files: bool = True) -> dict:
     """Run tool `name` and return what it says. `trust`, `topic` and `timeout_seconds`
-    are the server's root flags (see the module docstring). Raises `InvalidArguments`
-    for arguments the schema refuses, and `NostrError` (or `OSError`) when the command
-    fails."""
+    are the server's root flags (see the module docstring); `local_files` is whether the
+    client shares this machine (stdio) or may not (HTTP). Raises `InvalidArguments` for
+    arguments the schema refuses, and `NostrError` (or `OSError`) when the command
+    fails. Calls from several threads run one after another."""
     if not isinstance(name, str) or name not in HANDLERS:
         raise InvalidArguments(f"unknown tool {name!r}; tools: {sorted(HANDLERS)}")
-    args = _check_arguments(name, {} if arguments is None else arguments)
+    args = _check_arguments(name, {} if arguments is None else arguments,
+                            local_files=local_files)
     call = _Call(root=home(home_dir), persona=args.pop("persona", None) or default_persona
                  or DEFAULT_NAME, trust=trust, topic=topic, timeout_seconds=timeout_seconds)
-    return HANDLERS[name](call, args)
+    with _ONE_AT_A_TIME:
+        return HANDLERS[name](call, args)
 
 
 # ------------------------------------------------------------------- JSON-RPC 2.0
@@ -802,7 +852,7 @@ def handle_rpc(message, **server):
     if method == "ping":
         return _result(req_id, {})
     if method == "tools/list":
-        return _result(req_id, {"tools": TOOLS})
+        return _result(req_id, {"tools": tools(local_files=server.get("local_files", True))})
     if method == "tools/call":
         name = params.get("name")
         try:

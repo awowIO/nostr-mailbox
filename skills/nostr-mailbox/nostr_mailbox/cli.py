@@ -1637,12 +1637,21 @@ def cmd_ui(args) -> dict:
     return serve(args)
 
 
-def cmd_mcp(args) -> str:
+def cmd_mcp(args) -> str | dict:
     """Serve the MCP tools on stdin and stdout until stdin closes. Returns "": stdout
     carries the protocol, and nothing else may be printed on it. The root flags are the
     server's defaults: --trust declares its default org, --topic puts its default scope
-    in that topic, and --timeout-seconds applies to every command it runs."""
+    in that topic, and --timeout-seconds applies to every command it runs. With --http
+    (or --bind, --port) it serves HTTP instead, until Ctrl-C (`mcp_http.serve`)."""
+    from . import mcp_http
     from .mcp import serve_stdio
+    address = mcp_http.http_address(args.http, args.bind, args.port)
+    if address is not None:
+        return mcp_http.serve(args, address)
+    if args.token is not None or args.token_file is not None or args.no_auth:
+        raise NostrError("--token, --token-file and --no-auth say how HTTP clients "
+                         "authenticate; stdio has none. Serve HTTP with --http (or --bind, "
+                         "--port)")
     if serve_stdio(home_dir=args.home, default_persona=args.identity, trust=args.trust,
                    topic=args.topic_trust, timeout_seconds=args.timeout_seconds):
         raise NostrError("the MCP session ended on a frame it could not read (cut short, "
@@ -1669,11 +1678,14 @@ def _patience(text: str) -> float:
 
 
 @functools.cache
-def build_parser(prog: str = "nostr-mailbox") -> argparse.ArgumentParser:
+def build_parser(prog: str = "nostr-mailbox",
+                 parser_class: type[argparse.ArgumentParser] = argparse.ArgumentParser
+                 ) -> argparse.ArgumentParser:
     """The command tree. It reads nothing from the environment: a flag left unset is
-    filled from its variable when a command runs (`_from_environment`)."""
-    ap = argparse.ArgumentParser(prog=prog, description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    filled from its variable when a command runs (`_from_environment`). Every parser in
+    it is a `parser_class` (the MCP server's raises what it refuses)."""
+    ap = parser_class(prog=prog, description=__doc__,
+                      formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--trust", help=f"the campaign's nostr.toml (or {TRUST_ENV})")
     ap.add_argument("--topic", dest="topic_trust", metavar="TOPIC",
                     help="work inside this topic: its declaration <home>/topics/TOPIC.toml")
@@ -2065,8 +2077,11 @@ def build_parser(prog: str = "nostr-mailbox") -> argparse.ArgumentParser:
     from .ui import add_arguments as ui_arguments
     ui_arguments(add(sub, "ui", cmd_ui,
                      "serve the Visual Web Console on loopback; the key stays in its file"))
-    add(sub, "mcp", cmd_mcp, "serve the mailbox_* MCP tools over stdio (JSON-RPC 2.0, "
-                             "newline-delimited or Content-Length framed)")
+    from .mcp_http import add_arguments as mcp_arguments
+    mcp_arguments(add(sub, "mcp", cmd_mcp,
+                      "serve the mailbox_* MCP tools over stdio (JSON-RPC 2.0, newline-delimited "
+                      "or Content-Length framed), or with --http over Streamable HTTP, "
+                      "HTTP+SSE and OpenAPI 3.1"))
     return ap
 
 
