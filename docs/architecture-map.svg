@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" width="100%" height="auto" role="img" aria-labelledby="am-title am-desc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif">
+  <title id="am-title">Physical architecture map</title>
+  <desc id="am-desc">Client machines hold the Persona keys, trust files and channel keyrings and run the CLI, MCP server and web console; the wire carries only NIP-44 ciphertext and NIP-59 gift-wrapped keys; the relay pod holds no decryption keys, gates connections and channels, and stores encrypted events and blobs on one persistent volume.</desc>
+  <defs>
+    <marker id="biArr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1.5 L 8.5 5 L 0 8.5 z" fill="#475569"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="420" rx="8" fill="#f8fafc"/>
+
+  <!-- Column Headers -->
+  <text x="16" y="24" font-size="11.5" font-weight="700" fill="#475569" letter-spacing="0.06em">CLIENT MACHINES (KEYS &amp; PLAINTEXT)</text>
+  <text x="462" y="24" font-size="11.5" font-weight="700" fill="#475569" letter-spacing="0.06em">ENCRYPTED WIRE</text>
+  <text x="650" y="24" font-size="11.5" font-weight="700" fill="#475569" letter-spacing="0.06em">RELAY SERVER POD (CIPHERTEXT ONLY — NO DECRYPTION KEYS)</text>
+
+  <!-- Left Box 1: Developer Laptops -->
+  <rect x="16" y="38" width="400" height="175" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+  <rect x="16" y="38" width="400" height="32" rx="8" fill="#f1f5f9"/>
+  <text x="30" y="59" font-size="13" font-weight="700" fill="#0f172a">Developer Laptops (Alice / Bob)</text>
+
+  <text x="30" y="90" font-size="12" font-weight="600" fill="#0f172a">Local Files (~/.config/nostr-mailbox/):</text>
+  <text x="30" y="110" font-size="12" fill="#334155" font-family="monospace">• identities/&lt;persona&gt;.json    (0600 key)</text>
+  <text x="30" y="128" font-size="12" fill="#334155" font-family="monospace">• nostr.toml / topics/*.toml   (relays)</text>
+  <text x="30" y="146" font-size="12" fill="#334155" font-family="monospace">• keyrings/&lt;chan&gt;.json         (channel keys)</text>
+
+  <text x="30" y="174" font-size="12" font-weight="600" fill="#0f172a">Local Processes:</text>
+  <text x="30" y="194" font-size="12" fill="#334155">• <tspan font-family="monospace">nostr-mailbox mcp</tspan> / <tspan font-family="monospace">ui</tspan> + local worktree agents</text>
+
+  <!-- Left Box 2: Remote Agent Containers & Browser-Only Users -->
+  <rect x="16" y="230" width="400" height="170" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+  <rect x="16" y="230" width="400" height="32" rx="8" fill="#f1f5f9"/>
+  <text x="30" y="251" font-size="13" font-weight="700" fill="#0f172a">Remote Agent Pools &amp; Browser-Only Users</text>
+
+  <text x="30" y="282" font-size="12" font-weight="600" fill="#0f172a">Cloud / GPU Agent Containers (ML, Security, CI):</text>
+  <text x="30" y="302" font-size="12" fill="#334155">• Join via 1 token (<tspan font-family="monospace">nostr-mailbox join &lt;token&gt;</tspan>)</text>
+  <text x="30" y="320" font-size="12" fill="#334155">• Optional host signer socket (<tspan font-family="monospace">/run/.../seat.sock</tspan>)</text>
+
+  <text x="30" y="352" font-size="12" font-weight="600" fill="#0f172a">Browser-Only Users (Carol / Non-CLI Contacts):</text>
+  <text x="30" y="372" font-size="12" fill="#334155">• Open <tspan font-family="monospace">https://.../join/#nm1_...</tspan> in Safari/Chrome</text>
+  <text x="30" y="390" font-size="12" fill="#334155">• Key &amp; decryption stay in browser sandbox (zero install)</text>
+
+  <!-- Center Wire Arrows -->
+  <path d="M422 125 L642 125" stroke="#475569" stroke-width="2" marker-start="url(#biArr)" marker-end="url(#biArr)"/>
+  <rect x="442" y="92" width="180" height="24" rx="4" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="532" y="108" text-anchor="middle" font-size="11" font-weight="600" fill="#0f172a" font-family="monospace">wss:// (NIP-44 Ciphertext)</text>
+
+  <path d="M422 315 L642 315" stroke="#475569" stroke-width="2" marker-start="url(#biArr)" marker-end="url(#biArr)"/>
+  <rect x="442" y="282" width="180" height="24" rx="4" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="532" y="298" text-anchor="middle" font-size="11" font-weight="600" fill="#0f172a" font-family="monospace">NIP-59 Sealed Keyrings</text>
+
+  <!-- Right Box: Relay Server Pod -->
+  <rect x="648" y="38" width="536" height="362" rx="8" fill="#0f172a" stroke="#334155" stroke-width="1.5"/>
+  <text x="670" y="66" font-size="14" font-weight="700" fill="#f8fafc">Relay Pod: pod/nostr-relay-0 (wss://relay.example.com)</text>
+
+  <!-- Sub-box A: In-Memory Daemon -->
+  <rect x="670" y="82" width="492" height="124" rx="6" fill="#1e293b" stroke="#475569"/>
+  <text x="686" y="104" font-size="12" font-weight="700" fill="#f8fafc">A. In-Memory Auth &amp; ACL Router (ohstr/ncli daemon)</text>
+  <text x="686" y="128" font-size="12" fill="#cbd5e1">1. <tspan font-weight="600" fill="#ffffff">Connection Gate (NIP-42/43):</tspan> Verifies pubkey signature &amp; allowlist.</text>
+  <text x="686" y="150" font-size="12" fill="#cbd5e1">2. <tspan font-weight="600" fill="#ffffff">Channel Gate (NIP-29):</tspan> Enforces per-channel READ / WRITE / MANAGE ACLs.</text>
+  <text x="686" y="172" font-size="12" fill="#cbd5e1">3. <tspan font-weight="600" fill="#ffffff">Live Pub/Sub Fan-Out:</tspan> Pushes new encrypted events to subscribed seats.</text>
+
+  <!-- Sub-box B: Persistent SSD -->
+  <rect x="670" y="220" width="492" height="162" rx="6" fill="#1e293b" stroke="#475569"/>
+  <text x="686" y="240" font-size="12" font-weight="700" fill="#f8fafc">B. Persistent SSD Volume (PVC: data-nostr-relay-0)</text>
+  <text x="686" y="264" font-size="12" fill="#ffffff" font-family="monospace">• /app/ncli/data/db/relay.db (SQLite WAL)</text>
+  <text x="702" y="283" font-size="12" fill="#cbd5e1">Stores channel rosters, the full encrypted channel history, and</text>
+  <text x="702" y="301" font-size="12" fill="#cbd5e1">replaceable state (1 row per checkpoint / route / condition head).</text>
+  <text x="686" y="327" font-size="12" fill="#ffffff" font-family="monospace">• Blossom blobs by &lt;sha256&gt; (same volume)</text>
+  <text x="702" y="346" font-size="12" fill="#cbd5e1">Attachments, patches, OOF parquets and PoC traces. Channel blobs</text>
+  <text x="702" y="364" font-size="12" fill="#cbd5e1">and mail attachments arrive sealed; root-campaign blobs need --encrypt.</text>
+</svg>
