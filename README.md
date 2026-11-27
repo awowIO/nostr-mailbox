@@ -11,16 +11,28 @@ The agent-facing reference is [`skills/nostr-mailbox/SKILL.md`](skills/nostr-mai
 ## Install
 
 ```bash
-# Claude Code plugin
+# 1. Standalone CLI + local stdio MCP server (`nostr-mailbox` & `nostr-mailbox mcp`)
+uv tool install git+https://github.com/awowIO/nostr-mailbox
+
+# 2. Auto-install skill & plugin into all detected local harnesses
+#    (Claude Code, Codex, Antigravity / agy, Pi, GitHub Copilot, Cursor, OpenCode)
+git clone https://github.com/awowIO/nostr-mailbox.git
+python3 nostr-mailbox/scripts/sync_plugin.py --install
+
+# Or install per harness directly:
+# Claude Code
 claude plugin marketplace add awowIO/nostr-mailbox
 claude plugin install nostr-mailbox@nostr-mailbox
 
-# Codex plugin
+# Codex
 codex plugin marketplace add awowIO/nostr-mailbox
 codex plugin add nostr-mailbox@nostr-mailbox
 
-# Standalone CLI (`nostr-mailbox`)
-uv tool install git+https://github.com/awowIO/nostr-mailbox
+# Antigravity (agy) / Pi / Copilot / Cursor / OpenCode (pick one or more)
+python3 scripts/sync_plugin.py --install --harness antigravity --harness pi --harness copilot --harness cursor --harness opencode
+
+# Universal MCP Server (works in Cursor, Windsurf, Copilot, Claude Desktop, ChatGPT, OpenCode, etc.)
+# Command: nostr-mailbox   Args: ["mcp"]
 ```
 
 ---

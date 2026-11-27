@@ -228,6 +228,41 @@ def install_codex(name: str, dry_run: bool) -> None:
     run(["codex", "plugin", "add", f"{name}@{name}"], dry_run)
 
 
+def copy_skill_dir(target: Path, dry_run: bool) -> None:
+    """Copy skills/<skill> into a harness skill directory (Pi, Copilot, Cursor, OpenCode)."""
+    if target.is_symlink():
+        raise SystemExit(f"refusing to write through symlinked skill directory {target}")
+    skill_root = ROOT / "skills/nostr-mailbox"
+    for candidate in sorted(skill_root.rglob("*")):
+        if candidate.is_symlink():
+            raise SystemExit(f"refusing to package a symlink: {candidate}")
+        if (
+            not candidate.is_file()
+            or "__pycache__" in candidate.parts
+            or candidate.suffix == ".pyc"
+        ):
+            continue
+        destination = target / candidate.relative_to(skill_root)
+        if destination.is_file() and destination.read_bytes() == candidate.read_bytes():
+            continue
+        print(f"copy {candidate.relative_to(ROOT)} -> {destination}", flush=True)
+        if dry_run:
+            continue
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as stream:
+            stream.write(candidate.read_bytes())
+        os.chmod(stream.name, candidate.stat().st_mode & 0o777)
+        os.replace(stream.name, destination)
+
+
+SKILL_HARNESS_DIRS: dict[str, Path] = {
+    "pi": Path.home() / ".pi/agent/skills",
+    "copilot": Path.home() / ".copilot/skills",
+    "cursor": Path.home() / ".cursor/skills",
+    "opencode": Path.home() / ".config/opencode/skills",
+}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -239,7 +274,7 @@ def main() -> int:
     parser.add_argument(
         "--harness",
         action="append",
-        choices=["claude", "codex", "antigravity"],
+        choices=["claude", "codex", "antigravity", "pi", "copilot", "cursor", "opencode"],
         help="repeat to pick harnesses (default: detected harnesses)",
     )
     parser.add_argument(
@@ -267,15 +302,32 @@ def main() -> int:
     problems = check(meta)
     if problems:
         raise SystemExit("\n".join(problems))
-    harnesses = args.harness or [h for h in ("claude", "codex") if shutil.which(h)]
-    if not args.harness and (shutil.which("agy") or (Path.home() / ".gemini").is_dir()):
-        harnesses.append("antigravity")
+    harnesses = list(args.harness or [])
+    if not harnesses:
+        for h in ("claude", "codex"):
+            if shutil.which(h):
+                harnesses.append(h)
+        if shutil.which("agy") or (Path.home() / ".gemini").is_dir():
+            harnesses.append("antigravity")
+        if shutil.which("pi") or (Path.home() / ".pi").is_dir():
+            harnesses.append("pi")
+        if shutil.which("opencode") or (Path.home() / ".config/opencode").is_dir():
+            harnesses.append("opencode")
+        if (Path.home() / ".cursor").is_dir():
+            harnesses.append("cursor")
+        if (Path.home() / ".copilot").is_dir():
+            harnesses.append("copilot")
     if not harnesses:
         raise SystemExit(
-            "No harness detected. Choose --harness antigravity or run the standalone CLI."
+            "No harness detected. Choose --harness antigravity/pi/copilot/cursor/opencode "
+            "or run the standalone CLI."
         )
     for harness in harnesses:
-        if not args.dry_run and harness != "antigravity" and shutil.which(harness) is None:
+        if (
+            not args.dry_run
+            and harness in ("claude", "codex")
+            and shutil.which(harness) is None
+        ):
             raise SystemExit(
                 f"{harness} CLI not found on PATH; pick installed harnesses with --harness"
             )
@@ -284,8 +336,10 @@ def main() -> int:
             install_claude(meta["name"], args.dry_run)
         elif harness == "codex":
             install_codex(meta["name"], args.dry_run)
-        else:
+        elif harness == "antigravity":
             copy_package(args.antigravity_dir / meta["name"], args.dry_run)
+        elif harness in SKILL_HARNESS_DIRS:
+            copy_skill_dir(SKILL_HARNESS_DIRS[harness] / meta["name"], args.dry_run)
     bin_dir = Path.home() / ".local/bin"
     bin_target = bin_dir / "nostr-mailbox"
     script_src = ROOT / "skills/nostr-mailbox/scripts/nostr_mailbox.py"
