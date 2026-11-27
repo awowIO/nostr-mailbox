@@ -64,6 +64,17 @@ def conversation_key(secret: bytes, peer_pub_x: bytes) -> bytes:
     return hkdf_extract(ecdh_x(secret, peer_pub_x), SALT)
 
 
+def ecdh_conversation_key(privkey_hex: str, pubkey_hex: str) -> bytes:
+    """The NIP-44 v2 pairwise conversation key from hex keys:
+    HKDF-extract(salt=b"nip44-v2", IKM=x(privkey · lift_x(pubkey))). Symmetric, so the
+    two ends of a conversation derive the same 32 bytes without sending anything."""
+    try:
+        secret, peer = bytes.fromhex(privkey_hex), bytes.fromhex(pubkey_hex)
+    except ValueError as exc:
+        raise Nip44Error(f"ECDH keys must be hex: {exc}") from exc
+    return conversation_key(secret, peer)
+
+
 def campaign_conversation_key(secret_key: bytes, campaign: str) -> bytes:
     """Campaign-scoped 32-byte NIP-44 v2 conversation key derived via HKDF-SHA256."""
     if len(secret_key) != 32:

@@ -24,6 +24,7 @@ from __future__ import annotations
 import contextlib
 import http.client
 import json
+import re
 import secrets
 import ssl
 import subprocess
@@ -50,6 +51,7 @@ from .event import (
 from .identity import AUTH_KIND, Signer
 
 INVITE_CLAIM_KIND = 28_934              # NIP-43 join request
+INVITE_REQUEST_KIND = 28_935            # NIP-43 invite request: REQ it, the relay mints a code
 PROTECTED = ("-",)                      # NIP-70: only the authenticated author may publish
 INVITE_TTL = "168h"                     # the relay's own inviteTTL in deploy/nostr-relay/relay.yaml
 NCLI_CONFIG = "/app/ncli/relay.yaml"    # where the image keeps its config (compose.yaml)
@@ -68,6 +70,7 @@ LIVE_LIMIT = 1
 # the remainder is the message envelope.
 MAX_MESSAGE_BYTES = 8 * 16_384
 NIP11_ACCEPT = "application/nostr+json"
+_HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
 
 class RelayError(NostrError):
@@ -113,6 +116,8 @@ class RelayInfo:
     membership_required: bool
     max_limit: int | None
     max_message_length: int | None
+    self_pubkey: str | None = None          # NIP-11 `self`: the key the relay signs with
+    supported_nips: tuple[int, ...] = ()
 
     @property
     def advertises_private(self) -> bool:
@@ -172,11 +177,16 @@ def fetch_info(url: str, *, timeout_s: float = DEFAULT_WAIT_S,
     def count(name: str) -> int | None:
         return limits[name] if type(limits.get(name)) is int else None
 
+    own = document.get("self")
+    nips = document.get("supported_nips")
     return RelayInfo(url=url, name=str(document.get("name", "")),
                      auth_required=limits.get("auth_required") is True,
                      membership_required=limits.get("membership_required") is True,
                      max_limit=count("max_limit"),
-                     max_message_length=count("max_message_length"))
+                     max_message_length=count("max_message_length"),
+                     self_pubkey=own if isinstance(own, str) and _HEX64.match(own) else None,
+                     supported_nips=tuple(n for n in nips if type(n) is int)
+                     if isinstance(nips, list) else ())
 
 
 # ------------------------------------------------------------------ subscriptions
@@ -490,6 +500,36 @@ class RelayClient:
             fresh = [event for event in page if event.id not in seen]
             seen.update((event.id, event) for event in fresh)
             until = min(stamps) if fresh else min(stamps) - 1
+
+    def request_invite(self, *, relay_pubkey: str | None = None) -> dict:
+        """Mint one invite code over this authenticated socket (NIP-43 kind 28935): a
+        `REQ {"kinds": [28935], "limit": 1}` that a relay with `memberClaims` answers
+        with one relay-signed event carrying `["claim", <code>]`. No admin CLI, no
+        kubectl. With `relay_pubkey` (NIP-11 `self`), the event must be signed by it."""
+        events = self.query({"kinds": [INVITE_REQUEST_KIND], "limit": 1})
+        if not events:
+            raise RelayError(
+                f"{self.url} answered the NIP-43 invite request (kind {INVITE_REQUEST_KIND}) "
+                "with nothing: it does not mint invites over the WebSocket for this key "
+                "(memberClaims is off, or it does not implement NIP-43 invite requests). "
+                "Mint through the relay's admin CLI instead (--admin, --kubectl, --compose "
+                "or --exec)")
+        if len(events) != 1:
+            raise RelayProtocolError(f"{self.url} answered one invite request with "
+                                     f"{len(events)} events")
+        event = events[0]
+        codes = event.values("claim")
+        if len(codes) != 1 or not codes[0]:
+            raise RelayProtocolError(f"{self.url} sent a kind {INVITE_REQUEST_KIND} event "
+                                     "without exactly one claim tag")
+        if relay_pubkey is not None and event.pubkey != relay_pubkey:
+            raise RelayProtocolError(
+                f"the invite was signed by {event.pubkey[:12]}…, not by the relay key "
+                f"{relay_pubkey[:12]}… its NIP-11 document names")
+        # How many uses and how long it lives is the relay's policy, not in the event:
+        # the shipped relay.yaml gives a member's code one use and seven days.
+        return {"code": codes[0], "issued_by": event.pubkey, "created_at": event.created_at,
+                "via": "websocket (NIP-43 kind 28935)"}
 
     def join(self, code: str) -> str:
         """Redeem a single-use invite (NIP-43 kind 28934). The claim is a protected

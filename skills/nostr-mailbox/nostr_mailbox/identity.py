@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from . import bech32, secp256k1
+from . import bech32, nip44, secp256k1
 from ._serve import Listener
 from .event import DEFAULT_WAIT_S, Event, NostrError, dumps, sign_with_secret, verify_event
 
@@ -62,6 +62,21 @@ class Signer(Protocol):
     def sign_event(self, template: dict) -> Event: ...
 
 
+def pairwise_key(signer: Signer, peer_pubkey: str) -> bytes:
+    """The NIP-44 v2 conversation key between `signer`'s key and `peer_pubkey`, or
+    `SignerError` for a signer that only signs: ECDH needs the secret in this process."""
+    derive = getattr(signer, "conversation_key", None)
+    if derive is None:
+        raise SignerError(
+            f"{type(signer).__name__} only signs; pairwise NIP-44 encryption (personal "
+            "mail, epoch-key delivery) needs ECDH with this seat's own secret, so it runs "
+            "on a `local` identity")
+    try:
+        return derive(peer_pubkey)
+    except nip44.Nip44Error as exc:
+        raise SignerError(f"no conversation key with {peer_pubkey[:12]}…: {exc}") from exc
+
+
 def accept_signed(template: dict, signed, pubkey: str) -> Event:
     """Admit what an out-of-process signer returned, or refuse it."""
     event = verify_event(signed)
@@ -75,14 +90,25 @@ def accept_signed(template: dict, signed, pubkey: str) -> Event:
 
 
 class LocalSigner:
-    """Signs in this process with a secret held in memory."""
+    """Signs in this process with a secret held in memory. It is also the one signer
+    that can do NIP-44 ECDH (`conversation_key`): pairwise mail and epoch-key delivery
+    need the secret itself, which a command or socket signer never hands over."""
 
     def __init__(self, secret: bytes):
         self._secret = secret
         self.pubkey = secp256k1.pubkey_gen(secret).hex()
+        self._conversations: dict[str, bytes] = {}
 
     def sign_event(self, template: dict) -> Event:
         return sign_with_secret(template, self._secret, self.pubkey)
+
+    def conversation_key(self, peer_pubkey: str) -> bytes:
+        """The NIP-44 v2 conversation key between this key and `peer_pubkey` (hex). One
+        point multiplication per peer, remembered for the life of the signer."""
+        if peer_pubkey not in self._conversations:
+            self._conversations[peer_pubkey] = nip44.ecdh_conversation_key(
+                self._secret.hex(), peer_pubkey)
+        return self._conversations[peer_pubkey]
 
     def __repr__(self) -> str:                      # never the secret
         return f"LocalSigner({bech32.encode(bech32.NPUB, bytes.fromhex(self.pubkey))})"

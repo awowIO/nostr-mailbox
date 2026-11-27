@@ -24,9 +24,11 @@ from __future__ import annotations
 import json
 import re
 import tomllib
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
 from enum import IntEnum
 from pathlib import Path
+from types import MappingProxyType
 from urllib.parse import urlsplit
 
 from . import bech32, nip44
@@ -41,6 +43,7 @@ MAX_EVENT_BYTES = 16_384
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 _GROUP = re.compile(r"^[A-Za-z0-9_-]{1,64}$")       # NIP-29: a-z0-9-_ group ids
+_EPOCH = re.compile(r"^[1-9][0-9]{0,8}$")
 EVERY_SEAT = "*"
 
 
@@ -57,6 +60,7 @@ class Kind(IntEnum):
     SEAL = 8889
     PROMOTION = 8890
     MESSAGE = 8891
+    EPOCH_KEYS = 8892                   # a NIP-59 rumor only: epoch keys for one keyring
     HEARTBEAT = 28880
     GOAL_HEAD = 38880
     CONDITION_HEAD = 38881
@@ -104,6 +108,52 @@ def _url(value, schemes: tuple[str, ...], what: str, *, origin_only: bool):
     return parts
 
 
+# ------------------------------------------------------------------------ epoch keys
+@dataclass(frozen=True)
+class EpochKeys:
+    """The epoch keys one seat holds for one campaign: epoch number → 32-byte key (64
+    hex). A record is written under `current` and carries `["epoch", "<n>"]`; it is
+    read with the key of the epoch it names. Holding epochs 2.. and not 1 is how a
+    forward-only member is kept out of what came before; not being sent the next epoch
+    is how a revoked member is kept out of what comes after.
+
+    Epoch 1 of a campaign declared the v0.1 way is its `campaign_key`, so a v0.1
+    `nostr.toml` is a one-epoch ring and its records stay readable both ways."""
+    campaign: str
+    epochs: Mapping[int, str] = field(hash=False)
+    current: int
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "epochs", MappingProxyType(dict(self.epochs)))
+        if not self.epochs:
+            raise ProfileError("an epoch keyring holds at least one key")
+        for epoch, key in self.epochs.items():
+            if type(epoch) is not int or epoch < 1:
+                raise ProfileError(f"epoch {epoch!r} is not an integer from 1")
+            if not isinstance(key, str) or not _HEX64.match(key):
+                raise ProfileError(f"the key of epoch {epoch} is not 64 lowercase hex")
+        if self.current not in self.epochs:
+            raise ProfileError(f"current epoch {self.current} is not among the held "
+                               f"epochs {sorted(self.epochs)}")
+
+    def __repr__(self) -> str:                      # never the keys
+        return f"EpochKeys({self.campaign!r}, epochs={sorted(self.epochs)}, " \
+               f"current={self.current})"
+
+    def held(self) -> list[int]:
+        """Held epochs, newest first: the order a reader tries them in."""
+        return sorted(self.epochs, reverse=True)
+
+    def conversation_key(self, epoch: int) -> bytes:
+        key = self.epochs.get(epoch)
+        if key is None:
+            raise ProfileError(
+                f"no key for epoch {epoch} of campaign {self.campaign!r} on this seat "
+                f"(it holds {sorted(self.epochs)}): it was admitted after that epoch, or "
+                "revoked before it")
+        return nip44.campaign_conversation_key(bytes.fromhex(key), self.campaign)
+
+
 # ----------------------------------------------------------------------------- trust
 @dataclass(frozen=True)
 class Trust:
@@ -119,10 +169,17 @@ class Trust:
     allow_cleartext: bool = False            # ws:// or http:// beyond loopback
     relay_auth_url: str | None = None        # the relay's own name for itself, if not `relay`
     campaign_key: str | None = None          # 32-byte NIP-44 v2 campaign key (64 hex or nsec)
+    # The epoch keyring this campaign is encrypted with (`<home>/keyrings/<name>.json`).
+    # Declared, so a seat that has not loaded it refuses to write rather than writing
+    # in plaintext or under a stale epoch.
+    keyring: str | None = None
+    # The keys themselves, once loaded on this seat. Never declared in a file, never
+    # printed, never compared.
+    epoch_keys: EpochKeys | None = field(default=None, compare=False, repr=False)
 
     _KEYS = frozenset({"schema", "relay", "campaign", "operator_pubkeys", "group",
                        "blossom", "lead_pubkeys", "reviewer_pubkeys", "allow_cleartext",
-                       "relay_auth_url", "campaign_key"})
+                       "relay_auth_url", "campaign_key", "keyring"})
     _ROSTERS = ("operator_pubkeys", "lead_pubkeys", "reviewer_pubkeys")
 
     def __post_init__(self) -> None:
@@ -142,6 +199,12 @@ class Trust:
         if self.group is not None and (not isinstance(self.group, str)
                                        or not _GROUP.match(self.group)):
             raise ProfileError(f"group {self.group!r} must match {_GROUP.pattern}")
+        if self.keyring is not None and (not isinstance(self.keyring, str)
+                                         or not _GROUP.match(self.keyring)):
+            raise ProfileError(f"keyring {self.keyring!r} must match {_GROUP.pattern}")
+        if self.epoch_keys is not None and self.epoch_keys.campaign != self.campaign:
+            raise ProfileError(f"epoch keys of campaign {self.epoch_keys.campaign!r} "
+                               f"cannot encrypt campaign {self.campaign!r}")
         if not self.operator_pubkeys:
             raise ProfileError("operator_pubkeys is empty: a campaign with no operator key "
                                "has nobody who can direct or seal it")
@@ -153,10 +216,37 @@ class Trust:
 
     @property
     def conversation_key(self) -> bytes | None:
-        """The 32-byte NIP-44 v2 conversation key for this campaign, when encrypted."""
+        """The 32-byte NIP-44 v2 conversation key of epoch 1 (`campaign_key`), if any."""
         if self.campaign_key is None:
             return None
         return nip44.campaign_conversation_key(bytes.fromhex(self.campaign_key), self.campaign)
+
+    @property
+    def ring(self) -> EpochKeys | None:
+        """The epoch keys records are written and read with: the loaded keyring, else
+        `campaign_key` as epoch 1, else None (a plaintext campaign). A campaign that
+        declares a keyring and has none loaded raises here, before anything is sent."""
+        if self.epoch_keys is not None:
+            return self.epoch_keys
+        if self.keyring is not None:
+            raise ProfileError(
+                f"campaign {self.campaign!r} is encrypted with epoch keyring "
+                f"{self.keyring!r}, and this seat holds no key of it yet. If you were "
+                "admitted, `nostr-mailbox topic sync` fetches the keys; if your join is "
+                "pending, a topic admin has to approve it")
+        if self.campaign_key is not None:
+            return EpochKeys(self.campaign, {1: self.campaign_key}, 1)
+        return None
+
+    def with_ring(self, keys: EpochKeys) -> Trust:
+        """This trust with `keys` loaded. A declared `campaign_key` is epoch 1, so a
+        ring that holds a different epoch 1 is refused rather than silently preferred."""
+        epochs = dict(keys.epochs)
+        if (self.campaign_key is not None
+                and epochs.setdefault(1, self.campaign_key) != self.campaign_key):
+            raise ProfileError(f"the loaded keyring's epoch 1 is not this campaign's "
+                                   f"declared campaign_key ({self.campaign!r})")
+        return replace(self, epoch_keys=EpochKeys(self.campaign, epochs, keys.current))
 
     @classmethod
     def from_mapping(cls, raw: dict, *, source: str = "trust") -> Trust:
@@ -189,7 +279,7 @@ class Trust:
             return cls(relay=raw["relay"], campaign=raw["campaign"], group=raw.get("group"),
                        blossom=raw.get("blossom"), relay_auth_url=raw.get("relay_auth_url"),
                        allow_cleartext=raw.get("allow_cleartext", False),
-                       campaign_key=ck, **rosters)
+                       campaign_key=ck, keyring=raw.get("keyring"), **rosters)
         except ProfileError as exc:
             raise ProfileError(f"{source}: {exc}") from exc
 
@@ -251,9 +341,14 @@ class Trust:
         return f"{self.group}:{scoped}" if self.group else scoped
 
     def tags(self, topic: str | None = None) -> list[list[str]]:
+        """The routing tags of a record, and `["epoch", "<n>"]` when it is encrypted:
+        the epoch it is written under, so a reader picks the key without guessing."""
         tags = [["t", self.route(topic)]]
         if self.group:
             tags.append(["h", self.group])
+        ring = self.ring
+        if ring is not None:
+            tags.append(["epoch", str(ring.current)])
         return tags
 
     def scope(self, topic: str | None = None) -> dict:
@@ -266,11 +361,30 @@ class Trust:
 
 # -------------------------------------------------------------------------- envelope
 def encode(trust: Trust, record_type: str, payload: dict) -> str:
+    """The record's content: JSON, encrypted under the current epoch when the campaign
+    is encrypted (`Trust.tags` names that epoch)."""
     raw = json.dumps({**payload, "schema": SCHEMA, "type": record_type,
                       "campaign": trust.campaign},
                      sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    conv = trust.conversation_key
-    return nip44.encrypt(raw, conv) if conv is not None else raw
+    ring = trust.ring
+    return raw if ring is None else nip44.encrypt(raw, ring.conversation_key(ring.current))
+
+
+def decrypt_record(event: Event, ring: EpochKeys) -> str:
+    """The plaintext of an encrypted record. It names its epoch; one that names none
+    (written before epochs existed) is tried under every held key, newest first, and
+    the MAC decides."""
+    named = event.values("epoch")
+    if len(named) > 1 or (named and not _EPOCH.match(named[0])):
+        raise ProfileError(f"epoch tag {named} is not one positive integer")
+    epochs = [int(named[0])] if named else ring.held()
+    failures = []
+    for epoch in epochs:
+        try:
+            return nip44.decrypt(event.content, ring.conversation_key(epoch))
+        except nip44.Nip44Error as exc:
+            failures.append(f"epoch {epoch}: {exc}")
+    raise ProfileError("NIP-44 v2 decryption failed: " + "; ".join(failures))
 
 
 def decode(event: Event, trust: Trust, *, kind: Kind, record_type: str,
@@ -283,24 +397,18 @@ def decode(event: Event, trust: Trust, *, kind: Kind, record_type: str,
                            f"[{trust.route(topic)!r}]")
     if event.values("h") != ([trust.group] if trust.group else []):
         raise ProfileError(f"group tag {event.values('h')} does not match the campaign's")
-    conv = trust.conversation_key
-    if conv is not None:
-        try:
-            raw = nip44.decrypt(event.content, conv)
-        except nip44.Nip44Error as exc:
-            raise ProfileError(f"NIP-44 v2 decryption failed: {exc}") from exc
-    else:
-        raw = event.content
+    ring = trust.ring
+    raw = event.content if ring is None else decrypt_record(event, ring)
     try:
         body = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise ProfileError(f"content is not JSON: {exc}") from exc
     if not isinstance(body, dict):
         raise ProfileError("content is not a JSON object")
-    for field, wanted in (("schema", SCHEMA), ("type", record_type),
-                          ("campaign", trust.campaign)):
-        if body.pop(field, None) != wanted:
-            raise ProfileError(f"content {field} is not {wanted!r}")
+    for name, wanted in (("schema", SCHEMA), ("type", record_type),
+                         ("campaign", trust.campaign)):
+        if body.pop(name, None) != wanted:
+            raise ProfileError(f"content {name} is not {wanted!r}")
     return body
 
 

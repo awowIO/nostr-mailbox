@@ -26,14 +26,20 @@ No fallback: an unreachable relay raises. Nothing here reaches for a second rela
 file, or a weaker policy."""
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import os
 import re
+import tempfile
 import time
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from .blossom import BlossomClient
+from . import keyring as keyrings
+from . import nip44
+from .blossom import Blob, BlossomClient
 from .event import DEFAULT_WAIT_S, Clock, Event, NostrError, now, supersedes
 from .identity import Signer
 from .profile import (
@@ -197,20 +203,49 @@ def _newest[T](rows: list[tuple[Event, T]]) -> tuple[Event, T] | None:
 class CampaignSession:
     """One key, one authenticated socket, one campaign. `rejected` collects every
     record read from the relay that was not a well-formed record of this campaign, with
-    the reason: skipped, and never silently."""
+    the reason: skipped, and never silently.
+
+    A campaign encrypted with an epoch keyring (`Trust.keyring`) is given its ring:
+    on connect the session fetches the epoch keys delivered to this key since it last
+    looked, so it never writes under an epoch a revocation has retired."""
 
     def __init__(self, trust: Trust, signer: Signer, *, timeout_s: float = DEFAULT_WAIT_S,
-                 clock: Clock = time.time):
+                 clock: Clock = time.time, keyring: keyrings.KeyRing | None = None,
+                 sync_keys: bool = True):
         self.trust, self.clock, self.signer, self.timeout_s = trust, clock, signer, timeout_s
+        self.declared = trust
+        self.keyring, self.sync_keys = keyring, sync_keys
+        self.key_sync: dict | None = None
         self.relay = RelayClient(trust.relay, signer, timeout_s=timeout_s,
                                  allow_cleartext=trust.allow_cleartext, clock=clock,
                                  auth_url=trust.relay_auth_url)
         self.rejected: list[tuple[str, str]] = []
         self._blobs: BlossomClient | None = None
+        self._load_ring()
+
+    def _load_ring(self) -> None:
+        keys = self.keyring.keys() if self.keyring is not None else None
+        self.trust = self.declared if keys is None else self.declared.with_ring(keys)
 
     def connect(self) -> CampaignSession:
         self.relay.connect()
+        if self.keyring is not None and self.sync_keys:
+            try:
+                self.sync_keyring()
+            except NostrError:
+                self.close()
+                raise
         return self
+
+    def sync_keyring(self) -> dict:
+        """Merge the epoch keys delivered to this key, and load the ring."""
+        if self.keyring is None:
+            raise ProfileError("this campaign has no epoch keyring")
+        self.key_sync = keyrings.sync(self.relay, self.signer, self.declared, self.keyring)
+        self.rejected += [(r["id"], f"epoch keys: {r['reason']}")
+                          for r in self.key_sync["rejected"]]
+        self._load_ring()
+        return self.key_sync
 
     def close(self) -> None:
         self.relay.close()
@@ -233,6 +268,50 @@ class CampaignSession:
                 timeout_s=self.timeout_s, allow_cleartext=self.trust.allow_cleartext,
                 clock=self.clock)
         return self._blobs
+
+    # ------------------------------------------------- blobs under the epoch keys
+    def put_sealed_blob(self, data: bytes) -> tuple[Blob, int]:
+        """Upload `data` encrypted under the current epoch (NIP-44 v2, as ASCII), so a
+        blob is exactly as readable as the records of its epoch. Returns the stored
+        blob (its sha256 is the ciphertext's) and the epoch."""
+        ring = self.trust.ring
+        if ring is None:
+            raise ProfileError("this campaign is not encrypted; a blob is uploaded as it is")
+        ciphertext = nip44.encrypt_bytes(data, ring.conversation_key(ring.current))
+        return self.blobs().upload(ciphertext.encode("ascii")), ring.current
+
+    def open_sealed_blob(self, ciphertext: bytes) -> tuple[bytes, int]:
+        """The plaintext of a blob sealed under one of the held epochs, newest tried
+        first (the MAC decides), and that epoch."""
+        ring = self.trust.ring
+        if ring is None:
+            raise ProfileError("this campaign is not encrypted; download the blob as it is")
+        try:
+            text = ciphertext.decode("ascii")
+        except UnicodeDecodeError as exc:
+            raise ProfileError("the blob is not a sealed blob (not NIP-44 ASCII)") from exc
+        for epoch in ring.held():
+            with contextlib.suppress(nip44.Nip44Error):
+                return nip44.decrypt_bytes(text, ring.conversation_key(epoch)), epoch
+        raise ProfileError(
+            f"the blob does not open under any of the {len(ring.held())} epoch key(s) held "
+            f"here ({sorted(ring.held())}): it was sealed in an epoch this seat was not "
+            "given, or uploaded in plaintext (fetch it with --plain)")
+
+    def get_sealed_blob(self, sha256: str, dest: str | Path) -> dict:
+        """Download, verify, decrypt and write a sealed blob to `dest`, whole or not."""
+        data, epoch = self.open_sealed_blob(self.blobs().download(sha256))
+        dest = Path(dest)
+        fd, partial = tempfile.mkstemp(dir=dest.parent, prefix=f".{dest.name}.")
+        try:
+            with os.fdopen(fd, "wb") as out:
+                out.write(data)
+            os.replace(partial, dest)
+        except BaseException:
+            Path(partial).unlink(missing_ok=True)
+            raise
+        return {"sha256": sha256, "epoch": epoch, "bytes": len(data),
+                "plaintext_sha256": hashlib.sha256(data).hexdigest()}
 
     # ------------------------------------------------------------------ primitives
     def sign_record(self, kind: Kind, record_type: str, payload: dict, *,

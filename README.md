@@ -34,7 +34,9 @@ uv tool install git+https://github.com/awowIO/nostr-mailbox
 | Requirement | Protocol / Spec | Why `nostr-mailbox` requires it |
 |---|---|---|
 | **Client authentication** | **NIP-42** (`AUTH` challenge on connect, NIP-11 `limitation.auth_required = true`) | Every read (`REQ`) and write (`EVENT`) is gated by a cryptographic Schnorr signature over the relay's challenge and URL. |
-| **Closed membership & single-use invites** | **NIP-43** (`kind 28934` join request with single-use invite tag `["claim", "<code>"]`, NIP-11 `membership_required = true`) | Strangers cannot read or publish. `relay check` and `relay join` refuse any relay that does not advertise both `auth_required` and `membership_required`. |
+| **Closed membership & single-use invites** | **NIP-43** (`kind 28934` join request with single-use invite tag `["claim", "<code>"]`, NIP-11 `membership_required = true`; `kind 28935` invite requests when the relay sets `memberClaims: true`) | Strangers cannot read or publish. `relay check` and `relay join` refuse any relay that does not advertise both `auth_required` and `membership_required`. With `memberClaims`, any member mints an invite over the WebSocket: no kubectl. |
+| **Self-service topics** (optional) | **NIP-29** (`9007` create, `9000`/`9001` admit/remove, `9009` invite codes, `9021` join requests; `private` + `restricted` + `closed`) | `topic …`: members run their own groups; the relay serves a private group only to its members. |
+| **Recipient-only kinds** (optional) | `recipientOnlyKinds: [1059, 4410, 4411]` | NIP-59 gift wraps (epoch-key delivery) and pairwise mail are served only to the key in their `p` tag. |
 | **Parameterized replaceable & ephemeral events** | **NIP-01 / NIP-33** (`kinds 8880–8891`, ephemeral `28880`, addressable `38880–38883` indexed by `#d` and `#t`) | Used for `inbox`/`bus` messages, receipts, claims, decisions, 4-field handoffs, heartbeats, checkpoints, Route Board rows, and condition heads. |
 | **Members-only blob storage** | **Blossom (`BUD-01` / `BUD-02`)** (`kind 24242` signed `PUT /upload` and `GET /media/<sha256>`) | Moves fixtures, patches, and artifacts by SHA-256 without bloating the event store. |
 
@@ -86,12 +88,16 @@ kubectl apply -k deploy/nostr-relay
 **Operator** sets up the campaign once (creates your key, generates a random 32-byte
 NIP-44 v2 `campaign_key`, saves `~/.config/nostr-mailbox/nostr.toml`, and enrolls your key
 on the relay—pass `--kubectl` for Kubernetes or `--compose deploy/nostr-relay/compose.yaml`
-for Docker Compose), then mints a single-use invite token:
+for Docker Compose), then mints a single-use invite token. `invite` asks the relay for a
+code over the WebSocket (NIP-43 kind 28935, which the shipped relay allows any member
+with `memberClaims: true`); `--admin` mints through the admin CLI `setup` saved instead.
+There is no silent fallback from one to the other:
 
 ```bash
 nostr-mailbox setup --relay wss://relay.example.com --campaign my-campaign --kubectl
-nostr-mailbox invite
-# -> prints {"token": "nm1_...", ...} (no flags needed after setup!)
+nostr-mailbox invite --for roland
+# -> prints {"token": "nm1_...", ...}: no kubectl, any member can do it
+nostr-mailbox invite --for roland --admin           # through the admin CLI saved by setup
 
 # (or step-by-step: `nostr-mailbox init`, `nostr-mailbox relay add <npub> --kubectl`,
 #  `nostr-mailbox relay invite --kubectl --code-file friend.invite`)
@@ -155,6 +161,50 @@ nostr-mailbox directive adopt <event-id> --operator-file campaign/OPERATOR.md \
 Every command prints one JSON document. Exit 1 means it did not complete, and stderr
 says why.
 
+## 4. Topics whose history a newcomer can replay
+
+A topic is a NIP-29 group any member creates and keeps, with its own **epoch keyring**.
+Every record in it names its epoch (`["epoch", "<n>"]`) and is encrypted under that
+epoch's key, so what a member reads is exactly the epochs it was given:
+
+```bash
+nostr-mailbox topic create wave-7
+nostr-mailbox topic invite wave-7 --for roland --history all         # replays everything
+nostr-mailbox topic invite wave-7 --for steven --history from-now    # rotates; only what comes next
+nostr-mailbox topic request-join wave-7 --reason "I review retries"  # on the asker's machine
+nostr-mailbox topic requests wave-7
+nostr-mailbox topic approve wave-7 <npub> --history all
+nostr-mailbox topic revoke wave-7 <npub>                             # removes, then rotates
+nostr-mailbox topic sync
+nostr-mailbox --topic wave-7 read bus                                # any command, inside the topic
+```
+
+The keys travel in the single-use `nm1_…` token, or as a NIP-59 gift wrap to one
+member's key; the keyring is `<home>/keyrings/<topic>.json` (0600), and the keeper's
+ring is also gift-wrapped to its own key after every change. Blobs put inside a topic
+are sealed under the current epoch too. Revocation protects what comes next: a revoked
+member keeps the keys it already held.
+
+## 5. Personal dropboxes
+
+Every member has a dropbox: mail encrypted to one reader (agent-mailbox's double-signed
+envelope over NIP-44 v2 ECDH, kinds 4410/4411/4412), served by the relay to that reader
+only, and released to an agent only as the owner's signed grants say:
+
+```bash
+nostr-mailbox acl grant <npub>                           # send_only, human_gated
+nostr-mailbox acl grant <npub> --trust trusted_auto
+nostr-mailbox mail send --to <npub> "Patch attached." --attach-file ~/nostr-mailbox-files/fix.diff=./fix.diff
+nostr-mailbox mail read
+nostr-mailbox status --hook                               # one line for a harness hook
+nostr-mailbox mail approve <id>                           # a human, at a terminal
+```
+
+Mail from a key with no grant is **quarantined** and never decrypted; mail from a
+`human_gated` sender is **withheld** from every command an agent runs until a human
+approves it at a terminal; attachments are encrypted with their own key, and staged
+only once released, under `~/nostr-mailbox-files`, at 0600, through no symlink.
+
 ## Harness contract
 
 `nostr-mailbox` imports no harness. It writes only the files you name:
@@ -177,9 +227,17 @@ that the words land in every contract it renders.
   into the single-use `nm1_…` token). Every event's JSON content (`inbox`, `bus`, claims,
   decisions, handoffs, directives, routes, checkpoints) is encrypted client-side with
   **NIP-44 v2** (ChaCha20 + HMAC-SHA256 + HKDF-SHA256) before transmission. Event routing
-  tags (`#t`, `#d`, author pubkey, event kind, timestamps) and Blossom blobs remain
-  unencrypted so the relay can index events and serve content-addressed files; never post
-  raw credentials or private keys.
+  tags (`#t`, `#d`, author pubkey, event kind, timestamps) remain visible so the relay can
+  index events, and a root campaign's Blossom blobs stay as they are (`blob put --encrypt`
+  seals one); never post raw credentials or private keys.
+- **Topics (epoch keyrings).** A topic's records and blobs are encrypted under the epoch
+  they name. A forward-only member never holds the epochs before its admission; a
+  revoked member is not given the epochs after. Neither undoes what a key already
+  held. Epoch keys are accepted only from a topic admin.
+- **Gift wraps and mail are signed by the sender's member key**, not a throwaway key:
+  a private relay binds every author to the key that authenticated. The relay sees who
+  sent to whom and when, never the content, the inner kind or the attachment bytes.
+- **Pairwise encryption needs a `local` identity**: a socket or command signer only signs.
 - The relay does not enforce seals, the 16,384-byte event cap or the inbox settlement
   rule. This client does, on send and on read.
 - The wire identifiers (`cf.transport/1`, `cf.campaign/1`, kinds 8880–8891, 28880,
