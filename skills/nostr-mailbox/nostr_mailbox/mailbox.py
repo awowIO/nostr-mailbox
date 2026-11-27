@@ -40,7 +40,7 @@ from pathlib import Path, PurePosixPath
 
 from . import acl, bech32, pairwise, secp256k1
 from .backend import CampaignSession, NostrRelayChannelBackend
-from .blossom import BlossomError
+from .blossom import BlossomError, DigestMismatch
 from .event import Event, dumps, now
 from .identity import Signer
 from .pairwise import ENVELOPE, RECEIPT, Opened, Route
@@ -69,6 +69,11 @@ class StagingConflict(StagingProblem):
 
 class IntegrityProblem(StagingProblem):
     status = "invalid"
+
+
+class StagingUnavailable(StagingProblem):
+    """The blob could not be fetched just now; the next `mail read` tries again."""
+    status = "not_staged"
 
 
 def _npub(pubkey: str) -> str:
@@ -118,14 +123,16 @@ class Dropbox:
         try:
             mode = stat.S_IMODE(self.state_path.stat().st_mode)
         except FileNotFoundError:
-            return {"read": [], "staged": {}}
+            return {"read": [], "staged": {}, "opened": [], "claims_seen": {}}
         if mode & ~0o600:
             raise MailError(f"{self.state_path} is mode {mode:04o}; it must be 0600")
         try:
             body = json.loads(self.state_path.read_text())
         except (OSError, json.JSONDecodeError) as exc:
             raise MailError(f"cannot read the mail state {self.state_path}: {exc}") from exc
-        return {"read": list(body.get("read", [])), "staged": dict(body.get("staged", {}))}
+        return {"read": list(body.get("read", [])), "staged": dict(body.get("staged", {})),
+                "opened": list(body.get("opened", [])),
+                "claims_seen": dict(body.get("claims_seen", {}))}
 
     def _save(self, state: dict) -> None:
         self.state_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -245,12 +252,34 @@ class Dropbox:
                         "next time it reads its dropbox; mail is accepted after that"}
 
     def settle_claims(self) -> list[acl.Grant]:
-        """As the owner: confirm the first valid claim of each invite with a grant on
-        the invite's terms, naming the invite. Safe to repeat: a confirmed invite has no
-        pending claim."""
+        """As the owner: confirm, for each invite, the first valid claim this machine
+        observed, with a grant on the invite's terms naming the invite. The first
+        observation is recorded with its time; a claim's own `created_at` is the
+        claimant's word, so it decides neither who was first nor whether the invite
+        had expired. Safe to repeat: a confirmed invite has no pending claim."""
         state = self.acl_state(self.me)
+        local = self._state()
+        seen = local["claims_seen"]
+        stamp = now(self.relay.clock)
+        chosen = {}
+        for invite_id, claims in sorted(state.valid_claims.items()):
+            if invite_id in state.claimed_invites:
+                continue
+            if invite_id not in seen:
+                # Two keys holding one bearer token is a token that was shared; who
+                # claimed "first" is then only what each claimant wrote. Neither wins.
+                seen[invite_id] = ({"claim": claims[0].id, "seen_at": stamp}
+                                   if len(claims) == 1 else
+                                   {"contested": sorted(c.pubkey for c in claims),
+                                    "seen_at": stamp})
+            record = seen[invite_id]
+            claim = next((c for c in claims if c.id == record.get("claim")), None)
+            until = acl._deadline(state.invites[invite_id], "claim_until", "expiration")
+            if claim is not None and (until is None or record["seen_at"] <= until):
+                chosen[invite_id] = claim
+        self._save(local)
         confirmed = []
-        for invite_id, claim in sorted(state.pending_claims.items()):
+        for invite_id, claim in sorted(chosen.items()):
             scope, parts, trust, read_replies = acl.parse_terms(state.invites[invite_id])
             self._publish_acl(acl.GRANT, [
                 ["mbx", self.me], ["p", claim.pubkey],
@@ -259,6 +288,12 @@ class Dropbox:
             confirmed.append(claim.pubkey)
         return [self.acl_state(self.me).grants[pk] for pk in confirmed
                 if pk in self.acl_state(self.me).grants]
+
+    def contested(self) -> dict[str, list[str]]:
+        """Invites two or more keys had claimed before this machine first looked:
+        invite id → claimants. None is confirmed; the owner grants one by hand."""
+        return {invite: record["contested"] for invite, record in
+                self._state()["claims_seen"].items() if "contested" in record}
 
     # ---------------------------------------------------------------------- send
     def _portable(self, dest: str) -> str:
@@ -338,6 +373,10 @@ class Dropbox:
         manifest = self._upload(attachments)
         event = self._deliver(ENVELOPE, route, {"v": 1, "subject": subject, "body": body,
                                                 "attachments": manifest}, seat=seat, cert=cert)
+        if route.reply_to is None:          # a thread this key opened: its replies are mail
+            state = self._state()
+            state["opened"] = sorted(set(state["opened"]) | {route.thread})
+            self._save(state)
         return {"id": event.id, "msg_id": route.msg, "thread": route.thread,
                 "mailbox": _npub(route.owner), "to": _npub(route.reader), "part": route.part,
                 "attachments": [{k: a[k] for k in ("dest", "bytes", "sha256")} for a in manifest],
@@ -373,11 +412,14 @@ class Dropbox:
         self.settle_claims()
         events = self.relay.query_all({"kinds": list(pairwise.MAIL_KINDS), "#p": [self.me],
                                        "#t": [self.topic_tag]})
-        gates, read = self._gates(), set(self._state()["read"])
+        local = self._state()
+        gates, read, opened = self._gates(), set(local["read"]), set(local["opened"])
         mine = self.acl_state(self.me).grants
-        return [self._classify(e, mine, gates, read) for e in events if e.pubkey != self.me]
+        return [self._classify(e, mine, gates, read, opened) for e in events
+                if e.pubkey != self.me]
 
-    def _classify(self, event: Event, mine: dict, gates: dict, read: set) -> Item:
+    def _classify(self, event: Event, mine: dict, gates: dict, read: set,
+                  opened: set) -> Item:
         if event.wire_bytes > MAX_EVENT_BYTES:
             return Item(event, None, "invalid", problem="over the event cap")
         try:
@@ -386,6 +428,14 @@ class Dropbox:
             return Item(event, None, "invalid", problem=str(exc))
         if route.reader != self.me:
             return Item(event, route, "invalid", problem="not addressed to this key")
+        if route.owner != self.me and (event.pubkey != route.owner
+                                       or route.thread not in opened):
+            # Anyone can sign a grant to anyone in their own mailbox. Mail from another
+            # mailbox is therefore only its owner answering a thread this machine opened
+            # (agent-mailbox: an active local membership), never a way past the gate.
+            return Item(event, route, "quarantined", problem=(
+                "mail in another member's mailbox is accepted only as its owner's reply in "
+                "a thread this machine opened"))
         grants = mine if route.owner == self.me else self.acl_state(route.owner).grants
         denial = acl.write_denial(route.owner, event.pubkey, recipient=self.me,
                                   part=route.part, thread_opener=route.opener, grants=grants)
@@ -466,10 +516,12 @@ class Dropbox:
             items = [i for i in items if i.state in WAITING]
         state = self._state()
         for item in items:
-            if (item.released and item.trust == "trusted_auto" and item.event.kind == ENVELOPE
+            previous = state["staged"].get(item.event.id)
+            if (item.released and item.event.kind == ENVELOPE
                     and item.opened.content.get("attachments")
-                    and item.event.id not in state["staged"]):
-                state["staged"][item.event.id] = self._stage_all(item)
+                    and (previous is None or any(r["status"] == StagingUnavailable.status
+                                                 for r in previous))):
+                state["staged"][item.event.id] = self._stage_all(item, previous=previous)
         out = [self.show(i, state["staged"]) for i in items]
         if mark:
             state["read"] = sorted(set(state["read"]) | {i.event.id for i in items
@@ -512,8 +564,8 @@ class Dropbox:
             "disposition": "rejected" if decline else "handled", "result_ref": None,
             "note": note or ("declined" if decline else "approved") + " by a human at a terminal"},
             topic=DROPBOX, tags=[["e", item.event.id]])
-        state = self._state()
         released = self.find(item.event.id)
+        state = self._state()
         if not decline and released.event.kind == ENVELOPE and \
                 released.opened.content.get("attachments"):
             state["staged"][released.event.id] = self._stage_all(released, overwrite=overwrite)
@@ -587,8 +639,11 @@ class Dropbox:
     def _stage_one(self, item: Item, att: dict, overwrite: bool) -> dict:
         try:
             ciphertext = self.session.blobs().download(att["blob"])
+        except DigestMismatch as exc:
+            raise IntegrityProblem(f"the attachment blob is not the one signed: {exc}") from exc
         except BlossomError as exc:
-            raise IntegrityProblem(f"the attachment blob is unavailable: {exc}") from exc
+            raise StagingUnavailable(f"the attachment blob is unavailable now ({exc}); the "
+                                     "next `mail read` tries again") from exc
         try:
             data = pairwise.open_file(ciphertext, att)
         except pairwise.EnvelopeError as exc:
@@ -616,9 +671,17 @@ class Dropbox:
         return {"dest": att["dest"], "path": str(target), "bytes": len(data),
                 "sha256": att["sha256"], "status": "staged", "mode": "0600"}
 
-    def _stage_all(self, item: Item, *, overwrite: bool = False) -> list[dict]:
+    def _stage_all(self, item: Item, *, overwrite: bool = False,
+                   previous: list | None = None) -> list[dict]:
+        """Stage every attachment of a released mail, keeping what an earlier attempt
+        settled (staged, refused, conflict, invalid) and retrying what was unavailable."""
+        settled = {r["dest"]: r for r in previous or []
+                   if r["status"] != StagingUnavailable.status}
         results = []
         for att in item.opened.content.get("attachments") or []:
+            if att["dest"] in settled:
+                results.append(settled[att["dest"]])
+                continue
             try:
                 results.append(self._stage_one(item, att, overwrite))
             except StagingProblem as exc:

@@ -110,7 +110,7 @@ ROLE_KINDS = {
                               CREATE_GROUP, *ADMIN_KINDS, acl.GRANT, acl.REVOKE, acl.INVITE},
 }
 # What a topic token carries beside the trust keys (`topic invite`).
-TOKEN_EXTRAS = ("topic", "group_code", "epochs", "current", "owner")
+TOKEN_EXTRAS = ("topic", "group_code", "redeem", "epochs", "current", "owner")
 TOPICS = "topics"
 SEAT_BLOB_VERBS = frozenset({"get", "upload"})
 
@@ -235,6 +235,8 @@ def _decode_invite_token(token: str) -> tuple[str, dict | None, str | None, dict
         topic_id(extra["topic"])
         if not isinstance(extra["owner"], str) or len(extra["owner"]) != 64:
             raise ProfileError("nm1_ topic token does not name the inviter's key")
+        if not isinstance(extra["redeem"], str) or len(extra["redeem"]) != 64:
+            raise ProfileError("nm1_ topic token carries no redeem secret")
     return code, data, (member if isinstance(member, str) and member else None), extra
 
 
@@ -538,7 +540,8 @@ def cmd_relay_join(args) -> dict:
                "npub": ident.npub, "relay_said": answer}
         if topic:
             _, said = Topic(session.relay, topic, operators=trust.operator_pubkeys).join(
-                code=extra["group_code"])
+                code=extra["group_code"], proof=keyrings.redeem_proof(
+                    extra["group_code"], session.pubkey, extra["redeem"]))
             session.sync_keyring()
             keyrings.backup(session.relay, session.signer, ring,
                             "full_history" if 1 in ring.epochs else "forward_only")
@@ -977,8 +980,8 @@ def _topic_trust(args) -> Trust:
     path = _topic_path(args, args.group)
     if not path.is_file():
         raise ProfileError(f"this machine has no topic {args.group!r} ({path}): create it "
-                           "with `topic create`, join it from its nm1_ token, or "
-                           "`topic request-join` it")
+                           "with `topic create` (which also restores a keeper's ring from "
+                           "its backup), join it from its nm1_ token, or `topic request-join`")
     return Trust.load(path)
 
 
@@ -1016,15 +1019,28 @@ def cmd_topic_create(args) -> dict:
     ring = KeyRing.open(home(args.home), group, root.campaign)
     if ring.epochs and ring.registry is None:
         raise ProfileError(f"this seat already holds topic {group!r} as a member")
+    restored = None
     with CampaignSession(trust, signer, timeout_s=args.timeout_seconds) as session:
         made, wrote = Topic(session.relay, group, operators=root.operator_pubkeys).create()
-        if not ring.epochs:
+        if not wrote and ring.registry is None:
+            # This key created the topic on another machine, or before this one lost its
+            # ring: restore it from the self-addressed backup. A fresh epoch 1 here would
+            # fork the topic and orphan everything written under the real one.
+            restored = keyrings.sync(session.relay, signer, trust, ring)
+            if ring.registry is None or not ring.epochs:
+                raise ProfileError(
+                    f"topic {group!r} was created by this key, but no backup of its ring "
+                    "is readable on the relay; nothing was written. Its members still hold "
+                    "the keys: `topic request-join` and ask one of them")
+        elif not ring.epochs:
             ring.epochs[1] = os.urandom(32).hex()
             ring.registry = keyrings.empty_registry()
             ring.save()
-        keyrings.backup(session.relay, signer, ring, "create")
+        if restored is None:
+            keyrings.backup(session.relay, signer, ring, "create")
     _write_trust_file(path, _mapping(trust))
-    return {"topic": group, "created": wrote, "event_id": made.id, "trust_file": str(path),
+    return {"topic": group, "created": wrote, "restored_from_backup": restored is not None,
+            "event_id": made.id, "trust_file": str(path),
             "keyring": str(ring.path), "epoch": ring.current,
             "next": f"`topic invite {group}` or `topic approve {group} <npub>` admits "
                     f"members; run campaign commands in the topic with --topic {group}"}
@@ -1039,6 +1055,9 @@ def cmd_topic_invite(args) -> dict:
 
     def minted() -> dict:
         with _session(args, trust=trust, ring=ring) as session:
+            # The relay invite first: if the relay will not mint one, nothing has rotated
+            # and no group code is out.
+            relay_invite = _mint_relay_invite(args, session)
             topic = _topic(session, trust)
             caught_up = keyrings.reconcile(session.relay, session.signer, ring, topic)
             if args.history == "from-now":
@@ -1046,18 +1065,21 @@ def cmd_topic_invite(args) -> dict:
                 ring.save()
                 caught_up = keyrings.reconcile(session.relay, session.signer, ring, topic)
             result["delivered"] = {_npub(k): v for k, v in caught_up["delivered"].items()}
-            group_code = topic.create_invite()
-            relay_invite = _mint_relay_invite(args, session)
             epochs = sorted(ring.epochs) if args.history == "all" else [ring.current]
+            group_code, redeem = topic.new_code(), secp256k1.generate_secret()
             ring.registry["invites"][keyrings.code_digest(group_code)] = {
                 "for": args.member, "history": args.history, "from_epoch": epochs[0],
-                "epochs": epochs, "created_at": now(session.clock)}
+                "epochs": epochs, "created_at": now(session.clock),
+                "redeem_key": secp256k1.pubkey_gen(redeem).hex()}
+            ring.save()                     # recorded before the code is published
+            topic.publish_invite(group_code)
             keyrings.backup(session.relay, session.signer, ring, "full_history")
             return {"relay_invite": relay_invite, "group_code": group_code, "epochs": epochs,
-                    "owner": session.pubkey}
+                    "owner": session.pubkey, "redeem": redeem.hex()}
 
     def wrap(got: dict) -> dict:
         extra = {"topic": trust.group, "group_code": got["group_code"],
+                 "redeem": got["redeem"],
                  "epochs": {str(e): ring.epochs[e] for e in got["epochs"]},
                  "current": max(got["epochs"]), "owner": got["owner"]}
         token = _encode_invite_token(trust, got["relay_invite"]["code"], member=args.member,
@@ -1109,6 +1131,7 @@ def cmd_topic_approve(args) -> dict:
         ring.registry["members"][pubkey] = {
             "history": args.history, "from_epoch": 1 if args.history == "all" else ring.current,
             "name": None, "via": "approved"}
+        ring.registry.setdefault("revoked", {}).pop(pubkey, None)  # the keeper's own word
         ring.save()
         done = keyrings.reconcile(session.relay, session.signer, ring, topic)
         keyrings.backup(session.relay, session.signer, ring, "full_history")
@@ -1154,6 +1177,7 @@ def cmd_topic_sync(args) -> dict:
             if ring.registry is not None:
                 done = keyrings.reconcile(session.relay, session.signer, ring,
                                           _topic(session, trust))
+                report["refused_redemptions"] = [_npub(k) for k in done["refused_redemptions"]]
                 if done["delivered"] or done["redeemed_invites"]:
                     keyrings.backup(session.relay, session.signer, ring, "full_history")
                 report["delivered"] = {_npub(k): v for k, v in done["delivered"].items()}
@@ -1258,6 +1282,9 @@ def cmd_acl_list(args) -> dict:
         return {"mailbox": _npub(owner), "grants": [g.to_dict() for g in state.grants.values()],
                 "confirmed_claims": [g.to_dict()["npub"] for g in confirmed],
                 "pending_claims": [_npub(c.pubkey) for c in state.pending_claims.values()],
+                "contested_claims": {invite: [_npub(k) for k in keys]
+                                     for invite, keys in box.contested().items()}
+                if owner == session.pubkey else {},
                 "rejected": [{"id": i, "why": why} for i, why in state.rejected]}
 
 

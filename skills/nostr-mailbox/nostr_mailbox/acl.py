@@ -21,9 +21,11 @@ relay that sees a claim cannot replay it for any other key.
 A claim grants nothing by itself (agent-mailbox's `owner_confirm` mode for standard
 relays). A relay here does not enforce one claim per invite, and a claimant chooses its
 own `created_at`: "earliest claim wins" would let anyone holding the token backdate a
-claim and take the invite from its first claimant. The owner's client confirms the
-first valid claim it observes with an ordinary owner-signed grant carrying
-`["e", <invite id>]`; from then on the invite is spent, whatever is claimed after.
+claim and take the invite from its first claimant. The owner's client records the
+first valid claim it observes, with the time it observed it (checked against the
+invite's deadline), and confirms that one with an ordinary owner-signed grant carrying
+`["e", <invite id>]`; from then on the invite is spent, whatever is claimed after,
+however it is dated. A claim dated before its invite is refused outright.
 
 Grants are bound to the relay they were issued on (`relay`); a grant or invite bound
 elsewhere is ignored. A revoke counts wherever it was issued: ignoring one is the
@@ -129,6 +131,7 @@ class AclState:
     rejected: list[tuple[str, str]] = field(default_factory=list)     # (event id, why)
     claimed_invites: dict[str, str] = field(default_factory=dict)     # invite → confirmed
     pending_claims: dict[str, Event] = field(default_factory=dict)    # invite → valid claim
+    valid_claims: dict[str, list[Event]] = field(default_factory=dict)  # every one, oldest first
     invites: dict[str, Event] = field(default_factory=dict)
 
 
@@ -181,6 +184,8 @@ def check_claim(invite: Event, claim: Event) -> None:
         raise AclError(f"the claim proof is not hex: {exc}") from exc
     if not valid:
         raise AclError("the claim proof was not signed by the invite key")
+    if claim.created_at < invite.created_at:
+        raise AclError("the claim is dated before the invite it claims")
     until = _deadline(invite, "claim_until", "expiration")
     if until is not None and claim.created_at > until:
         raise AclError("the invite had expired when it was claimed")
@@ -231,6 +236,11 @@ def derive(owner: str, events: Iterable[Event], *, relay: str, at: int) -> AclSt
                 state.rejected.append((event.id, "a grant names one peer other than the owner"))
                 continue
             confirms = [i for i in event.values("e") if i in invites]
+            taken = [i for i in confirms if state.claimed_invites.get(i, grantee) != grantee]
+            if taken:                       # an invite is confirmed once, for one key
+                state.rejected.append((event.id, "the invite was already confirmed for "
+                                                 "another key"))
+                continue
             for invite_id in confirms:
                 state.claimed_invites.setdefault(invite_id, grantee)
             timeline.setdefault(grantee, []).append((event.created_at, 0, event.id, Grant(
@@ -261,11 +271,8 @@ def derive(owner: str, events: Iterable[Event], *, relay: str, at: int) -> AclSt
         except AclError as exc:
             state.rejected.append((claim.id, str(exc)))
             continue
-        if invite.id in state.pending_claims:
-            state.rejected.append((claim.id, "an earlier claim of this invite waits for the "
-                                             "owner"))
-            continue
-        state.pending_claims[invite.id] = claim
+        state.valid_claims.setdefault(invite.id, []).append(claim)
+        state.pending_claims.setdefault(invite.id, claim)
 
     for grantee, entries in timeline.items():
         entries.sort(key=lambda item: item[:3])
@@ -337,8 +344,8 @@ def decode_invite_token(token: str) -> tuple[bytes, Event]:
     secret = raw[1:33]
     try:
         invite = verify_event(json.loads(raw[33:]))
-    except (json.JSONDecodeError, UnicodeDecodeError, InvalidEvent) as exc:
-        raise AclError(f"the invite inside the token does not verify: {exc}") from exc
+    except (json.JSONDecodeError, UnicodeDecodeError, RecursionError, InvalidEvent) as exc:
+        raise AclError("the invite inside the token does not verify") from exc
     if invite.kind != INVITE or invite.values("mbx") != [invite.pubkey]:
         raise AclError("the token does not carry an owner-signed mailbox invite")
     try:

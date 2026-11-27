@@ -403,6 +403,8 @@ def decode(event: Event, trust: Trust, *, kind: Kind, record_type: str,
         body = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise ProfileError(f"content is not JSON: {exc}") from exc
+    except RecursionError as exc:           # one member's record must not stop every reader
+        raise ProfileError("content is not JSON: nested too deep to parse") from exc
     if not isinstance(body, dict):
         raise ProfileError("content is not a JSON object")
     for name, wanted in (("schema", SCHEMA), ("type", record_type),

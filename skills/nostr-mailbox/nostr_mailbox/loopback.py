@@ -17,7 +17,9 @@ Where the protocol leaves room, it behaves the way the pinned relay
 - blobs answer at `/<sha256>[.ext]` and `/media/<sha256>[.ext]`, uploads at `/upload`
   and `/media/upload`, and a descriptor's URL is the `/media/…` one.
 
-It also runs what the shipped `relay.yaml` switches on for self-service:
+It also runs the self-service switches of the `nostr-relay-deploy` relay.yaml (this
+repository's own `deploy/nostr-relay/relay.yaml` leaves `memberClaims` off and sets no
+`recipientOnlyKinds`; turning them on is a deployment decision):
 
 - `recipientOnlyKinds: [1059, 4410, 4411]`: gift wraps and pairwise envelopes are
   served only to a socket authenticated as a key in the event's `p` tags;

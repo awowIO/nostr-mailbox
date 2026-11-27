@@ -89,8 +89,10 @@ kubectl apply -k deploy/nostr-relay
 NIP-44 v2 `campaign_key`, saves `~/.config/nostr-mailbox/nostr.toml`, and enrolls your key
 on the relay—pass `--kubectl` for Kubernetes or `--compose deploy/nostr-relay/compose.yaml`
 for Docker Compose), then mints a single-use invite token. `invite` asks the relay for a
-code over the WebSocket (NIP-43 kind 28935, which the shipped relay allows any member
-with `memberClaims: true`); `--admin` mints through the admin CLI `setup` saved instead.
+code over the WebSocket (NIP-43 kind 28935, which a relay with `memberClaims: true`
+grants any member: `nostr-relay-deploy` turns it on, this repository's
+`deploy/nostr-relay/relay.yaml` leaves it off); `--admin` mints through the admin CLI
+`setup` saved instead.
 There is no silent fallback from one to the other:
 
 ```bash

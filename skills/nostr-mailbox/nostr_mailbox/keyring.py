@@ -38,7 +38,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import giftwrap
+from . import giftwrap, secp256k1
 from .event import Event, dumps, now
 from .groups import Topic
 from .identity import Signer
@@ -46,6 +46,9 @@ from .profile import EpochKeys, Kind, ProfileError, Trust
 from .relay import RelayClient
 
 SCHEMA = "cf.keyring/1"
+# A token's redemption is bound to the key that redeems it: the group code is readable by
+# every member of the group (its 9009 is a moderation event), the redeem secret is not.
+REDEEM_DOMAIN = b"nostr-mailbox/topic-redeem/v1"
 FILE_SCHEMA = "cf.keyring-file/1"
 MODES = ("create", "full_history", "forward_only", "rotate")
 HISTORY = ("all", "from-now")
@@ -68,15 +71,38 @@ def code_digest(code: str) -> str:
     return hashlib.sha256(code.encode()).hexdigest()
 
 
+def redeem_message(code: str, pubkey: str) -> bytes:
+    return hashlib.sha256(REDEEM_DOMAIN + bytes.fromhex(code_digest(code))
+                          + bytes.fromhex(pubkey)).digest()
+
+
+def redeem_proof(code: str, pubkey: str, secret_hex: str) -> str:
+    """What a token holder signs to claim the token's place for its own key."""
+    return secp256k1.schnorr_sign(redeem_message(code, pubkey), bytes.fromhex(secret_hex)).hex()
+
+
+def _vouched(invite: dict, code: str, request: Event) -> bool:
+    proofs, key = request.values("proof"), invite.get("redeem_key")
+    if not key or len(proofs) != 1:
+        return False
+    try:
+        return secp256k1.schnorr_verify(redeem_message(code, request.pubkey),
+                                        bytes.fromhex(key), bytes.fromhex(proofs[0]))
+    except ValueError:                      # not hex, or not a key: not a proof
+        return False
+
+
 def _epochs(raw, what: str) -> dict[int, str]:
+    """Epoch → key, or `KeyRingError`. Its messages never repeat what they were given:
+    a delivery is written by somebody else, and what an error says reaches an agent."""
     if not isinstance(raw, dict) or not raw:
         raise KeyRingError(f"{what}: epochs must be a non-empty object of epoch → key")
     out = {}
     for epoch, key in raw.items():
         if not isinstance(epoch, str) or not _EPOCH.match(epoch):
-            raise KeyRingError(f"{what}: epoch {epoch!r} is not a positive integer")
+            raise KeyRingError(f"{what}: an epoch is not a positive integer")
         if not isinstance(key, str) or not _HEX64.match(key):
-            raise KeyRingError(f"{what}: the key of epoch {epoch} is not 64 lowercase hex")
+            raise KeyRingError(f"{what}: an epoch key is not 64 lowercase hex")
         out[int(epoch)] = key
     return out
 
@@ -89,7 +115,8 @@ def empty_registry() -> dict:
     """The keeper's ledger. `rev` counts its backups: a restore takes a backup only when
     its `rev` is higher than the ledger held, never by timestamp, because several
     backups can share one second."""
-    return {"members": {}, "invites": {}, "delivered": {}, "rev": 0}
+    return {"members": {}, "invites": {}, "delivered": {}, "revoked": {}, "refused": {},
+            "rev": 0}
 
 
 @dataclass
@@ -206,12 +233,12 @@ def parse_delivery(rumor: giftwrap.Rumor) -> dict:
     """The content of an epoch-key rumor, checked field by field."""
     try:
         body = json.loads(rumor.content)
-    except json.JSONDecodeError as exc:
-        raise KeyRingError(f"epoch-key delivery is not JSON: {exc}") from exc
+    except (json.JSONDecodeError, RecursionError) as exc:
+        raise KeyRingError("epoch-key delivery is not JSON") from exc
     if not isinstance(body, dict) or body.get("schema") != SCHEMA:
         raise KeyRingError(f"epoch-key delivery is not {SCHEMA}")
     if body.get("mode") not in MODES:
-        raise KeyRingError(f"epoch-key delivery mode {body.get('mode')!r} is not one of {MODES}")
+        raise KeyRingError(f"epoch-key delivery mode is not one of {MODES}")
     for name in ("campaign", "topic"):
         if not isinstance(body.get(name), str):
             raise KeyRingError(f"epoch-key delivery has no {name}")
@@ -323,11 +350,22 @@ def reconcile(relay: RelayClient, signer: Signer, ring: KeyRing, topic: Topic) -
     me = signer.pubkey
     members, invites, delivered = (registry["members"], registry["invites"],
                                    registry["delivered"])
-    redeemed = []
+    revoked = registry.setdefault("revoked", {})
+    refused = registry.setdefault("refused", {})
+    before = topic.members()
+    redeemed, cut = [], []
     for request in topic.join_requests():
         codes = request.values("code")
         invite = invites.get(code_digest(codes[0])) if codes else None
-        if invite is None or invite.get("redeemed_by") or request.pubkey == me:
+        if (invite is None or invite.get("redeemed_by") or request.pubkey in (me, *before)
+                or request.id in refused):
+            continue
+        if request.pubkey in revoked or not _vouched(invite, codes[0], request):
+            # The code admits at the relay; it is the proof that makes the invitee. A
+            # member who read the code, or a revoked key that kept one, gets no keys,
+            # and the keeper takes back the group membership the code gave it.
+            refused[request.id] = request.pubkey
+            cut.append(request.pubkey)
             continue
         invite["redeemed_by"] = request.pubkey
         members[request.pubkey] = {"history": invite["history"], "from_epoch": invite["from_epoch"],
@@ -335,10 +373,14 @@ def reconcile(relay: RelayClient, signer: Signer, ring: KeyRing, topic: Topic) -
         delivered[request.pubkey] = sorted(set(delivered.get(request.pubkey, []))
                                            | set(invite["epochs"]))
         redeemed.append(request.pubkey)
+    for pubkey in dict.fromkeys(cut):
+        topic.remove_user(pubkey)
     standing = topic.members()
     for pubkey in redeemed:
         if pubkey not in standing:
             topic.put_user(pubkey)
+    if redeemed or cut:
+        ring.save()
     standing = topic.members()
     sent: dict[str, list[int]] = {}
     for pubkey in sorted(standing - {me}):
@@ -354,8 +396,8 @@ def reconcile(relay: RelayClient, signer: Signer, ring: KeyRing, topic: Topic) -
         delivered[pubkey] = sorted(had | set(owed))
         sent[pubkey] = owed
         ring.save()                         # each delivery recorded before the next
-    return {"redeemed_invites": redeemed, "delivered": sent,
-            "members": sorted(standing - {me})}
+    return {"redeemed_invites": redeemed, "refused_redemptions": sorted(set(cut)),
+            "delivered": sent, "members": sorted(standing - {me})}
 
 
 def forget(ring: KeyRing, pubkey: str) -> None:
@@ -364,3 +406,4 @@ def forget(ring: KeyRing, pubkey: str) -> None:
         raise KeyRingError(f"only the keeper of topic {ring.name!r} revokes its members")
     ring.registry["members"].pop(pubkey, None)
     ring.registry["delivered"].pop(pubkey, None)
+    ring.registry.setdefault("revoked", {})[pubkey] = ring.current

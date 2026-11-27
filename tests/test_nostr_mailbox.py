@@ -96,11 +96,13 @@ from nostr_mailbox import (
     verify_event,
     ws,
 )
+from nostr_mailbox import keyring as keyrings
 from nostr_mailbox import relay as relay_client
 from nostr_mailbox.event import dumps, event_id, serialize, sign_with_secret, unsigned
 from nostr_mailbox.groups import Topic
 from nostr_mailbox.identity import MAX_REQUEST_BYTES, accept_signed
 from nostr_mailbox.keyring import KeyRing
+from nostr_mailbox.mailbox import Dropbox
 from nostr_mailbox.profile import decrypt_record, encode
 from nostr_mailbox.relay import INVITE_CLAIM_KIND, invite_code
 
@@ -2738,3 +2740,160 @@ def test_a_one_time_dropbox_invite_admits_one_claimant_by_its_bip340_proof(relay
     assert expired["mode"] == "0600"
     assert "expired" in as_("frank", "acl", "claim", "--token-file", tmp_path / "old.invite",
                             code=1)
+
+
+# ================================ the review's attacks on topics and dropboxes, replayed
+def test_a_topic_token_admits_only_the_key_holding_it_and_a_revoked_member_stays_out(
+        relay, run, tmp_path):
+    """Every member can read a pending invite's group code (its 9009 is a moderation
+    event). The code admits to the group at the relay; only the token's redeem proof
+    makes the keeper hand out keys. So a member squatting someone else's invite gains
+    nothing, a revoked member walking back in with a saved code is put out again with
+    no new epoch, and a keeper that lost its machine restores the ring instead of
+    forking epoch 1."""
+    relay.clock, relay.member_claims = time.time, True
+    as_ = _personas(run, tmp_path)
+    operator = as_("operator", "setup", "--relay", relay.url, "--campaign", "camp")
+    relay.add_member(bech32.pubkey_hex(operator["npub"]))
+    as_("operator", "topic", "create", "wave")
+    for name in ("agent-1", "steven"):
+        as_(name, "join", as_("operator", "topic", "invite", "wave", "--for", name)["token"])
+    agent = run("--home", tmp_path / "agent-1", "id", identity="agent-1")
+    assert as_("operator", "topic", "sync", "wave")["topics"][0]["refused_redemptions"] == []
+    steven_id = run("--home", tmp_path / "steven", "id", identity="steven")
+    assert _ring(tmp_path, "operator", "wave").registry["members"].keys() == {
+        agent["pubkey"], steven_id["pubkey"]}, "both redeemed with their tokens' proofs"
+
+    pending = as_("operator", "topic", "invite", "wave", "--for", "roland")
+    code = cli._decode_invite_token(pending["token"])[3]["group_code"]
+    spy = load_identity("agent-1", base=tmp_path / "agent-1").signer(timeout_s=WAIT)
+    steven = load_identity("steven", base=tmp_path / "steven").signer(timeout_s=WAIT)
+    with RelayClient(relay.url, spy, timeout_s=WAIT) as reader:
+        assert code in {c for e in reader.query_all({"kinds": [9009], "#h": ["wave"]})
+                        for c in e.values("code")}, "any member reads the code"
+    with RelayClient(relay.url, steven, timeout_s=WAIT) as squatter:
+        Topic(squatter, "wave").join(code=code)             # a member, so not consumed
+    assert as_("operator", "topic", "sync", "wave")["topics"][0]["redeemed_invites"] == []
+
+    assert as_("operator", "topic", "revoke", "wave", agent["npub"])["rotated_to"] == 2
+    with RelayClient(relay.url, spy, timeout_s=WAIT) as revoked:
+        assert "welcome" in Topic(revoked, "wave").join(code=code)[1], "the relay lets it in"
+        settled = as_("operator", "topic", "sync", "wave")["topics"][0]
+        assert settled["refused_redemptions"] == [agent["npub"]]
+        assert agent["npub"] not in settled["delivered"]
+        assert revoked.query_all({"#h": ["wave"]}) == [], "and the keeper puts it out again"
+    assert sorted(_ring(tmp_path, "agent-1", "wave").epochs) == [1]
+
+    # roland's code was burnt by the squatter: the keeper mints him another
+    assert "invalid or used" in as_("roland", "join", pending["token"], code=1)
+    again = as_("operator", "topic", "invite", "wave", "--for", "roland")
+    assert as_("roland", "join", again["token"])["held_epochs"] == [1, 2]
+
+    # the keeper loses its machine: `topic create` restores, it does not fork epoch 1
+    shutil.rmtree(tmp_path / "operator/keyrings")
+    shutil.rmtree(tmp_path / "operator/topics")
+    before = len([e for e in relay.stored() if e.kind == 9007])
+    restored = as_("operator", "topic", "create", "wave")
+    assert (restored["created"], restored["restored_from_backup"], restored["epoch"]) == (
+        False, True, 2)
+    assert len([e for e in relay.stored() if e.kind == 9007]) == before
+    assert agent["pubkey"] in _ring(tmp_path, "operator", "wave").registry["revoked"]
+
+
+def test_the_dropbox_holds_forged_threads_poisoned_payloads_and_shared_tokens(
+        relay, run, tmp_path, monkeypatch):
+    relay.clock = time.time
+    desk = tmp_path / "alice-desk"
+    desk.mkdir()
+    monkeypatch.setenv("HOME", str(desk))
+    as_ = _personas(run, tmp_path)
+    people = _people(run, tmp_path, relay, "alice", "carol", "mallory", "dave", "frank",
+                     operator="alice")
+    owner = people["alice"]["pubkey"]
+    key = {name: load_identity(name, base=tmp_path / name).signer(timeout_s=WAIT)
+           for name in people}
+    as_("alice", "acl", "grant", people["carol"]["npub"], "--trust", "trusted_auto")
+
+    # mallory grants alice in mallory's own mailbox, then "writes from it", twice
+    as_("mallory", "acl", "grant", people["alice"]["npub"], "--trust", "trusted_auto")
+    words = {"v": 1, "subject": None, "body": "MALLORY-WORDS", "attachments": []}
+    nonce = "ab" * 16
+    pretend = pairwise.Route(key["mallory"].pubkey, owner, "inbox",
+                             pairwise.thread_id(key["mallory"].pubkey, owner, "inbox", nonce),
+                             "cd" * 16, owner, nonce, reply_to="ef" * 16)
+    stamp = int(time.time())
+    with RelayClient(relay.url, key["mallory"], timeout_s=WAIT) as raw:
+        for route in (pairwise.Route.root(key["mallory"].pubkey, owner, key["mallory"].pubkey),
+                      pretend):         # a "reply" in a thread alice supposedly opened
+            raw.publish(pairwise.wrap(pairwise.ENVELOPE, key["mallory"], route, words,
+                                      created_at=stamp, extra_tags=[["t", "camp:dropbox"]]))
+        # and a gift wrap nested past any parser's depth, to stall alice's keyring sync
+        raw.publish(key["mallory"].sign_event(unsigned(1059, [["p", owner]], nip44.encrypt(
+            "[" * 10_000, key["mallory"].conversation_key(owner)), stamp)))
+
+    # carol is granted: a seal that smuggles words into its own shape, and a nested one
+    seal = key["carol"].sign_event(unsigned(pairwise.SEAL, [], "{}", stamp)).to_dict()
+    seal["CAROL-SMUGGLED-WORDS"] = 1
+    with RelayClient(relay.url, key["carol"], timeout_s=WAIT) as raw:
+        for plaintext in (dumps(seal), "[" * 10_000):
+            route = pairwise.Route.root(owner, owner, key["carol"].pubkey)
+            raw.publish(key["carol"].sign_event(unsigned(
+                pairwise.ENVELOPE, [*route.tags(), ["t", "camp:dropbox"]],
+                nip44.encrypt(plaintext, key["carol"].conversation_key(owner)), stamp)))
+
+    assert as_("alice", "status", "--hook").startswith("nostr-mailbox: 0 unread, 2 quarantined")
+    shown = as_("alice", "mail", "read", "--all")
+    assert "MALLORY-WORDS" not in json.dumps(shown) and "SMUGGLED" not in json.dumps(shown)
+    states = sorted((m["from"]["npub"], m["state"]) for m in shown["messages"])
+    assert states == sorted([(people["mallory"]["npub"], "quarantined")] * 2
+                            + [(people["carol"]["npub"], "invalid")] * 2)
+    assert all("another member's mailbox" in m["problem"] for m in shown["messages"]
+               if m["state"] == "quarantined")
+    ring = KeyRing(path=tmp_path / "alice/keyrings/wave.json", name="wave", campaign="camp")
+    with RelayClient(relay.url, key["alice"], timeout_s=WAIT) as client:
+        report = keyrings.sync(client, key["alice"], Trust(
+            relay=relay.url, campaign="camp", operator_pubkeys=frozenset({owner})), ring)
+    assert [r["reason"] for r in report["rejected"]] == [
+        "the gift wrap decrypted to something that is not JSON"] and ring.seen, \
+        "refused once, remembered, never parsed again"
+
+    # a transient blob outage leaves an attachment not_staged; the next read stages it
+    src = tmp_path / "notes.txt"
+    src.write_bytes(b"NOTES")
+    as_("carol", "mail", "send", "--to", people["alice"]["npub"], "notes",
+        "--attach-file", f"~/nostr-mailbox-files/notes.txt={src}")
+    blob = list(relay.blossom.blobs)[-1]                    # the notes, just uploaded
+    held = relay.blossom.blobs.pop(blob)
+    first = next(m for m in as_("alice", "mail", "read")["messages"] if m.get("body") == "notes")
+    assert first["attachments"][0]["staged"]["status"] == "not_staged"
+    relay.blossom.blobs[blob] = held
+    again = next(m for m in as_("alice", "mail", "read", "--all")["messages"]
+                 if m.get("body") == "notes")
+    assert again["attachments"][0]["staged"]["status"] == "staged"
+    assert (desk / "nostr-mailbox-files/notes.txt").read_bytes() == b"NOTES"
+
+    # one token, two claimants before the owner looked: contested, neither confirmed
+    as_("alice", "acl", "invite", "--code-file", tmp_path / "shared.invite")
+    for name in ("dave", "frank"):
+        assert as_(name, "acl", "claim", "--token-file", tmp_path / "shared.invite")[
+            "state"] == "pending_owner_confirmation"
+    listed = as_("alice", "acl", "list")
+    assert listed["confirmed_claims"] == [] and sorted(*listed["contested_claims"].values()) == \
+        sorted([people["dave"]["npub"], people["frank"]["npub"]])
+    assert {g["npub"] for g in listed["grants"]} == {people["carol"]["npub"]}
+
+    # a claim inside the deadline that the owner first sees after it: not confirmed
+    later = {"offset": 0}
+    clock = lambda: time.time() + later["offset"]           # noqa: E731
+    with CampaignSession(Trust.load(tmp_path / "alice/nostr.toml"), key["alice"],
+                         timeout_s=WAIT, clock=clock) as session:
+        box = Dropbox(session, key["alice"], state_path=tmp_path / "alice/late.json",
+                      user_home=desk, profile_home=tmp_path / "alice")
+        token, _ = box.invite(scope="send_only", until=int(time.time()) + 60)
+        with CampaignSession(Trust.load(tmp_path / "dave/nostr.toml"), key["dave"],
+                             timeout_s=WAIT) as theirs:
+            Dropbox(theirs, key["dave"], state_path=tmp_path / "dave/late.json",
+                    user_home=desk, profile_home=tmp_path / "dave").claim(token)
+        later["offset"] = 3600
+        assert box.settle_claims() == [] and key["dave"].pubkey not in box.acl_state(
+            owner).grants

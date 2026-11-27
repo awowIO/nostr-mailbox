@@ -68,7 +68,7 @@ def _open(payload: str, conv: bytes, what: str):
         return json.loads(nip44.decrypt(payload, conv))
     except nip44.Nip44Error as exc:
         raise GiftWrapError(f"the {what} does not decrypt for this key: {exc}") from exc
-    except json.JSONDecodeError as exc:
+    except (json.JSONDecodeError, RecursionError) as exc:   # nesting deep enough to recurse
         raise GiftWrapError(f"the {what} decrypted to something that is not JSON") from exc
 
 
@@ -83,8 +83,8 @@ def unwrap(event: Event, signer: Signer) -> Rumor:
     sealed = _open(event.content, pairwise_key(signer, event.pubkey), "gift wrap")
     try:
         seal = verify_event(sealed)
-    except InvalidEvent as exc:
-        raise GiftWrapError(f"the seal inside is not a validly signed event: {exc}") from exc
+    except InvalidEvent as exc:             # its words can name the sender's own keys
+        raise GiftWrapError("the seal inside is not a validly signed event") from exc
     if seal.kind != SEAL_KIND or seal.tags:
         raise GiftWrapError("the inner event is not a NIP-59 seal (kind 13, no tags)")
     rumor = _open(seal.content, pairwise_key(signer, seal.pubkey), "seal")

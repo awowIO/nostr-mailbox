@@ -165,13 +165,15 @@ class Opened:
 def open_envelope(event: Event, me: Signer, route: Route) -> Opened:
     """Decrypt and check the seal of an envelope addressed to (or written by) `me`."""
     peer = route.reader if event.pubkey == me.pubkey else event.pubkey
+    # Every message here is fixed text: what a sender wrote must not reach an agent
+    # through an error, least of all from mail whose content is withheld.
     try:
         raw = json.loads(nip44.decrypt(event.content, pairwise_key(me, peer)))
         seal = verify_event(raw)
     except nip44.Nip44Error as exc:
         raise EnvelopeError(f"the envelope does not decrypt for this key: {exc}") from exc
-    except (json.JSONDecodeError, InvalidEvent) as exc:
-        raise EnvelopeError(f"the seal is not a validly signed event: {exc}") from exc
+    except (json.JSONDecodeError, RecursionError, InvalidEvent) as exc:
+        raise EnvelopeError("the seal is not a validly signed event") from exc
     if seal.kind != SEAL:
         raise EnvelopeError("the inner event is not a seal")
     for name in ("p", "mbx", "part", "thread", "msg"):
@@ -190,8 +192,8 @@ def open_envelope(event: Event, me: Signer, route: Route) -> Opened:
                                 "a seat the sender certified")
         try:
             cert = verify_event(json.loads(certs[0]))
-        except (json.JSONDecodeError, InvalidEvent) as exc:
-            raise EnvelopeError(f"the seat certificate does not verify: {exc}") from exc
+        except (json.JSONDecodeError, RecursionError, InvalidEvent) as exc:
+            raise EnvelopeError("the seat certificate does not verify") from exc
         if (cert.kind != SEAT_CERT or cert.pubkey != event.pubkey
                 or cert.values("d") != [seal.pubkey]):
             raise EnvelopeError("the seat certificate does not bind the sealing key to the "
@@ -200,8 +202,8 @@ def open_envelope(event: Event, me: Signer, route: Route) -> Opened:
         harness = sanitize_label((cert.values("harness") or [""])[0]) or None
     try:
         content = json.loads(seal.content)
-    except json.JSONDecodeError as exc:
-        raise EnvelopeError(f"the sealed content is not JSON: {exc}") from exc
+    except (json.JSONDecodeError, RecursionError) as exc:
+        raise EnvelopeError("the sealed content is not JSON") from exc
     check_content(event, content)
     return Opened(content, seal.pubkey, label, harness)
 

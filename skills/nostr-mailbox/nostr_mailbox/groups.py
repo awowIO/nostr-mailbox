@@ -135,17 +135,29 @@ class Topic:
     def remove_user(self, pubkey: str) -> Event:
         return self._publish(REMOVE_USER, [["p", pubkey]], created_at=self._stamp(pubkey))[0]
 
+    @staticmethod
+    def new_code() -> str:
+        return secrets.token_urlsafe(32)      # as the relay's own invite codes
+
+    def publish_invite(self, code: str) -> Event:
+        """Register a group invite code (9009): a join request carrying it is admitted
+        by the relay at once. Every member can read a 9009, so the code admits to the
+        group and no further; the keeper hands keys only to a proven redeemer."""
+        return self._publish(CREATE_INVITE, [["code", code]])[0]
+
     def create_invite(self) -> str:
-        """A fresh group invite code (9009). A join request carrying it is admitted by
-        the relay at once; the code itself is a bearer secret."""
-        code = secrets.token_urlsafe(32)      # as the relay's own invite codes
-        self._publish(CREATE_INVITE, [["code", code]])
+        code = self.new_code()
+        self.publish_invite(code)
         return code
 
-    def join(self, *, code: str | None = None, reason: str = "") -> tuple[Event, str]:
+    def join(self, *, code: str | None = None, proof: str | None = None,
+             reason: str = "") -> tuple[Event, str]:
         """Ask to join (9021). With a code the relay admits at once; without one the
-        request waits for an admin. Returns the request and what the relay said."""
-        return self._publish(JOIN_REQUEST, [["code", code]] if code else [], reason)
+        request waits for an admin. `proof` binds a token's code to this key (see
+        `keyring.redeem_proof`). Returns the request and what the relay said."""
+        tags = [["code", code]] if code else []
+        tags += [["proof", proof]] if proof else []
+        return self._publish(JOIN_REQUEST, tags, reason)
 
     def join_requests(self) -> list[Event]:
         return self._events(JOIN_REQUEST)
