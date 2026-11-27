@@ -2899,3 +2899,234 @@ def test_the_dropbox_holds_forged_threads_poisoned_payloads_and_shared_tokens(
         later["offset"] = 3600
         assert box.settle_claims() == [] and key["dave"].pubkey not in box.acl_state(
             owner).grants
+
+
+# ================================ the dropbox review fix-up: rulings, races and replays
+def _desk(tmp_path, monkeypatch) -> Path:
+    desk = tmp_path / "alice-desk"                  # alice's own home directory
+    desk.mkdir()
+    monkeypatch.setenv("HOME", str(desk))
+    return desk
+
+
+def _box(tmp_path, name: str, session: CampaignSession, user_home: Path) -> Dropbox:
+    """The Dropbox the CLI builds for `name`, on the same state file."""
+    return Dropbox(session, session.signer, state_path=tmp_path / name / "mail" / f"{name}.json",
+                   user_home=user_home, profile_home=tmp_path / name)
+
+
+def test_a_mail_a_human_declined_stays_declined_when_its_sender_is_trusted_later(
+        relay, run, tmp_path, monkeypatch):
+    relay.clock = time.time
+    desk = _desk(tmp_path, monkeypatch)
+    as_ = _personas(run, tmp_path)
+    people = _people(run, tmp_path, relay, "alice", "bob", operator="alice")
+    alice, bob = people["alice"]["npub"], people["bob"]["npub"]
+    as_("alice", "acl", "grant", bob)
+    as_("bob", "mail", "send", "--to", alice, "DECLINED-WORDS")
+    [pending] = as_("alice", "mail", "read")["messages"]
+    _at_a_terminal(tmp_path, "alice", ["mail", "approve", pending["id"][:12]], "decline",
+                   {"HOME": str(desk)})
+    as_("alice", "acl", "grant", bob, "--trust", "trusted_auto")
+    as_("bob", "mail", "send", "--to", alice, "after the promotion")
+    shown = as_("alice", "mail", "read", "--all")
+    assert {m["id"]: m["state"] for m in shown["messages"]}[pending["id"]] == "rejected"
+    assert [m["body"] for m in shown["messages"] if m["state"] == "unread"] == [
+        "after the promotion"], "the new tier releases new mail only"
+    assert "DECLINED-WORDS" not in json.dumps(shown)
+
+
+def test_an_approval_is_refused_for_a_sender_revoked_while_the_human_read_it(
+        relay, run, tmp_path, monkeypatch):
+    """`mail approve` reviews, then waits for a human to type; the box it reviewed on
+    must not decide on the ACL it read before that wait."""
+    relay.clock = time.time
+    desk = _desk(tmp_path, monkeypatch)
+    as_ = _personas(run, tmp_path)
+    people = _people(run, tmp_path, relay, "alice", "bob", operator="alice")
+    alice, bob = people["alice"]["npub"], people["bob"]["npub"]
+    as_("alice", "acl", "grant", bob)
+    plan = tmp_path / "plan.txt"
+    plan.write_bytes(b"PLAN")
+    as_("bob", "mail", "send", "--to", alice, "the plan",
+        "--attach-file", f"~/nostr-mailbox-files/plan.txt={plan}")
+    key = load_identity("alice", base=tmp_path / "alice").signer(timeout_s=WAIT)
+    with CampaignSession(Trust.load(tmp_path / "alice/nostr.toml"), key,
+                         timeout_s=WAIT) as session:
+        box = _box(tmp_path, "alice", session, desk)
+        [item] = box.items()
+        assert box.review(item.event.id)["body"] == "the plan"
+        as_("alice", "acl", "revoke", bob)          # from another terminal, before the answer
+        with pytest.raises(ProfileError, match="is quarantined, not pending_approval"):
+            box.approve(item.event.id)
+    assert [e for e in relay.stored() if e.kind == Kind.ACK] == [], "no ruling was published"
+    assert not (desk / "nostr-mailbox-files").exists()
+
+
+def test_files_are_staged_only_when_the_approved_mail_reads_back_released(
+        relay, run, tmp_path, monkeypatch):
+    """Bob's grant ends the second the human's ruling is stored. The ruling stands as
+    written; the mail it read back is quarantined, so nothing is staged."""
+    relay.clock = time.time
+    desk = _desk(tmp_path, monkeypatch)
+    people = _people(run, tmp_path, relay, "alice", "bob", operator="alice")
+    key = {name: load_identity(name, base=tmp_path / name).signer(timeout_s=WAIT)
+           for name in people}
+    start = int(time.time())
+    clock = lambda: start + any(e.kind == Kind.ACK for e in relay.stored())    # noqa: E731
+    plan = tmp_path / "plan.txt"
+    plan.write_bytes(b"PLAN")
+    with CampaignSession(Trust.load(tmp_path / "alice/nostr.toml"), key["alice"],
+                         timeout_s=WAIT, clock=clock) as mine, \
+            CampaignSession(Trust.load(tmp_path / "bob/nostr.toml"), key["bob"],
+                            timeout_s=WAIT, clock=clock) as theirs:
+        box = _box(tmp_path, "alice", mine, desk)
+        box.grant(key["bob"].pubkey, scope="send_only", until=start + 1)
+        _box(tmp_path, "bob", theirs, desk).send(
+            to=key["alice"].pubkey, body="the plan",
+            attachments=[("~/nostr-mailbox-files/plan.txt", str(plan))])
+        [item] = box.items()
+        assert item.state == "pending_approval"
+        shown = box.approve(item.event.id)
+    assert shown["state"] == "quarantined" and "attachments" not in shown
+    assert [e.values("e") for e in relay.stored() if e.kind == Kind.ACK] == [[item.event.id]]
+    assert not (desk / "nostr-mailbox-files").exists()
+
+
+def test_a_claim_retried_after_a_lost_reply_is_one_claimant_and_is_confirmed(
+        relay, run, tmp_path):
+    relay.clock = time.time
+    as_ = _personas(run, tmp_path)
+    people = _people(run, tmp_path, relay, "alice", "dave", operator="alice")
+    as_("alice", "acl", "invite", "--code-file", tmp_path / "dave.invite")
+    relay.drop_next_ok = True                       # the claim is stored, its OK is lost
+    as_("dave", "acl", "claim", "--token-file", tmp_path / "dave.invite", code=1)
+    assert as_("dave", "acl", "claim", "--token-file", tmp_path / "dave.invite")[
+        "state"] == "pending_owner_confirmation"
+    assert len({e.id for e in relay.stored() if e.kind == acl.CLAIM}) == 2
+    listed = as_("alice", "acl", "list")
+    assert (listed["confirmed_claims"], listed["contested_claims"]) == (
+        [people["dave"]["npub"]], {})
+
+
+def test_an_invite_the_owner_revoked_is_never_confirmed_whatever_the_claim_is_dated(
+        relay, run, tmp_path):
+    relay.clock = time.time
+    as_ = _personas(run, tmp_path)
+    people = _people(run, tmp_path, relay, "alice", "frank", operator="alice")
+    owner = people["alice"]["pubkey"]
+    as_("alice", "acl", "invite", "--code-file", tmp_path / "frank.invite")
+    _, invite = acl.decode_invite_token(json.loads((tmp_path / "frank.invite").read_text())[
+        "token"])
+    claimed = as_("frank", "acl", "claim", "--token-file", tmp_path / "frank.invite")
+    [claim] = [e for e in relay.stored() if e.id == claimed["claim_id"]]
+    alice = load_identity("alice", base=tmp_path / "alice").signer(timeout_s=WAIT)
+    with RelayClient(relay.url, alice, timeout_s=WAIT) as raw:      # 4421 naming the invite
+        raw.publish(raw.sign(acl.REVOKE, [["mbx", owner], ["e", invite.id]], "",
+                             created_at=claim.created_at + 1))
+    listed = as_("alice", "acl", "list")
+    assert (listed["confirmed_claims"], listed["grants"], listed["pending_claims"]) == (
+        [], [], [])
+    assert "revoked" in {r["id"]: r["why"] for r in listed["rejected"]}[claim.id]
+
+
+def test_a_plain_mail_read_retries_a_file_an_outage_left_unstaged_on_mail_already_read(
+        relay, run, tmp_path, monkeypatch):
+    """The retry runs on every `mail read`. Mail already read is listed again when the
+    retry changed what was staged, and not while the blob is still unavailable."""
+    relay.clock = time.time
+    desk = _desk(tmp_path, monkeypatch)
+    as_ = _personas(run, tmp_path)
+    people = _people(run, tmp_path, relay, "alice", "carol", operator="alice")
+    as_("alice", "acl", "grant", people["carol"]["npub"], "--trust", "trusted_auto")
+    src = tmp_path / "notes.txt"
+    src.write_bytes(b"NOTES")
+    as_("carol", "mail", "send", "--to", people["alice"]["npub"], "notes",
+        "--attach-file", f"~/nostr-mailbox-files/notes.txt={src}")
+    [blob] = list(relay.blossom.blobs)
+    held = relay.blossom.blobs.pop(blob)
+    [first] = as_("alice", "mail", "read")["messages"]
+    assert (first["state"], first["attachments"][0]["staged"]["status"]) == (
+        "unread", "not_staged")
+    assert as_("alice", "mail", "read")["messages"] == [], "still unavailable: nothing new"
+    relay.blossom.blobs[blob] = held
+    [again] = as_("alice", "mail", "read")["messages"]
+    assert (again["id"], again["state"], again["attachments"][0]["staged"]["status"]) == (
+        first["id"], "read", "staged")
+    assert (desk / "nostr-mailbox-files/notes.txt").read_bytes() == b"NOTES"
+    assert as_("alice", "mail", "read")["messages"] == []
+
+
+def test_a_replayed_group_event_is_a_duplicate_and_changes_no_group_state(relay, clock):
+    relay.add_member(FRIEND.pubkey)
+    relay.add_member(STRANGER.pubkey)
+    connect = [RelayClient(relay.url, s, timeout_s=WAIT, clock=clock).connect()
+               for s in (OPERATOR, FRIEND, STRANGER, SEAT)]
+    operator, friend, stranger, seat = connect
+    try:
+        admin = Topic(operator, "wave")
+        admin.create()
+        added = admin.put_user(FRIEND.pubkey)
+        admin.remove_user(FRIEND.pubkey)
+        code = Topic.new_code()
+        armed = admin.publish_invite(code)
+        joined, _ = Topic(stranger, "wave").join(code=code)
+        admin.remove_user(STRANGER.pubkey)
+        for replay, by in ((added, operator), (armed, operator), (joined, stranger)):
+            assert by.publish(replay).startswith("duplicate:"), "a late retry, say"
+        assert friend.query_all({"#h": ["wave"]}) == [], "the removal after the add stands"
+        assert stranger.query_all({"#h": ["wave"]}) == [], "a spent code stays spent"
+        with pytest.raises(RelayRejected, match="invalid or used"):
+            Topic(seat, "wave").join(code=code)
+        [members] = [e for e in relay.stored() if e.kind == 39002]
+        assert set(members.values("p")) == {OPERATOR.pubkey}
+    finally:
+        for one in connect:
+            one.close()
+
+
+def test_a_receipt_answers_one_message_it_names_and_carries_no_blob(relay, run, tmp_path):
+    relay.clock = time.time
+    as_ = _personas(run, tmp_path)
+    people = _people(run, tmp_path, relay, "alice", "carol", operator="alice")
+    owner = people["alice"]["pubkey"]
+    as_("alice", "acl", "grant", people["carol"]["npub"], "--trust", "trusted_auto")
+    carol = load_identity("carol", base=tmp_path / "carol").signer(timeout_s=WAIT)
+    root = pairwise.Route.root(owner, owner, carol.pubkey)
+    reply = root.reply(owner)
+    with RelayClient(relay.url, carol, timeout_s=WAIT) as raw:
+        for route, ref, extra in ((root, None, []), (reply, reply.reply_to, [["blob", "ab" * 32]])):
+            raw.publish(pairwise.wrap(
+                pairwise.RECEIPT, carol, route,
+                {"v": 1, "status": "resolved", "note": None, "ref": ref},
+                created_at=int(time.time()), extra_tags=[["t", "camp:dropbox"], *extra]))
+    shown = as_("alice", "mail", "read", "--all")["messages"]
+    assert sorted((m["state"], m["problem"]) for m in shown) == [
+        ("invalid", "a receipt answers one message: it never opens a thread"),
+        ("invalid", "a receipt carries a known status, the ref it answers and no blob")]
+
+
+def test_a_new_thread_opens_in_the_part_its_sender_names_and_its_replies_stay_there(
+        relay, run, tmp_path):
+    relay.clock = time.time
+    as_ = _personas(run, tmp_path)
+    people = _people(run, tmp_path, relay, "alice", "bob", operator="alice")
+    as_("alice", "acl", "grant", people["bob"]["npub"], "--scope", "topic_scoped",
+        "--part", "topic:wave", "--trust", "trusted_auto")
+    alice = people["alice"]["pubkey"]
+    bob = load_identity("bob", base=tmp_path / "bob").signer(timeout_s=WAIT)
+    with CampaignSession(Trust.load(tmp_path / "bob/nostr.toml"), bob,
+                         timeout_s=WAIT) as session:
+        box = _box(tmp_path, "bob", session, tmp_path)
+        with pytest.raises(ProfileError, match="must be inbox, bus or topic"):
+            box.send(to=alice, body="nowhere", part="topic:Wave")
+        with pytest.raises(ProfileError, match="does not cover 'inbox'"):
+            box.send(to=alice, body="a new thread opens in inbox unless told otherwise")
+        sent = box.send(to=alice, body="in the wave", part="topic:wave")
+    assert sent["part"] == "topic:wave"
+    [got] = as_("alice", "mail", "read")["messages"]
+    assert (got["part"], got["thread"], got["body"]) == ("topic:wave", sent["thread"],
+                                                         "in the wave")
+    as_("alice", "mail", "send", "--reply-to", got["id"][:12], "answered in the wave")
+    [answer] = as_("bob", "mail", "read")["messages"]
+    assert (answer["part"], answer["thread"]) == ("topic:wave", sent["thread"])

@@ -30,6 +30,8 @@ off; `nostr-relay-deploy` turns that on too, a deployment decision):
   restricted group takes writes only from them, a join (9021) with a group invite code
   (9009) is admitted at once and one without waits for an admin; the relay keeps the
   group state as relay-signed 39000/39001/39002 and refuses those kinds from anyone else.
+  An event it already stores, sent again, is answered as a duplicate and changes no
+  group state.
 
 What it is not: `ncli`, durable, rate-limited, or hardened. It keeps everything in
 memory. Agreement with the deployed relay is witnessed against the real binary in
@@ -455,7 +457,11 @@ class LoopbackRelay:
                 if not self._may(connection.pubkey):
                     reason = "restricted: valid NIP-43 membership required"
                 else:
-                    accepted, reason, touched = self._nip29(event)
+                    # A stored event sent again is a duplicate before it is a group
+                    # operation: replayed, a 9000 would re-add a member removed since,
+                    # a 9009 re-arm a spent code and a 9021 spend it again.
+                    accepted, reason, touched = ((True, "", None) if event.id in self._regular
+                                                 else self._nip29(event))
                     if accepted:
                         note = self._store(event) or reason
                         if touched is not None:

@@ -25,7 +25,8 @@ claim and take the invite from its first claimant. The owner's client records th
 first valid claim it observes, with the time it observed it (checked against the
 invite's deadline), and confirms that one with an ordinary owner-signed grant carrying
 `["e", <invite id>]`; from then on the invite is spent, whatever is claimed after,
-however it is dated. A claim dated before its invite is refused outright.
+however it is dated. A claim dated before its invite is refused outright, and so is
+every unconfirmed claim of an invite the owner revoked, however it is dated.
 
 Grants are bound to the relay they were issued on (`relay`); a grant or invite bound
 elsewhere is ignored. A revoke counts wherever it was issued: ignoring one is the
@@ -195,12 +196,13 @@ def derive(owner: str, events: Iterable[Event], *, relay: str, at: int) -> AclSt
     """Fold owner-signed grants, revokes and invites into the grants in force at `at`.
     Per grantee the newest artifact wins and a revoke beats a grant with the same
     timestamp. A claim only waits (`pending_claims`, the first valid one per invite)
-    until the owner confirms it; one confirmed spends its invite."""
+    until the owner confirms it; one confirmed spends its invite, and one of a revoked
+    invite is never valid: a claimant dates its own claim."""
     state = AclState(owner=owner)
     # Oldest first, so the first confirmation of an invite is the one that stands.
     mine = sorted((e for e in events if e.values("mbx") == [owner] and e.kind in ACL_KINDS),
                   key=lambda e: (e.created_at, e.id))
-    revoked_invite_at: dict[str, int] = {}
+    revoked_invites: set[str] = set()
     timeline: dict[str, list[tuple[int, int, str, Grant | None]]] = {}
 
     def bound(event: Event) -> bool:
@@ -217,10 +219,7 @@ def derive(owner: str, events: Iterable[Event], *, relay: str, at: int) -> AclSt
                 state.rejected.append((event.id, "not signed by the mailbox owner"))
             continue
         if event.kind == REVOKE:
-            for invite_id in event.values("e"):
-                revoked_invite_at[invite_id] = min(revoked_invite_at.get(invite_id,
-                                                                         event.created_at),
-                                                   event.created_at)
+            revoked_invites.update(event.values("e"))
             for grantee in event.values("p"):
                 timeline.setdefault(grantee, []).append(
                     (event.created_at, 1, event.id, None))
@@ -261,9 +260,8 @@ def derive(owner: str, events: Iterable[Event], *, relay: str, at: int) -> AclSt
             continue
         if invite.id in state.claimed_invites:
             continue                        # the claim the owner confirmed
-        revoked = revoked_invite_at.get(invite.id)
-        if revoked is not None and revoked <= claim.created_at:
-            state.rejected.append((claim.id, "the invite was revoked before this claim"))
+        if invite.id in revoked_invites:
+            state.rejected.append((claim.id, "the invite was revoked by its owner"))
             continue
         try:
             check_claim(invite, claim)

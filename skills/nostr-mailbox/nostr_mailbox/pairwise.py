@@ -9,8 +9,9 @@
          tags    [["p",reader],["mbx",owner],["part",part],["thread",t],["msg",m],
                   ["k","4410"],["reply_to",m']?,["seat_cert",<JSON of a 34410>]?]
          content {"v":1,"subject":str|null,"body":str,"attachments":[…]}
-    4411 receipt: the same envelope and seal, `reply_to` the acknowledged message and
-         content {"v":1,"status":"received|resolved|declined","note":str|null,"ref":m'}
+    4411 receipt: the same envelope and seal, `reply_to` the acknowledged message (never
+         absent), no `blob`, and content
+         {"v":1,"status":"received|resolved|declined","note":str|null,"ref":m'}
     34410 seat certificate (signed by the person): [["d",seat],["p",seat],["label",…],
          ["harness",…],["host",…]]
 
@@ -109,6 +110,8 @@ def route_of(event: Event) -> Route:
     replies = event.values("reply_to")
     if len(replies) > 1 or (replies and not _HEX32.fullmatch(replies[0])):
         raise EnvelopeError("an envelope answers at most one message")
+    if event.kind == RECEIPT and not replies:
+        raise EnvelopeError("a receipt answers one message: it never opens a thread")
     openers = [t for t in event.tags if t[0] == "opener"]
     if (len(openers) != 1 or len(openers[0]) != 3 or not _HEX64.fullmatch(openers[0][1])
             or not _HEX32.fullmatch(openers[0][2])):
@@ -213,10 +216,11 @@ def check_content(event: Event, content) -> None:
         raise EnvelopeError("unsupported mail content version")
     if event.kind == RECEIPT:
         if (content.get("status") not in RECEIPT_STATUSES
-                or content.get("ref") != (event.values("reply_to") or [None])[0]
+                or event.values("reply_to") != [content.get("ref")]
                 or not isinstance(content.get("note"), (str, type(None)))
-                or "attachments" in content):
-            raise EnvelopeError("a receipt carries a known status and the ref it answers")
+                or "attachments" in content or event.values("blob")):
+            raise EnvelopeError("a receipt carries a known status, the ref it answers and "
+                                "no blob")
         return
     if (not isinstance(content.get("body"), str)
             or not isinstance(content.get("subject"), (str, type(None)))):

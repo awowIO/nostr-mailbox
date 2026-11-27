@@ -13,6 +13,7 @@ the mailbox owner signed (`acl`):
   it with `mail approve <id>` at a terminal, which publishes the owner's own kind-8888
   ack on topic `dropbox` (seat `human-gate`, `handled`; `--decline` writes `rejected`).
 - **unread / read**: released, because the sender is `trusted_auto` or a human approved.
+- **rejected**: a human declined it. That is final, whatever tier the sender gets later.
 
 A released attachment is downloaded, checked against the digest and size its seal
 signed, and written under a stage root (`~/nostr-mailbox-files` unless
@@ -151,6 +152,8 @@ class Dropbox:
         return [e for e in events.values() if e.values("mbx") == [owner]]
 
     def acl_state(self, owner: str) -> acl.AclState:
+        """`owner`'s ACL as derived from the relay, kept for one pass over the mail:
+        `items()` and `settle_claims()` derive it afresh every time they are called."""
         if owner not in self._acl:
             self._acl[owner] = acl.derive(owner, self.acl_events(owner), relay=self.relay_name,
                                           at=now(self.relay.clock))
@@ -246,7 +249,11 @@ class Dropbox:
         observed, with a grant on the invite's terms naming the invite. The first
         observation is recorded with its time; a claim's own `created_at` is the
         claimant's word, so it decides neither who was first nor whether the invite
-        had expired. Safe to repeat: a confirmed invite has no pending claim."""
+        had expired. Claims are counted per claimant key: one key claiming twice (a
+        retry after a lost reply) is one claimant. The ACL is read afresh first, and a
+        revoked invite has no valid claim (`acl.derive`), so an invite revoked by then
+        is never confirmed. Safe to repeat: a confirmed invite has no pending claim."""
+        self._acl.pop(self.me, None)
         state = self.acl_state(self.me)
         local = self._state()
         seen = local["claims_seen"]
@@ -258,10 +265,10 @@ class Dropbox:
             if invite_id not in seen:
                 # Two keys holding one bearer token is a token that was shared; who
                 # claimed "first" is then only what each claimant wrote. Neither wins.
+                claimants = sorted({c.pubkey for c in claims})
                 seen[invite_id] = ({"claim": claims[0].id, "seen_at": stamp}
-                                   if len(claims) == 1 else
-                                   {"contested": sorted(c.pubkey for c in claims),
-                                    "seen_at": stamp})
+                                   if len(claimants) == 1 else
+                                   {"contested": claimants, "seen_at": stamp})
             record = seen[invite_id]
             claim = next((c for c in claims if c.id == record.get("claim")), None)
             until = acl._deadline(state.invites[invite_id], "claim_until", "expiration")
@@ -346,8 +353,12 @@ class Dropbox:
 
     def send(self, *, to: str | None = None, reply_to: str | None = None, body: str = "",
              subject: str | None = None, attachments: Iterable[tuple[str, str]] = (),
-             seat: Signer | None = None, cert: Event | None = None) -> dict:
+             seat: Signer | None = None, cert: Event | None = None,
+             part: str = "inbox") -> dict:
+        """Open a thread in `to`'s mailbox, in `part`, or answer `reply_to` in the part
+        its thread opened in."""
         attachments = list(attachments)
+        part = acl.validate_part(part)
         if not body.strip() and not attachments:
             raise MailError("nothing to send: give a body or an --attach-file")
         if reply_to:
@@ -358,7 +369,7 @@ class Dropbox:
         else:
             if to is None or to == self.me:
                 raise MailError("name the member whose dropbox this is for (--to <npub>)")
-            route = Route.root(to, to, self.me)
+            route = Route.root(to, to, self.me, part)
         self._authorize(route)
         manifest = self._upload(attachments)
         event = self._deliver(ENVELOPE, route, {"v": 1, "subject": subject, "body": body,
@@ -399,6 +410,10 @@ class Dropbox:
         return out
 
     def items(self) -> list[Item]:
+        """Every envelope addressed to this key, classified against the ACL as the relay
+        holds it now: a box may be asked again long after it last looked (`mail approve`
+        reviews, then waits for a human to type)."""
+        self._acl.clear()
         self.settle_claims()
         events = self.relay.query_all({"kinds": list(pairwise.MAIL_KINDS), "#p": [self.me],
                                        "#t": [self.topic_tag]})
@@ -437,10 +452,10 @@ class Dropbox:
             return Item(event, route, "invalid", problem=str(exc))
         source = grants if route.owner == self.me else mine
         tier = source[event.pubkey].trust if event.pubkey in source else acl.DEFAULT_TRUST
-        if tier == "trusted_auto" or gates.get(event.id) == "handled":
-            state = "read" if event.id in read else "unread"
-        elif gates.get(event.id) == "rejected":
+        if gates.get(event.id) == "rejected":       # a human's decline is final, any tier
             state = "rejected"
+        elif tier == "trusted_auto" or gates.get(event.id) == "handled":
+            state = "read" if event.id in read else "unread"
         else:
             state = "pending_approval"
         return Item(event, route, state, trust=tier, opened=opened)
@@ -501,17 +516,23 @@ class Dropbox:
         return out
 
     def read(self, *, everything: bool = False, mark: bool = True) -> list[dict]:
-        items = self.items()
-        if not everything:
-            items = [i for i in items if i.state in WAITING]
-        state = self._state()
-        for item in items:
+        """The mail WAITING (all of it with `everything`). Every released mail with a
+        file not staged yet is staged, listed or not, so an unavailable blob is retried
+        on each read; mail already read is listed again when that changed a status."""
+        mail = self.items()                 # first: it saves the claims it settled
+        state, items = self._state(), []
+        for item in mail:
             previous = state["staged"].get(item.event.id)
+            restaged = False
             if (item.released and item.event.kind == ENVELOPE
                     and item.opened.content.get("attachments")
                     and (previous is None or any(r["status"] == StagingUnavailable.status
                                                  for r in previous))):
-                state["staged"][item.event.id] = self._stage_all(item, previous=previous)
+                staged = self._stage_all(item, previous=previous)
+                state["staged"][item.event.id] = staged
+                restaged = [r["status"] for r in staged] != [r["status"] for r in previous or []]
+            if everything or item.state in WAITING or restaged:
+                items.append(item)
         out = [self.show(i, state["staged"]) for i in items]
         if mark:
             state["read"] = sorted(set(state["read"]) | {i.event.id for i in items
@@ -546,6 +567,10 @@ class Dropbox:
 
     def approve(self, ident: str, *, decline: bool = False, overwrite: bool = False,
                 note: str | None = None) -> dict:
+        """Publish the human's ruling on one pending mail, then stage its files if it
+        reads back released. Both reads derive the ACL afresh (`items`), so a sender
+        revoked since `review` is refused, and one revoked since the ruling has nothing
+        staged."""
         item = self.find(ident)
         if item.state != "pending_approval":
             raise MailError(f"mail {item.event.id[:12]}… is {item.state}, not pending_approval")
@@ -556,7 +581,7 @@ class Dropbox:
             topic=DROPBOX, tags=[["e", item.event.id]])
         released = self.find(item.event.id)
         state = self._state()
-        if not decline and released.event.kind == ENVELOPE and \
+        if released.released and released.event.kind == ENVELOPE and \
                 released.opened.content.get("attachments"):
             state["staged"][released.event.id] = self._stage_all(released, overwrite=overwrite)
             self._save(state)
