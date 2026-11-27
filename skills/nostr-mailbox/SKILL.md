@@ -381,10 +381,13 @@ python3 <skill_dir>/scripts/nostr_mailbox.py mail approve <id>      # HUMAN ONLY
 
 ## 11. The local MCP server
 
-`nostr-mailbox mcp` serves six stdio MCP tools
-(`claude mcp add nostr-mailbox -- nostr-mailbox mcp`). Each runs the matching command
-under an optional `persona` and returns its JSON. `channel` is a topic id (its `bus`)
-or a root topic such as `bus`.
+```bash
+python3 <skill_dir>/scripts/nostr_mailbox.py mcp
+```
+
+Serves six stdio MCP tools (`claude mcp add nostr-mailbox -- nostr-mailbox mcp`). Each runs
+the matching command under an optional `persona` and returns its JSON. `channel` is a topic
+id (its `bus`) or a root topic such as `bus`.
 
 | Tool | Runs |
 |---|---|

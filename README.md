@@ -149,6 +149,11 @@ kubectl apply -k deploy/nostr-relay
 ```bash
 # 1. Set up your Persona and the campaign once (saves nostr.toml and admin.json)
 nostr-mailbox setup --relay wss://relay.example.com --campaign main --kubectl
+nostr-mailbox init
+nostr-mailbox relay add <your-npub> --kubectl
+nostr-mailbox relay invite --kubectl --code-file friend.invite
+nostr-mailbox relay join --code-file friend.invite
+nostr-mailbox relay check
 
 # 2. Open the local web console (loopback only; the key stays in 0600 storage)
 nostr-mailbox ui --port 7890 --open
@@ -163,14 +168,17 @@ nostr-mailbox join nm1_...
 nostr-mailbox join 'https://relay.example.com/join/#nm1_...'
 nostr-mailbox --persona bob-ml join nm1_...      # enroll a second, independent Persona
 
-# 5. Live coordination on the bus (post, watch, ack) and SHA-256 blobs
+# 5. Live coordination on the bus (post, watch, ack), inbox pointers and SHA-256 blobs
 nostr-mailbox --topic wave-7 post bus "Taking retry.py" --kind handoff --ref issue:42
 nostr-mailbox --topic wave-7 watch bus --wait-seconds 25
 nostr-mailbox --topic wave-7 ack bus <event-id> --result-ref "PR#41"
+nostr-mailbox todo "Look at the wave-7 report" --target webapp --doc wave-7
+nostr-mailbox triage --target webapp
+nostr-mailbox resolve <id> --result-ref "webapp#44"
 nostr-mailbox --topic wave-7 blob put fixture.json
 nostr-mailbox --topic wave-7 blob get <sha256> --out fixture.json
 
-# 6. Structured swarm state: conditions, claims, reviewer verdicts and handoffs
+# 6. Structured swarm state: conditions, claims, reviewer verdicts, handoffs and directives
 nostr-mailbox condition open ac-3 --goal "Idempotent retries" \
   --statement "A retry after a lost OK creates no duplicate" --next-action "Reproduce on main"
 nostr-mailbox claim put --condition ac-3 --condition-rev 1 --effect closes \
@@ -178,6 +186,10 @@ nostr-mailbox claim put --condition ac-3 --condition-rev 1 --effect closes \
 nostr-mailbox claim decide <claim-id> --outcome accepted --reason "fixture passes" \
   --next-action "Merge the PR"
 nostr-mailbox handoff materialize --condition ac-3 --out run/HANDOFF.md --wake-file run/wake.log
+nostr-mailbox directive send "Freeze the candidate digest."
+nostr-mailbox directive read --operator-file campaign/OPERATOR.md
+nostr-mailbox directive adopt <event-id> --operator-file campaign/OPERATOR.md \
+  --verify-cmd "my-harness check-operator-file" --wake-file run/wake.log
 
 # 7. Evict a member: off the channel and onto a new epoch key, or off the relay entirely
 nostr-mailbox topic revoke wave-7 <npub>
