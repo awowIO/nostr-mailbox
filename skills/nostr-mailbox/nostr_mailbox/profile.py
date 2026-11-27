@@ -234,14 +234,20 @@ class Trust:
                 f"campaign {self.campaign!r} is encrypted with epoch keyring "
                 f"{self.keyring!r}, and this seat holds no key of it yet. If you were "
                 "admitted, `nostr-mailbox topic sync` fetches the keys; if your join is "
-                "pending, a topic admin has to approve it")
+                "pending, a topic admin has to approve it; a write-only member is given "
+                "none and writes sealed mail to the topic's keeper instead")
         if self.campaign_key is not None:
             return EpochKeys(self.campaign, {1: self.campaign_key}, 1)
         return None
 
     def with_ring(self, keys: EpochKeys) -> Trust:
-        """This trust with `keys` loaded. A declared `campaign_key` is epoch 1, so a
-        ring that holds a different epoch 1 is refused rather than silently preferred."""
+        """This trust with `keys` loaded. Keys of another campaign are refused as they
+        are, before anything is built from them: relabelled as this campaign's they
+        would pass every later check. A declared `campaign_key` is epoch 1, so a ring
+        that holds a different epoch 1 is refused rather than silently preferred."""
+        if keys.campaign != self.campaign:
+            raise ProfileError(f"epoch keys of campaign {keys.campaign!r} cannot encrypt "
+                               f"campaign {self.campaign!r}")
         epochs = dict(keys.epochs)
         if (self.campaign_key is not None
                 and epochs.setdefault(1, self.campaign_key) != self.campaign_key):

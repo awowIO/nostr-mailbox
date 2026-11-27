@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from nostr_mailbox import LoopbackRelay, bech32, cli, mcp
+from nostr_mailbox import LoopbackRelay, Trust, bech32, cli, mcp
 from nostr_mailbox.keyring import KeyRing
 from nostr_mailbox.relay import MAX_MESSAGE_BYTES
 
@@ -103,7 +103,9 @@ def test_six_tools_carry_a_channel_from_invite_to_revocation(cli_run, tmp_path):
     """The operator's machine keeps topic `wave`. Roland, a second persona on a laptop
     that already has one, joins from a https-style join link minted with a role, posts a
     finding with an encrypted attachment, and files a claim; the operator watches, acks,
-    replays, runs the board, and revokes him. Every call is a JSON-RPC message."""
+    replays, runs the board, and revokes him. A third persona of that laptop, invited
+    write-only, is given no key and can neither read nor post. Every call is a JSON-RPC
+    message."""
     with LoopbackRelay(member_claims=True) as relay:
         ops, laptop = tmp_path / "operator-machine", tmp_path / "laptop"
         _setup(cli_run, relay, ops, "operator", "camp")
@@ -122,15 +124,16 @@ def test_six_tools_carry_a_channel_from_invite_to_revocation(cli_run, tmp_path):
                                        "current_epoch": 1, "keeper": True}]
         assert [(k["name"], k["channel"]) for k in listed["keyrings"]] == [("wave", "wave")]
 
-        # an invite with a role: the role is recorded beside the invite, and said plainly
-        # to be unenforced
-        invited = _tool(ops, "operator", "mailbox_invite", target="wave", role="write-only",
+        # an invite with a role: recorded beside the invite, and a reader's carries keys
+        invited = _tool(ops, "operator", "mailbox_invite", target="wave", role="read-only",
                         recipient="roland")
-        assert invited["role"] == "write-only" and "does not enforce" in invited["role_note"]
+        assert invited["role"] == "read-only" and invited["epochs_in_token"] == [1]
+        assert "does not stop it writing" in invited["role_note"]
         assert invited["join_url"] == "http" + relay.url[2:] + "/join/#" + invited["token"]
         assert "bearer_secret" in invited
-        [recorded] = KeyRing.open(ops, "wave", "camp").registry["invites"].values()
-        assert (recorded["role"], recorded["for"]) == ("write-only", "roland")
+        [recorded] = KeyRing.open(ops, Trust.load(ops / "topics/wave.toml"),
+                                  "operator").registry["invites"].values()
+        assert (recorded["role"], recorded["for"]) == ("read-only", "roland")
 
         # roland: a second persona on a machine that already has one, joining by the link
         cli_run(laptop, "laptop", "init")
@@ -148,6 +151,23 @@ def test_six_tools_carry_a_channel_from_invite_to_revocation(cli_run, tmp_path):
         assert org["personas"] == [{"name": "roland", "roles": ["member"]}]
         assert [(c["name"], c["keeper"], c["held_epochs"]) for c in seen["channels"]] == [
             ("wave", False, [1])]
+
+        # a write-only invite carries no key. On the same laptop its holder's ring is its
+        # own and empty beside roland's, so it reads nothing and cannot post here
+        drop = _tool(ops, "operator", "mailbox_invite", target="wave", role="write-only",
+                     recipient="vendor")
+        assert drop["epochs_in_token"] == [] and "given none" in drop["role_note"]
+        assert "write-only member is given none" in _refused(
+            ops, "operator", "mailbox_invite", target="wave", role="write-only",
+            history="from-now")
+        vendor = _tool(laptop, "laptop", "mailbox_join", persona="vendor",
+                       token_or_url=drop["token"])
+        assert (vendor["role"], vendor["held_epochs"]) == ("write-only", [])
+        mine = _tool(laptop, "vendor", "mailbox_list")
+        assert [(c["name"], c["held_epochs"]) for c in mine["channels"]] == [("wave", [])]
+        assert [k["name"] for k in mine["keyrings"]] == ["wave"], "its own, not roland's"
+        assert "write-only member is given none" in _refused(
+            laptop, "vendor", "mailbox_post", channel="wave", body="cannot")
 
         # a finding with an attachment; a body that looks like a flag stays a body
         fixture = tmp_path / "trace.json"

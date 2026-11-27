@@ -15,12 +15,15 @@ OPERATOR.md). Both can append one wake line to `--wake-file`. Mail attachments a
 written only under the stage root, at 0600, and only once released.
 
 A topic (`topic …`) is a NIP-29 group with its own epoch keyring; its declaration lives
-at `<home>/topics/<topic>.toml` and every command reaches it with `--topic <topic>`.
+at `<home>/topics/<topic>.toml` and every command reaches it with `--topic <topic>`. The
+keys are each persona's own: `<home>/keyrings/<persona>/<topic>.json`.
 
 Every campaign this machine set up or joined has an entry in the org registry,
 `<home>/orgs/<campaign>.toml`: its relay, its operators, the personas (identities) that
 joined it, and where its own declaration lives. A second campaign never overwrites the
-first one's `nostr.toml`: its declaration goes to `<home>/orgs/<campaign>/nostr.toml`."""
+first one's `nostr.toml` or its `admin.json`: its declaration goes to
+`<home>/orgs/<campaign>/nostr.toml` and its admin reach to
+`<home>/orgs/<campaign>.admin.json`."""
 from __future__ import annotations
 
 import argparse
@@ -56,7 +59,7 @@ from .backend import (
     PartialBatch,
 )
 from .event import NostrError, now
-from .groups import ADMIN_KINDS, CREATE_GROUP, JOIN_REQUEST, Topic, topic_id
+from .groups import ADMIN_KINDS, CREATE_GROUP, JOIN_REQUEST, ROLES, Topic, topic_id
 from .identity import (
     AUTH_KIND,
     BLOSSOM_AUTH_KIND,
@@ -118,13 +121,25 @@ ROLE_KINDS = {
                               int(Kind.CONDITION_HEAD), int(Kind.DIRECTIVE), int(Kind.SEAL),
                               CREATE_GROUP, *ADMIN_KINDS, acl.GRANT, acl.REVOKE, acl.INVITE},
 }
-# What a topic token carries beside the trust keys (`topic invite`).
-TOKEN_EXTRAS = ("topic", "group_code", "redeem", "epochs", "current", "owner")
+# What a topic token carries beside the trust keys (`topic invite`): always the first
+# four, and the epoch keys with their current epoch unless it is a write-only token,
+# which carries no key at all.
+TOKEN_EXTRAS = ("topic", "group_code", "redeem", "owner")
+TOKEN_KEYS = ("epochs", "current")
 TOPICS = "topics"
 SEAT_BLOB_VERBS = frozenset({"get", "upload"})
-# What a topic invite records the newcomer may do. The keeper's registry keeps it; the
-# relay does not enforce it (every member of a topic reads and writes it).
-INVITE_ROLES = ("read-write", "read-only", "write-only")
+# What a topic invite admits the newcomer as (`groups.ROLES`). The relay does not
+# enforce a role; the keeper does, where it can: a write-only member is given no key.
+INVITE_ROLES = ROLES
+ROLE_NOTES = {
+    "read-only": "given the topic's keys. The relay does not stop it writing; the web "
+                 "console's readers hold what it posts at the human gate, the CLI's "
+                 "reader shows it",
+    "write-only": "given none of the topic's keys, in this token or at any rotation. It "
+                  "writes sealed mail into your `topic:{topic}` dropbox part (`mail send "
+                  "--part topic:{topic}`), which opens for it when you next run `topic "
+                  "sync`; you read it with `mail read`",
+}
 ORGS = "orgs"
 ORG_SCHEMA = "cf.org/1"
 ORG_KEYS = ("schema", "campaign", "relay", "operator_pubkeys", "trust_file", "personas",
@@ -140,16 +155,54 @@ def _default_trust_path(args) -> Path:
     return home(args.home) / "nostr.toml"
 
 
-def _default_admin_path(args) -> Path:
-    return home(args.home) / "admin.json"
+def admin_file(base: Path, campaign: str) -> Path:
+    """Where this machine keeps the admin CLI reach of `campaign`'s relay:
+    `<home>/admin.json` for the default org (the campaign `<home>/nostr.toml` declares),
+    `<home>/orgs/<campaign>.admin.json` for every other. A second org's `setup` so
+    never replaces the first one's reach."""
+    default = base / "nostr.toml"
+    if default.is_file() and Trust.load(default).campaign == campaign:
+        return base / "admin.json"
+    return base / ORGS / f"{campaign}.admin.json"
 
 
-def _write_admin_file(path: Path, admin: RelayAdmin) -> None:
-    write_private(path, json.dumps({"exec_prefix": admin.exec_prefix, "config": admin.config}))
+def _write_admin_file(path: Path, campaign: str, admin: RelayAdmin) -> None:
+    write_private(path, json.dumps({"campaign": campaign, "exec_prefix": admin.exec_prefix,
+                                    "config": admin.config}))
+
+
+def load_admin(base: Path, campaign: str, *, timeout_s: float, config: str) -> RelayAdmin | None:
+    """The admin reach `setup` saved for `campaign`, or None when it saved none. A file
+    that names another campaign is another org's: refused, never run against this one."""
+    path = admin_file(base, campaign)
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ProfileError(f"cannot read the admin reach saved by setup ({path}): "
+                           f"{exc}") from exc
+    prefix = data.get("exec_prefix") if isinstance(data, dict) else None
+    if not isinstance(prefix, list) or not all(isinstance(x, str) for x in prefix):
+        raise ProfileError(f"{path} names no exec_prefix list; run `setup` again with "
+                           "--kubectl, --compose or --exec")
+    if data.get("campaign", campaign) != campaign:
+        raise ProfileError(f"{path} is the admin reach of campaign {data['campaign']!r}, not "
+                           f"{campaign!r}; run `setup` for {campaign!r} with --kubectl, "
+                           "--compose or --exec")
+    return RelayAdmin(prefix, timeout_s=timeout_s, config=str(data.get("config") or config))
 
 
 def _topic_path(args, group: str) -> Path:
     return home(args.home) / TOPICS / f"{topic_id(group)}.toml"
+
+
+def _trust_if_declared(args) -> Trust | None:
+    """`_trust`, or None on a machine that names no declaration and holds no default."""
+    if (args.trust or getattr(args, "topic_trust", None)
+            or _default_trust_path(args).is_file()):
+        return _trust(args)
+    return None
 
 
 def _trust(args) -> Trust:
@@ -331,13 +384,18 @@ def _decode_invite_token(token: str) -> tuple[str, dict | None, str | None, dict
     code = data.pop("code")
     member = data.pop("member", None)
     data.pop("expires_at", None)
-    extra = {name: data.pop(name) for name in TOKEN_EXTRAS if name in data}
+    extra = {name: data.pop(name) for name in (*TOKEN_EXTRAS, *TOKEN_KEYS, "role")
+             if name in data}
     Trust.from_mapping(data, source="nm1_ invite token")
     if extra:
-        missing = sorted(set(TOKEN_EXTRAS) - set(extra))
-        if missing or data.get("keyring") != extra["topic"]:
-            raise ProfileError(f"nm1_ topic token is incomplete (missing {missing}) or names "
-                               "a keyring that is not its topic")
+        role = extra.setdefault("role", "read-write")
+        if role not in ROLES:
+            raise ProfileError(f"nm1_ topic token names a role that is not one of {ROLES}")
+        # a write-only token carries no key, and any other carries its epochs
+        wanted = TOKEN_EXTRAS if role == "write-only" else (*TOKEN_EXTRAS, *TOKEN_KEYS)
+        if set(extra) - {"role"} != set(wanted) or data.get("keyring") != extra.get("topic"):
+            raise ProfileError(f"nm1_ topic token for a {role} member must carry exactly "
+                               f"{sorted(wanted)} and name its topic as its keyring")
         topic_id(extra["topic"])
         if not isinstance(extra["owner"], str) or len(extra["owner"]) != 64:
             raise ProfileError("nm1_ topic token does not name the inviter's key")
@@ -347,9 +405,10 @@ def _decode_invite_token(token: str) -> tuple[str, dict | None, str | None, dict
 
 
 def _keyring(args, trust: Trust) -> KeyRing | None:
+    """This persona's own ring for the topic `trust` declares (None: it declares none)."""
     if trust.keyring is None:
         return None
-    return KeyRing.open(home(args.home), trust.keyring, trust.campaign)
+    return KeyRing.open(home(args.home), trust, args.identity)
 
 
 def _session(args, *, trust: Trust | None = None, sync_keys: bool = True,
@@ -422,20 +481,10 @@ def _admin(args) -> RelayAdmin:
     if args.exec:
         return RelayAdmin(shlex.split(args.exec), timeout_s=args.timeout_seconds,
                           config=args.config)
-    saved = _default_admin_path(args)
-    if saved.is_file():
-        try:
-            data = json.loads(saved.read_text())
-        except (OSError, json.JSONDecodeError) as exc:
-            raise ProfileError(f"cannot read the admin reach saved by setup ({saved}): "
-                               f"{exc}") from exc
-        if not isinstance(data, dict) or not isinstance(data.get("exec_prefix"), list):
-            raise ProfileError(f"{saved} names no exec_prefix; run `setup` again with "
-                               "--kubectl, --compose or --exec")
-        return RelayAdmin([str(x) for x in data["exec_prefix"]],
-                          timeout_s=args.timeout_seconds,
-                          config=str(data.get("config") or args.config))
-    return RelayAdmin([], timeout_s=args.timeout_seconds, config=args.config)
+    trust = _trust_if_declared(args)
+    saved = trust and load_admin(home(args.home), trust.campaign,
+                                 timeout_s=args.timeout_seconds, config=args.config)
+    return saved or RelayAdmin([], timeout_s=args.timeout_seconds, config=args.config)
 
 
 def _admin_requested(args) -> bool:
@@ -448,10 +497,12 @@ def _mint_relay_invite(args, session: CampaignSession | None = None) -> dict:
     """One relay invite: over the WebSocket (NIP-43 kind 28935, the relay's
     memberClaims) unless the admin CLI was asked for. No fallback either way."""
     if _admin_requested(args):
-        if getattr(args, "admin", False) and not _default_admin_path(args).is_file():
-            raise ProfileError(f"--admin uses the admin CLI reach `setup` saves, and there is "
-                               f"none at {_default_admin_path(args)}: pass --kubectl, "
-                               "--compose or --exec instead")
+        if getattr(args, "admin", False):
+            saved = admin_file(home(args.home), _trust(args).campaign)
+            if not saved.is_file():
+                raise ProfileError(f"--admin uses the admin CLI reach `setup` saves for this "
+                                   f"campaign, and there is none at {saved}: pass --kubectl, "
+                                   "--compose or --exec instead")
         return _admin(args).create_invite(ttl=args.ttl or INVITE_TTL)
     if args.ttl:
         raise ProfileError("--ttl applies to an invite minted through the relay's admin CLI "
@@ -481,9 +532,16 @@ def cmd_id(args) -> dict:
 
 def cmd_signer_serve(args) -> dict:
     kinds = set(ROLE_KINDS[args.role]) | set(args.allow_kind)
-    trust = Trust.load(args.trust) if args.trust else None
+    # The campaign this machine declares (--trust, --topic, or the nostr.toml `setup`
+    # and `join` write) pins the relay and the blob server, so the signer `setup` leads
+    # to is never one that authenticates anywhere.
+    trust = _trust_if_declared(args)
     relay = args.relay or (trust and (trust.relay_auth_url or trust.relay))
     blob_server = args.blossom_server or (trust and trust.blossom_server)
+    if relay is None:
+        print("warning: no transport declaration and no --relay: this signer will prove "
+              "itself (NIP-42) to ANY relay and authorize blobs on ANY server. Pass --trust "
+              "or --relay to pin it", file=sys.stderr)
     signer = _identity(args).signer(timeout_s=args.timeout_seconds)
     server = SignerServer(args.socket, signer, allow_kinds=frozenset(kinds), relay=relay,
                           blossom_server=blob_server, blossom_verbs=SEAT_BLOB_VERBS,
@@ -513,8 +571,9 @@ def _ensure_identity(args):
 def cmd_setup(args) -> dict:
     """One-command operator setup: creates the operator key (if missing), generates a
     32-byte NIP-44 v2 campaign_key (reusing an existing one for the same campaign), writes
-    `<home>/nostr.toml` (0600), saves `<home>/admin.json` (0600) so future `invite` /
-    `relay revoke` calls need no flags, and enrolls the operator key on the relay."""
+    `<home>/nostr.toml` (0600), saves the admin reach (`admin_file`, 0600) so future
+    `invite` / `relay revoke` calls need no flags, and enrolls the operator key on the
+    relay. A second campaign's declaration and reach go beside the first's, never over."""
     trust_path = Path(args.trust) if args.trust else _root_trust_path(args, args.campaign)
     ident, created = _ensure_identity(args)
     existing_ck = None
@@ -547,7 +606,9 @@ def cmd_setup(args) -> dict:
     }
     if args.kubectl or args.compose or args.exec:
         admin = _admin(args)
-        _write_admin_file(_default_admin_path(args), admin)
+        saved = admin_file(home(args.home), args.campaign)
+        _write_admin_file(saved, args.campaign, admin)
+        out["admin_file"] = str(saved)
         out["enrolled_on_relay"] = admin.add_member(ident.pubkey)
     return out
 
@@ -613,43 +674,74 @@ def _auto_install_harnesses() -> list[str]:
     return installed
 
 
+def _declared_differently(held: Trust, offered: Trust) -> list[str]:
+    """The declaration keys two trusts disagree on: their names, never a value."""
+    a, b = _mapping(held), _mapping(offered)
+    return sorted(key for key in a.keys() | b.keys() if a.get(key) != b.get(key))
+
+
+def _join_declaration(args, offered: Trust, topic: str | None) -> tuple[Trust, Path | None,
+                                                                         list[str]]:
+    """The declaration a token's join runs under, the file to write once the relay took
+    the invite (None: nothing to write), and what the token declared differently.
+
+    A topic's declaration has one place, the one `--topic` reads; a campaign's goes to
+    the default nostr.toml (unless that is another campaign's), or to a --trust path.
+    Where a declaration already stands, it stands: a token brings an invite code and
+    keys, and never replaces whom this machine trusts or where it dials. One for
+    another campaign or relay under the same name is refused before anything is sent."""
+    if topic or (offered.keyring and not args.trust):
+        path = _topic_path(args, offered.keyring)
+    elif args.trust:
+        path = Path(args.trust)
+    else:
+        path = _root_trust_path(args, offered.campaign)
+    if not path.exists():
+        return offered, path, []
+    held = Trust.load(path)
+    if ((held.campaign, held.relay_auth_url or held.relay)
+            != (offered.campaign, offered.relay_auth_url or offered.relay)):
+        raise ProfileError(
+            f"{path} declares campaign {held.campaign!r} on "
+            f"{held.relay_auth_url or held.relay}; this token is for {offered.campaign!r} "
+            f"on {offered.relay_auth_url or offered.relay}. Nothing was sent or written: "
+            "a token never replaces a declaration this machine already trusts")
+    return held, None, _declared_differently(held, offered)
+
+
 def cmd_relay_join(args) -> dict:
+    """Redeem an invite. Nothing this machine trusts is committed before the relay took
+    it: the token's declaration is settled against what is already held, the relay is
+    asked what it advertises, the invite (and a topic's group code) is redeemed, and
+    only then are the declaration and the keyring written. A join that is refused
+    leaves every trust file and keyring as it was."""
     code, bundle, member, extra = _invite_input(args)
     member = getattr(args, "member", None) or member
-    topic = extra.get("topic")
-    target = None
-    if bundle is not None:
-        # A topic's declaration has one place, the one `--topic` reads; a campaign's
-        # goes to the default nostr.toml (unless that is another campaign's), or to a
-        # --trust path that does not exist yet.
-        declared = Trust.from_mapping(bundle, source="the nm1_ invite token")
-        _org_entry(args, declared)
-        if topic:
-            target = _topic_path(args, topic)
-        elif not args.trust:
-            target = _root_trust_path(args, declared.campaign)
-        elif not Path(args.trust).exists():
-            target = Path(args.trust)
-        if target is not None:
-            _write_trust_file(target, bundle)
-        _ensure_identity(args)
-    trust = Trust.load(target) if target is not None else _trust(args)
+    topic, role = extra.get("topic"), extra.get("role", "read-write")
+    target, differs = None, []
     if bundle is None:
+        trust = _trust(args)
         _org_entry(args, trust)
+    else:
+        offered = Trust.from_mapping(bundle, source="the nm1_ invite token")
+        _org_entry(args, offered)
+        trust, target, differs = _join_declaration(args, offered, topic)
     advertised = _advertised(trust, args)
     if not advertised["advertises_private"]:
         raise ProfileError(
             f"{trust.relay} does not advertise both auth_required and membership_required "
             f"({advertised.get('unreadable') or 'its NIP-11 document says otherwise'}). An "
             "invite is not spent on a relay that does not claim to be private; nothing "
-            "was sent")
-    ident = _identity(args)
+            "was sent or written")
+    ident = _ensure_identity(args)[0] if bundle is not None else _identity(args)
     ring = None
     if topic:
-        ring = KeyRing.open(home(args.home), topic, trust.campaign)
-        ring.merge(keyrings._epochs(extra["epochs"], "the nm1_ token"))
+        # In memory until the relay answers: a token whose keys contradict the ring
+        # held is refused here, before its invite is spent.
+        ring = KeyRing.open(home(args.home), trust, args.identity)
+        if role != "write-only":
+            ring.merge(keyrings._epochs(extra["epochs"], "the nm1_ token"))
         ring.authorities.add(extra["owner"])
-        ring.save()
     with _session(args, trust=trust, sync_keys=False, ring=ring) as session:
         answer = session.relay.join(code)
         out = {"joined": trust.relay, "campaign": trust.campaign,
@@ -658,27 +750,54 @@ def cmd_relay_join(args) -> dict:
             _, said = Topic(session.relay, topic, operators=trust.operator_pubkeys).join(
                 code=extra["group_code"], proof=keyrings.redeem_proof(
                     extra["group_code"], session.pubkey, extra["redeem"]))
+        if target is not None:              # the relay took it: now it is kept
+            _write_trust_file(target, bundle)
+        if topic:
+            ring.save()
             session.sync_keyring()
-            keyrings.backup(session.relay, session.signer, ring,
-                            "full_history" if 1 in ring.epochs else "forward_only")
-            out.update({"topic": topic, "topic_said": said, "trust_file": str(target),
-                        "held_epochs": sorted(ring.epochs),
-                        "next": f"run commands in this topic with --topic {topic}"})
+            out.update({"topic": topic, "role": role, "topic_said": said,
+                        "trust_file": str(_topic_path(args, topic)),
+                        "held_epochs": sorted(ring.epochs)})
+            if ring.epochs:
+                keyrings.backup(session.relay, session.signer, ring,
+                                "full_history" if 1 in ring.epochs else "forward_only")
+                out["next"] = f"run commands in this topic with --topic {topic}"
+            else:
+                out["next"] = (
+                    f"you hold none of this topic's keys: write to it as sealed mail to its "
+                    f"keeper, `nostr-mailbox --topic {topic} mail send --to "
+                    f"{_npub(extra['owner'])} --part topic:{topic} …`, once the keeper has "
+                    "run `topic sync`")
+        elif trust.keyring:
+            out["next"] = (f"ask the admins of topic {trust.keyring} to admit this key: "
+                           f"`nostr-mailbox --topic {trust.keyring} topic request-join "
+                           f"{trust.keyring}`")
         if member:
-            body = f"{member} joined campaign {trust.campaign} ({ident.npub})"
-            receipt = NostrRelayChannelBackend(session).post(
-                BUS, Message(body=body, kind="handoff", subject=f"member-joined:{member}"),
-                key=f"member-joined:{member}:{ident.pubkey[:16]}")
             out["member"] = member
-            out["introduced_on_bus"] = receipt.id
-    # A topic token carries no campaign_key: its declaration is the topic's, never the
-    # campaign's own, so it is not recorded as one.
-    root_file = None if topic else (target or Path(args.trust or _default_trust_path(args)))
+            if session.trust.keyring is None or session.trust.epoch_keys is not None:
+                body = f"{member} joined campaign {trust.campaign} ({ident.npub})"
+                receipt = NostrRelayChannelBackend(session).post(
+                    BUS, Message(body=body, kind="handoff", subject=f"member-joined:{member}"),
+                    key=f"member-joined:{member}:{ident.pubkey[:16]}")
+                out["introduced_on_bus"] = receipt.id
+            else:                           # no key of the topic: nothing it could write
+                out["introduced_on_bus"] = None
+    # A topic's declaration carries no campaign_key and is never the campaign's own, so
+    # it is not recorded as one.
+    root_file = None if trust.keyring else (target or Path(args.trust
+                                                           or _default_trust_path(args)))
     out["org_file"] = str(_register_org(args, trust, trust_file=root_file))
     if root_file is not None:
         out["trust_file"] = str(root_file)
         if target is not None and not args.trust:
             out.update(_beside_default(args, target))
+    elif target is not None:
+        out["trust_file"] = str(target)
+    if differs:
+        out["declaration_kept"] = (
+            f"this machine already declares this campaign and kept its own declaration; "
+            f"the token declared {', '.join(differs)} differently and none of it was "
+            "taken. To adopt the token's, move that file away yourself and join again")
     if bundle is not None and args.home is None and not args.trust:
         installed = _auto_install_harnesses()
         if installed:
@@ -1119,7 +1238,7 @@ def _as_topic(root: Trust, group: str) -> Trust:
 
 def _keeper(args) -> tuple[Trust, KeyRing]:
     trust = _topic_trust(args)
-    ring = KeyRing.open(home(args.home), trust.keyring, trust.campaign)
+    ring = _keyring(args, trust)
     if ring.registry is None:
         raise ProfileError(f"this seat is a member of topic {args.group!r}, not its keeper: "
                            "only the seat that created it (or restored its backup with "
@@ -1129,6 +1248,39 @@ def _keeper(args) -> tuple[Trust, KeyRing]:
 
 def _topic(session: CampaignSession, trust: Trust) -> Topic:
     return Topic(session.relay, trust.group, operators=trust.operator_pubkeys)
+
+
+def _mail_part(ring: KeyRing) -> str:
+    """The part of the keeper's dropbox a topic's write-only members write into."""
+    return f"topic:{ring.name}"
+
+
+def _seat_writers(args, session: CampaignSession, ring: KeyRing, done: dict) -> list[str]:
+    """The other half of a write-only admission, safe to repeat: every write-only
+    member this keeper admitted holds a `topic_scoped`, `human_gated` grant on the
+    keeper's `topic:<topic>` dropbox part, which is where it writes instead of the
+    topic it cannot read. Returns the npubs granted by this call."""
+    mine = [pk for pk in done["write_only"]
+            if ring.registry["members"][pk].get("via") in ("invite", "approved")]
+    if not mine:
+        return []
+    part, box = _mail_part(ring), _dropbox(args, session)
+    grants = box.acl_state(session.pubkey).grants
+    opened = [pk for pk in mine if pk not in grants or not grants[pk].allows_part(part)]
+    for pubkey in opened:
+        box.grant(pubkey, scope="topic_scoped", parts=[part], trust=acl.DEFAULT_TRUST)
+    return [_npub(pk) for pk in opened]
+
+
+def _unseat_writer(args, session: CampaignSession, ring: KeyRing, pubkey: str) -> bool:
+    """Close the dropbox part a revoked write-only member wrote into, when that part
+    is all its grant covers. A wider grant is the owner's own word and is left alone."""
+    box = _dropbox(args, session)
+    grant = box.acl_state(session.pubkey).grants.get(pubkey)
+    if grant is None or grant.parts != (_mail_part(ring),):
+        return False
+    box.revoke(pubkey)
+    return True
 
 
 def cmd_topic_create(args) -> dict:
@@ -1141,7 +1293,7 @@ def cmd_topic_create(args) -> dict:
     path = _topic_path(args, group)
     signer = _identity(args).signer(timeout_s=args.timeout_seconds)
     pairwise_key(signer, signer.pubkey)             # a local key, or stop before anything
-    ring = KeyRing.open(home(args.home), group, root.campaign)
+    ring = _keyring(args, trust)
     if ring.epochs and ring.registry is None:
         raise ProfileError(f"this seat already holds topic {group!r} as a member")
     restored = None
@@ -1174,14 +1326,18 @@ def cmd_topic_create(args) -> dict:
 def cmd_topic_invite(args) -> dict:
     """A single-use `nm1_…` token for the topic: relay admission, a group invite code,
     and the epoch keys the newcomer is given (every epoch with --history all; with
-    from-now the topic rotates first and the token holds only the new epoch). The
-    `--role` is recorded beside the invite in the keeper's registry."""
+    from-now the topic rotates first and the token holds only the new epoch). A
+    `--role write-only` token holds no key at all: its holder is admitted to the group
+    and writes sealed mail to the keeper."""
     trust, ring = _keeper(args)
-    result: dict = {"topic": trust.group, "history": args.history, "role": args.role}
-    if args.role != "read-write":
-        result["role_note"] = ("recorded in the keeper's invite registry only: the relay "
-                               "does not enforce it, and every member of the topic reads "
-                               "and writes it")
+    write_only = args.role == "write-only"
+    if write_only and args.history is not None:
+        raise ProfileError("--history says which epochs a newcomer is given, and a "
+                           "write-only member is given none; nothing was minted")
+    history = None if write_only else (args.history or "all")
+    result: dict = {"topic": trust.group, "history": history, "role": args.role}
+    if args.role in ROLE_NOTES:
+        result["role_note"] = ROLE_NOTES[args.role].format(topic=trust.group)
 
     def minted() -> dict:
         with _session(args, trust=trust, ring=ring) as session:
@@ -1190,16 +1346,18 @@ def cmd_topic_invite(args) -> dict:
             relay_invite = _mint_relay_invite(args, session)
             topic = _topic(session, trust)
             caught_up = keyrings.reconcile(session.relay, session.signer, ring, topic)
-            if args.history == "from-now":
+            if history == "from-now":
                 result["rotated_to"] = ring.rotate()
                 ring.save()
                 caught_up = keyrings.reconcile(session.relay, session.signer, ring, topic)
+            _seat_writers(args, session, ring, caught_up)
             result["delivered"] = {_npub(k): v for k, v in caught_up["delivered"].items()}
-            epochs = sorted(ring.epochs) if args.history == "all" else [ring.current]
+            epochs = ([] if write_only else sorted(ring.epochs) if history == "all"
+                      else [ring.current])
             group_code, redeem = topic.new_code(), secp256k1.generate_secret()
             ring.registry["invites"][keyrings.code_digest(group_code)] = {
-                "for": args.member, "history": args.history, "role": args.role,
-                "from_epoch": epochs[0],
+                "for": args.member, "history": history, "role": args.role,
+                "from_epoch": epochs[0] if epochs else ring.current,
                 "epochs": epochs, "created_at": now(session.clock),
                 "redeem_key": secp256k1.pubkey_gen(redeem).hex()}
             ring.save()                     # recorded before the code is published
@@ -1210,9 +1368,10 @@ def cmd_topic_invite(args) -> dict:
 
     def wrap(got: dict) -> dict:
         extra = {"topic": trust.group, "group_code": got["group_code"],
-                 "redeem": got["redeem"],
-                 "epochs": {str(e): ring.epochs[e] for e in got["epochs"]},
-                 "current": max(got["epochs"]), "owner": got["owner"]}
+                 "redeem": got["redeem"], "owner": got["owner"], "role": args.role}
+        if got["epochs"]:
+            extra.update(epochs={str(e): ring.epochs[e] for e in got["epochs"]},
+                         current=max(got["epochs"]))
         token = _encode_invite_token(trust, got["relay_invite"]["code"], member=args.member,
                                      extra=extra)
         return {**result, "epochs_in_token": got["epochs"], "token": token,
@@ -1248,24 +1407,37 @@ def cmd_topic_requests(args) -> dict:
 
 
 def cmd_topic_approve(args) -> dict:
+    """Admit a key, or change a member's role. A reader is given the epochs --history
+    names. A write-only member is given none, and a reader made write-only reads no
+    further: the topic rotates without it."""
     trust, ring = _keeper(args)
     pubkey = bech32.pubkey_hex(args.pubkey)
-    out: dict = {"topic": trust.group, "approved": _npub(pubkey), "history": args.history}
+    write_only = args.role == "write-only"
+    if write_only and args.history is not None:
+        raise ProfileError("--history says which epochs a newcomer is given, and a "
+                           "write-only member is given none; nothing was sent")
+    history = None if write_only else (args.history or "all")
+    out: dict = {"topic": trust.group, "approved": _npub(pubkey), "history": history,
+                 "role": args.role}
     with _session(args, trust=trust, ring=ring) as session:
         topic = _topic(session, trust)
         keyrings.reconcile(session.relay, session.signer, ring, topic)
-        if args.history == "from-now":
+        if history == "from-now":
             out["rotated_to"] = ring.rotate()
             ring.save()
             keyrings.reconcile(session.relay, session.signer, ring, topic)
-        if pubkey not in topic.members():
-            topic.put_user(pubkey)
+        was = topic.roles().get(pubkey)
+        if was != args.role:
+            topic.put_user(pubkey, args.role)
         ring.registry["members"][pubkey] = {
-            "history": args.history, "from_epoch": 1 if args.history == "all" else ring.current,
-            "name": None, "via": "approved"}
+            "history": history, "from_epoch": 1 if history == "all" else ring.current,
+            "name": None, "via": "approved", "role": args.role}
         ring.registry.setdefault("revoked", {}).pop(pubkey, None)  # the keeper's own word
+        if write_only and was not in (None, "write-only"):
+            out["rotated_to"] = ring.rotate()       # it read until now, and no further
         ring.save()
         done = keyrings.reconcile(session.relay, session.signer, ring, topic)
+        out["mail_part_opened"] = _seat_writers(args, session, ring, done)
         keyrings.backup(session.relay, session.signer, ring, "full_history")
         out["delivered"] = {_npub(k): v for k, v in done["delivered"].items()}
         return _with_rejected(session, out)
@@ -1284,10 +1456,13 @@ def cmd_topic_revoke(args) -> dict:
         rotated = ring.rotate()
         ring.save()
         done = keyrings.reconcile(session.relay, session.signer, ring, topic)
+        _seat_writers(args, session, ring, done)
+        closed = _unseat_writer(args, session, ring, pubkey)
         keyrings.backup(session.relay, session.signer, ring, "rotate")
         return _with_rejected(session, {
             "topic": trust.group, "revoked": _npub(pubkey), "rotated_to": rotated,
             "delivered": {_npub(k): v for k, v in done["delivered"].items()},
+            "mail_part_closed": closed,
             "effect": "the relay stops serving the topic to this key, and every record from "
                       f"now on is written under epoch {rotated}, which it was not given. "
                       "What it already held, it keeps: rotation protects what comes next"})
@@ -1295,7 +1470,8 @@ def cmd_topic_revoke(args) -> dict:
 
 def cmd_topic_sync(args) -> dict:
     """Fetch the epoch keys delivered to this seat, for one topic or every topic on
-    this machine. The keeper also catches up its members: invites redeemed, epochs owed."""
+    this machine. The keeper also catches up its members: invites redeemed, epochs owed
+    to those who read, a dropbox part opened for those who only write."""
     folder = home(args.home) / TOPICS
     names = [topic_id(args.group)] if args.group else sorted(
         p.stem for p in folder.glob("*.toml"))
@@ -1303,13 +1479,14 @@ def cmd_topic_sync(args) -> dict:
     for name in names:
         args.group = name
         trust = _topic_trust(args)
-        ring = KeyRing.open(home(args.home), trust.keyring, trust.campaign)
+        ring = _keyring(args, trust)
         with _session(args, trust=trust, sync_keys=False, ring=ring) as session:
             report = session.sync_keyring()
             if ring.registry is not None:
                 done = keyrings.reconcile(session.relay, session.signer, ring,
                                           _topic(session, trust))
                 report["refused_redemptions"] = [_npub(k) for k in done["refused_redemptions"]]
+                report["mail_part_opened"] = _seat_writers(args, session, ring, done)
                 if done["delivered"] or done["redeemed_invites"]:
                     keyrings.backup(session.relay, session.signer, ring, "full_history")
                 report["delivered"] = {_npub(k): v for k, v in done["delivered"].items()}
@@ -1333,6 +1510,9 @@ def _attachment(spec: str) -> tuple[str, str]:
 
 
 def cmd_mail_send(args) -> dict:
+    if args.part and args.reply_to:
+        raise ProfileError("--part names the part a new thread opens in; a reply stays in "
+                           "its thread's part. Give one of the two")
     attachments = [_attachment(spec) for spec in args.attach_file]
     body = "" if args.message is None and attachments else _text(args.message)
     with _session(args) as session:
@@ -1344,7 +1524,8 @@ def cmd_mail_send(args) -> dict:
                                  created_at=now(session.clock))
         sent = _dropbox(args, session).send(
             to=bech32.pubkey_hex(args.to) if args.to else None, reply_to=args.reply_to,
-            body=body, subject=args.subject, attachments=attachments, seat=seat, cert=cert)
+            body=body, subject=args.subject, attachments=attachments, seat=seat, cert=cert,
+            part=args.part or "inbox")
         return _with_rejected(session, sent)
 
 
@@ -1784,9 +1965,13 @@ def build_parser(prog: str = "nostr-mailbox") -> argparse.ArgumentParser:
     p = add(blob, "has", cmd_blob_has, "is this blob on the server")
     p.add_argument("sha256")
 
-    history = {"choices": keyrings.HISTORY, "default": "all",
+    history = {"choices": keyrings.HISTORY,
                "help": "all: the newcomer replays every epoch; from-now: rotate first and "
-                       "give only the new epoch (default: all)"}
+                       "give only the new epoch (default: all; not for --role write-only)"}
+    role = {"choices": INVITE_ROLES, "default": "read-write",
+            "help": "read-write and read-only members are given the topic's keys; a "
+                    "write-only member is given none and writes sealed mail to the keeper "
+                    "(default: read-write)"}
     topic = group("topic", "self-service NIP-29 topics with an epoch keyring")
     p = add(topic, "create", cmd_topic_create,
             "create a topic (private, restricted, closed) and its keyring; you keep it")
@@ -1796,9 +1981,7 @@ def build_parser(prog: str = "nostr-mailbox") -> argparse.ArgumentParser:
     p.add_argument("--for", "--recipient", dest="member",
                    help="the newcomer's name, embedded in the token")
     p.add_argument("--history", **history)
-    p.add_argument("--role", choices=INVITE_ROLES, default="read-write",
-                   help="what the newcomer may do, recorded in the keeper's invite registry "
-                        "(not enforced by the relay; default: read-write)")
+    p.add_argument("--role", **role)
     reach(p, admin=True)
     p.add_argument("--ttl", help=f"relay invite lifetime, admin CLI only (default {INVITE_TTL})")
     p.add_argument("--code-file", help="write the token here (0600) instead of printing it")
@@ -1808,10 +1991,12 @@ def build_parser(prog: str = "nostr-mailbox") -> argparse.ArgumentParser:
     p.add_argument("--reason", default="", help="what the admins read beside your npub")
     p = add(topic, "requests", cmd_topic_requests, "join requests waiting for an admin")
     p.add_argument("group")
-    p = add(topic, "approve", cmd_topic_approve, "admit a requester and give it keys (keeper)")
+    p = add(topic, "approve", cmd_topic_approve,
+            "admit a requester in a role, or change a member's role (keeper)")
     p.add_argument("group")
     p.add_argument("pubkey", help="npub or hex")
     p.add_argument("--history", **history)
+    p.add_argument("--role", **role)
     p = add(topic, "revoke", cmd_topic_revoke,
             "remove a member and rotate the topic to a new epoch (keeper)")
     p.add_argument("group")
@@ -1825,6 +2010,9 @@ def build_parser(prog: str = "nostr-mailbox") -> argparse.ArgumentParser:
     p.add_argument("message", nargs="?", help="the body ('-' or omitted: stdin)")
     p.add_argument("--to", help="npub of the dropbox's owner")
     p.add_argument("--reply-to", help="id of a released mail to answer in its thread")
+    p.add_argument("--part", help="the part of that dropbox a new thread opens in: inbox, "
+                                  "bus or topic:<slug> (default inbox; a reply keeps its "
+                                  "thread's)")
     p.add_argument("--subject")
     p.add_argument("--attach-file", action="append", default=[], metavar="DEST=SRC",
                    help="encrypt SRC and have it staged at DEST (~/nostr-mailbox-files/…) "

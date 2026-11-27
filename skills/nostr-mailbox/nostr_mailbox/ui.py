@@ -1,11 +1,11 @@
 """`nostr-mailbox ui`: the Visual Web Console, served from this workstation.
 
 A standard-library HTTP server on loopback serves `web/index.html` at `/` and a small
-JSON API backed by this machine's own files: the campaign's `nostr.toml`, `admin.json`
-and the 0600 identity key. The page talks to the relay itself (a browser WebSocket,
-NIP-42) and asks this server to sign, so the key never enters the browser. The same
-`index.html` also runs on its own, served from the relay's origin, with a key held in
-the tab or in a NIP-07 extension.
+JSON API backed by this machine's own files: the campaign's `nostr.toml`, the admin
+reach `setup` saved for that campaign (`cli.admin_file`) and the 0600 identity key. The
+page talks to the relay itself (a browser WebSocket, NIP-42) and asks this server to
+sign, so the key never enters the browser. The same `index.html` also runs on its own,
+served from the relay's origin, with a key held in the tab or in a NIP-07 extension.
 
 Who may call it. The server binds loopback only and refuses any other address: whoever
 can load the page can sign as this key. Every `/api/` request must carry the per-run
@@ -61,9 +61,17 @@ does not enforce roles, and neither does the CLI's reader; the console's readers
 
 Invite tickets. `/api/topics/<group>/invite` mints a relay invite and a ticket, and
 records only the ticket's sha256 with the role and history it was minted for, in
-`<home>/invites/<group>.json` (0600). The newcomer's join request (9021) presents the
-ticket, and the admin's `/api/topic/grant` with that ticket applies those recorded terms
-to that one key, once."""
+`<home>/invites/<group>.json` (0600). The token of a topic invite declares the topic
+(its group and keyring) and never the campaign's own `campaign_key`: whoever is invited
+into one topic is not handed the key to everything else. The newcomer's join request
+(9021) presents the ticket, and the admin's `/api/topic/grant` with that ticket applies
+those recorded terms to that one key, once.
+
+Pair Coding Agent. `/api/topic/export` gives a coding agent on this workstation a topic
+the way the CLI holds one: its declaration under `<home>/topics/` and this persona's own
+keyring, every epoch under its own number. `/api/state` names the command prefix
+(`--home`, `--persona` when they are not the defaults) that makes the CLI act as this
+console does."""
 from __future__ import annotations
 
 import argparse
@@ -77,6 +85,7 @@ import json
 import os
 import re
 import secrets
+import shlex
 import socket
 import stat
 import sys
@@ -99,12 +108,14 @@ from .backend import (
     NostrRelayChannelBackend,
     NotAuthorized,
 )
-from .blossom import BlossomError
+from .blossom import MAX_BLOB_BYTES, BlossomError
 from .event import DEFAULT_WAIT_S, Event, InvalidEvent, NostrError, dumps, event_id, now, order
 from .event import verify_event as _verify_event
+from .groups import ROLE_TAG, ROLES, role_of
 from .identity import (
     AUTH_KIND,
     BLOSSOM_AUTH_KIND,
+    DEFAULT_HOME,
     DEFAULT_NAME,
     MAX_REQUEST_BYTES,
     Identity,
@@ -139,22 +150,11 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 # the relay and every reader check against the topic's admins anyway.
 CONSOLE_KINDS = frozenset({0, NIP59_SEAL, GIFT_WRAP, PUT_USER, REMOVE_USER, DELETE_EVENT,
                            CREATE_GROUP, JOIN_REQUEST, *MAIL_KINDS})
-# A member's role in a topic, and what the admin's 9000 writes in its NIP-29 role slot.
-ROLES = ("read-write", "read-only", "write-only")
-ROLE_TAG = {"read-write": "member", "read-only": "read-only", "write-only": "write-only"}
 JOIN_PATHS = ("/join", "/join/")
 INVITES = "invites"
 INVITE_BOOK_SCHEMA = "cf.topic-invites/1"
 _TOPIC_INVITE = re.compile(r"^/api/topics/([a-z0-9][a-z0-9_-]{0,63})/invite$")
 _TOPIC_BLOB = re.compile(r"^/api/topics/([a-z0-9][a-z0-9_-]{0,63})/blob$")
-_EXPORT = re.compile(r"^([a-z0-9][a-z0-9_-]{0,63})-epoch-([1-9][0-9]*)\.toml$")
-
-
-def role_of(tag: list) -> str:
-    """The role a 9000's `p` tag gives: its third element when that names read-only or
-    write-only, read-write otherwise (NIP-29's `member`, or no role at all)."""
-    named = tag[2] if len(tag) > 2 else ""
-    return named if named in ("read-only", "write-only") else "read-write"
 
 
 def ticket_digest(ticket: str) -> str:
@@ -534,6 +534,15 @@ def _join_url(token: str, *, topic: str | None = None, role: str | None = None,
     return f"http://{DEFAULT_HOST}:{DEFAULT_PORT}/join/#{token}{extra}"
 
 
+def _invite_token(trust: Trust, code: str, member: str | None, topic: str | None) -> str:
+    """The nm1_ token of an invite. One that names a topic declares that topic (its
+    group and keyring, as `cli._as_topic`) and so carries no `campaign_key`: the
+    campaign's own key is for those invited into the campaign, not into one topic."""
+    from . import cli
+    declared = cli._as_topic(trust, topic) if topic else trust
+    return cli._encode_invite_token(declared, code, member=member)
+
+
 def _one_liner(token: str) -> str:
     return f"uvx --from git+https://github.com/awowIO/nostr-mailbox nostr-mailbox join {token}"
 
@@ -565,7 +574,6 @@ class Console:
         self.home = home(base)
         self.identity_name, self.timeout_s, self.quiet = identity, timeout_s, quiet
         self.trust_path = Path(trust_path) if trust_path else self.home / "nostr.toml"
-        self.admin_path = self.home / "admin.json"
         self.token = secrets.token_urlsafe(32)
         raw = PAGE.read_text(encoding="utf-8")
         if raw.count(TOKEN_SLOT) != 1:
@@ -632,20 +640,25 @@ class Console:
             return "lead"
         return "seat"
 
+    @property
+    def admin_path(self) -> Path:
+        """Where the admin reach of this console's campaign is kept: `cli.admin_file`,
+        so a second org's `setup` in this home is never mistaken for this one's."""
+        from . import cli
+        trust = self.trust()
+        return (self.home / "admin.json" if trust is None
+                else cli.admin_file(self.home, trust.campaign))
+
     def admin(self) -> RelayAdmin:
-        """The relay admin `setup` saved, read loudly: no admin.json means no invites."""
-        if not self.admin_path.is_file():
+        """The relay admin `setup` saved for this campaign, read loudly: none saved
+        means no invites."""
+        from . import cli
+        saved = cli.load_admin(self.home, self.need_trust().campaign, timeout_s=self.timeout_s,
+                               config=NCLI_CONFIG)
+        if saved is None:
             raise NotSetUp(f"no {self.admin_path}: run `nostr-mailbox setup --kubectl` (or "
                            "--compose / --exec) once so this workstation can mint invites")
-        try:
-            data = json.loads(self.admin_path.read_text())
-        except (OSError, json.JSONDecodeError) as exc:
-            raise ConsoleError(f"{self.admin_path} is unreadable: {exc}") from exc
-        prefix = data.get("exec_prefix") if isinstance(data, dict) else None
-        if not isinstance(prefix, list) or not all(isinstance(x, str) for x in prefix):
-            raise ConsoleError(f"{self.admin_path} carries no exec_prefix list")
-        return RelayAdmin(prefix, timeout_s=self.timeout_s,
-                          config=str(data.get("config") or NCLI_CONFIG))
+        return saved
 
     def session(self) -> TopicSession:
         trust, ident = self.need_trust(), self.need_identity()
@@ -655,13 +668,15 @@ class Console:
     def enter_scope(self, session: TopicSession, group: str | None,
                     epoch: int | None = None) -> TopicDesk | None:
         """Point `session` at the root campaign (no group, or the campaign's own) or at
-        one epoch of a shared topic, whose key comes from this key's key rings."""
+        one epoch of a shared topic, whose key comes from this key's key rings. A
+        workstation invited into one topic declares that topic's keyring and holds no
+        campaign key: everything it writes goes to that topic, under its epoch keys."""
         trust = session.trust
-        if group in (None, "", trust.group):
+        if trust.keyring is None and group in (None, "", trust.group):
             session.enter(trust, 1 if trust.campaign_key else None)
             return None
         desk = TopicDesk(session, self.secret())
-        scoped, n = desk.scope_trust(desk.state(group), epoch)
+        scoped, n = desk.scope_trust(desk.state(group or trust.keyring), epoch)
         session.enter(scoped, n)
         return desk
 
@@ -700,16 +715,37 @@ class Console:
         self.identity_name = name
         return self.state()
 
-    def exports(self) -> dict[str, list[int]]:
-        """Which topic epochs `/api/topic/export` has written for a coding agent on this
-        workstation: names only, never a key."""
-        folder = self.home / "exports"
+    def cli_prefix(self, *scope: str) -> str:
+        """`nostr-mailbox` with the root flags a coding agent on this workstation needs to
+        act as this console does: --home and --persona when they are not the CLI's own
+        defaults, then `scope`. Quoted for a shell."""
+        flags = []
+        if self.home != Path(DEFAULT_HOME).expanduser():
+            flags += ["--home", str(self.home)]
+        if self.identity_name != DEFAULT_NAME:
+            flags += ["--persona", self.identity_name]
+        return shlex.join(["nostr-mailbox", *flags, *scope])
+
+    def exports(self) -> tuple[dict[str, list[int]], dict[str, str]]:
+        """Which topics a coding agent on this workstation reads as this persona, and at
+        which epochs: the persona's own CLI keyrings (`/api/topic/export` fills one, and
+        so does a CLI join). Epoch numbers only, never a key. A ring that does not open
+        is named with the reason, never left out."""
+        from .keyring import KeyRing
         held: dict[str, list[int]] = {}
+        unreadable: dict[str, str] = {}
+        folder = self.home / "topics"
         for path in sorted(folder.glob("*.toml")) if folder.is_dir() else ():
-            match = _EXPORT.fullmatch(path.name)
-            if match:
-                held.setdefault(match.group(1), []).append(int(match.group(2)))
-        return {topic: sorted(epochs) for topic, epochs in held.items()}
+            try:
+                trust = Trust.load(path)
+                ring = (KeyRing.open(self.home, trust, self.identity_name)
+                        if trust.keyring else None)
+            except ProfileError as exc:
+                unreadable[path.stem] = str(exc)
+                continue
+            if ring is not None and ring.epochs:
+                held[trust.keyring] = sorted(ring.epochs)
+        return held, unreadable
 
     # ---- invite tickets
     def _book_path(self, topic: str) -> Path:
@@ -750,10 +786,13 @@ class Console:
     # ---- the API
     def state(self) -> dict:
         ident, trust = self.identity(), self.trust()
+        held, unreadable = self.exports() if ident else ({}, {})
+        default = self.trust_path == self.home / "nostr.toml"
         out = {"mode": "bridge", "version": __version__, "home": str(self.home),
                "identity": ident.describe() if ident else None, "seat": self.identity_name,
                "active_persona": self.identity_name, "personas": self.personas(),
-               "exports": self.exports(),
+               "exports": held, "export_errors": unreadable,
+               "cli": self.cli_prefix(*(() if default else ("--trust", str(self.trust_path)))),
                "trust_file": str(self.trust_path), "trust": None, "role": None,
                "admin": {"configured": self.admin_path.is_file(), "path": str(self.admin_path)},
                "capabilities": {"nip44": bool(ident) and ident.signer_spec["type"] == "local",
@@ -833,13 +872,12 @@ class Console:
         return {**cli.cmd_relay_join(args), "persona": self.identity_name}
 
     def invite(self, body: dict) -> dict:
-        from . import cli
         trust, admin = self.need_trust(), self.admin()
         member, topic = body.get("member") or None, body.get("topic") or None
         if topic is not None and not TOPIC_ID.fullmatch(str(topic)):
             raise ConsoleError(f"topic {topic!r} must match {TOPIC_ID.pattern}")
         invite = admin.create_invite(ttl=str(body.get("ttl") or INVITE_TTL))
-        token = cli._encode_invite_token(trust, invite["code"], member=member)
+        token = _invite_token(trust, invite["code"], member, topic)
         fragment = f"#join={token}" + (f"&topic={topic}" if topic else "")
         return {"token": token, "member": member, "topic": topic,
                 "max_uses": invite["max_uses"], "expires_at": invite["expires_at"],
@@ -853,7 +891,6 @@ class Console:
         request presents, so the admin admits them on the terms minted here. Only an
         admin of the topic mints one, and the relay invite is minted before anything is
         recorded."""
-        from . import cli
         role = str(body.get("role") or "read-write")
         if role not in ROLES:
             raise ConsoleError(f"role {role!r} must be one of {ROLES}")
@@ -873,7 +910,7 @@ class Console:
                                  f"{trust.relay}: create it first. Nothing was minted")
             me = session.pubkey
         invite = admin.create_invite(ttl=str(body.get("ttl") or INVITE_TTL))
-        token = cli._encode_invite_token(trust, invite["code"], member=member)
+        token = _invite_token(trust, invite["code"], member, topic)
         ticket = secrets.token_urlsafe(32)          # as strong as the console's own token
         with self.root._book_lock:
             book = self._book(topic)
@@ -962,25 +999,38 @@ class Console:
             return self._rejected(session, {"topics": listed})
 
     def topic_export(self, body: dict) -> dict:
-        """A nostr.toml for one epoch of a topic, written 0600 under <home>/exports/, so a
-        coding agent reads and writes that epoch with the unchanged CLI (`--trust`)."""
+        """Pair Coding Agent: give a coding agent on this workstation the topic the way
+        the CLI holds one. The declaration goes to `<home>/topics/<topic>.toml` and every
+        epoch this key holds to this persona's own ring, each under its own number, so
+        the agent (`--topic <topic>`, as this persona) writes under the current epoch N
+        and not under "epoch 1", and fetches later epochs itself: the CLI syncs its ring
+        on every connect, so a rotation needs no fresh export."""
         from . import cli
+        from .keyring import KeyRing
         topic = str(body.get("topic", ""))
         with self.session() as session:
             desk = TopicDesk(session, self.secret())
-            scoped, n = desk.scope_trust(desk.state(topic))
-        path = self.home / "exports" / f"{topic}-epoch-{n}.toml"
-        mapping = {"schema": "cf.transport/1", "relay": scoped.relay,
-                   "campaign": scoped.campaign, "group": scoped.group,
-                   "operator_pubkeys": [_npub(k) for k in sorted(scoped.operator_pubkeys)],
-                   "lead_pubkeys": [_npub(k) for k in sorted(scoped.lead_pubkeys)],
-                   "reviewer_pubkeys": [_npub(k) for k in sorted(scoped.reviewer_pubkeys)],
-                   "blossom": scoped.blossom, "relay_auth_url": scoped.relay_auth_url,
-                   "campaign_key": scoped.campaign_key,
-                   "allow_cleartext": scoped.allow_cleartext}
-        cli._write_trust_file(path, mapping)
-        return {"trust_file": str(path), "topic": topic, "epoch": n, "mode": "0600",
-                "note": f"reads and writes epoch {n} only; a rotation needs a fresh export"}
+            state = desk.state(topic)
+            _, n = desk.scope_trust(state)      # the current epoch is held, or it says why
+        declared = cli._as_topic(self.need_trust(), topic)
+        path = self.home / cli.TOPICS / f"{topic}.toml"
+        if path.exists():
+            held = Trust.load(path)
+            if (held.campaign, held.keyring) != (declared.campaign, topic):
+                raise Refused(f"{path} declares topic {held.keyring!r} of campaign "
+                              f"{held.campaign!r}, not {topic!r} of {declared.campaign!r}; "
+                              "nothing was written")
+            declared = held
+        ring = KeyRing.open(self.home, declared, self.identity_name)
+        ring.merge(state.epochs)                # a contradicting key: refused, unwritten
+        if not path.exists():
+            cli._write_trust_file(path, cli._mapping(declared))
+        ring.save()
+        return {"topic": topic, "epoch": n, "epochs": sorted(ring.epochs),
+                "trust_file": str(path), "keyring": str(ring.path), "mode": "0600",
+                "persona": self.identity_name, "cli": self.cli_prefix("--topic", topic),
+                "note": f"holds epochs {sorted(ring.epochs)} under their own numbers and "
+                        f"writes under epoch {n}; the CLI fetches later epochs itself"}
 
     def post(self, body: dict) -> dict:
         from . import cli
@@ -1145,6 +1195,10 @@ class _Handler(BaseHTTPRequestHandler):
             if size > MAX_REQUEST_BYTES:
                 raise ConsoleError(f"a request is at most {MAX_REQUEST_BYTES:,} bytes (twice the "
                                    f"campaign event cap); this one is {size:,}")
+        elif size > MAX_BLOB_BYTES:
+            raise ConsoleError(f"a blob is at most {MAX_BLOB_BYTES:,} bytes (the relay's own "
+                               f"maxBlobBytes); this one is {size:,}, "
+                               f"{100 * size / MAX_BLOB_BYTES:.0f}% of that. Nothing was read")
         raw = self.rfile.read(size)
         if not json_body:
             return raw

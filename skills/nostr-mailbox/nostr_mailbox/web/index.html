@@ -2107,7 +2107,8 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     if (S.mode === 'bridge') {
       const held = scope.kind === 'topic' ? (S.bridge.state.exports || {})[scope.group] || [] : null;
       if (held === null) b.push(html`<span class="badge amber" title="the campaign's nostr.toml on this workstation holds its key, and any coding agent here can read it">agent-assisted · ${S.bridge.state.trust_file}</span>`);
-      else if (held.length) b.push(html`<span class="badge amber" title="Pair Coding Agent exported these epochs to a 0600 nostr.toml under exports/">agent-assisted · epoch ${held.join(', ')} exported here</span>`);
+      else if ((S.bridge.state.export_errors || {})[scope.group]) b.push(html`<span class="badge plum" title="${S.bridge.state.export_errors[scope.group]}">agent keyring unreadable</span>`);
+      else if (held.length) b.push(html`<span class="badge amber" title="this persona's CLI keyring on this workstation holds these epochs (Pair Coding Agent, or a CLI join): a coding agent here reads them">agent-assisted · epoch ${held.join(', ')} held here</span>`);
       else b.push(html`<span class="badge sage" title="no coding agent on this workstation was given this topic's key; agents elsewhere are not known here">human-only on this workstation</span>`);
     }
     return b;
@@ -2351,7 +2352,7 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     return html`<dl class="kv"><dt>relay</dt><dd>${inv.trust.relay}</dd><dt>campaign</dt><dd>${inv.trust.campaign}</dd>
       ${topic ? html`<dt>topic</dt><dd>${topic}${S.link.role ? html` · invited as ${roleBadge(S.link.role)} <span class="small muted">${ROLE_NOTE[S.link.role]}; the admin's grant decides</span>` : ''}</dd>` : ''}
       <dt>operators</dt><dd>${inv.trust.operator_pubkeys.map((pk) => html`<span class="chip">${short(pk)}</span> `)}</dd>
-      <dt>payloads</dt><dd>${inv.trust.campaign_key || inv.extras.epochs ? 'end-to-end encrypted (NIP-44 v2)' : 'NOT encrypted: this campaign has no campaign_key'}</dd>
+      <dt>payloads</dt><dd>${inv.trust.campaign_key || inv.extras.epochs ? 'end-to-end encrypted (NIP-44 v2)' : inv.trust.keyring ? 'end-to-end encrypted (NIP-44 v2); this invite carries no key: the topic\'s keys reach you once an admin admits your key' : 'NOT encrypted: this campaign has no campaign_key'}</dd>
       ${inv.member ? html`<dt>invited as</dt><dd>${inv.member}</dd>` : ''}</dl>`;
   }
   /** An invite link opened on a console that already serves a campaign: redeemed for the
@@ -2722,42 +2723,53 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
         : html`<div><label>Part name (a slug; the part is topic:&lt;name&gt;)</label><input name="part" placeholder="wave-7" required></div><div><label>First peer to grant (optional npub)</label><input name="peer"></div>`}</div>
       <div class="actions"><button class="btn primary">${kind === 'topic' ? 'Create topic' : 'Create dropbox'}</button></div></form>`;
   }
+  /** Pair Coding Agent. Through the bridge, a topic is handed over the way the CLI holds
+      one (`/api/topic/export`: its declaration and this persona's own keyring, every epoch
+      under its own number), and the commands carry `--home` / `--persona` when they are
+      not the CLI's defaults. On its own, the page hands over a topic's declaration and no
+      key at all: the agent signs with its own identity, and the epochs it is granted
+      reach it as key rings, each under its own number. */
   async function pairModal(scope) {
-    let path = './nostr.toml', exported = null;
-    const epoch = scope.current;
+    const topic = scope.kind === 'topic' ? scope.group : null, epoch = scope.current;
+    let cmd = topic ? `nostr-mailbox --topic ${topic}` : 'nostr-mailbox --trust ./nostr.toml', exported = null;
     if (S.mode === 'bridge') {
-      if (scope.kind === 'topic') { exported = await api('/api/topic/export', { topic: scope.group }); path = exported.trust_file; S.bridge.state = await api('/api/state'); draw(); }
-      else path = S.bridge.state.trust_file;
+      if (topic) { exported = await api('/api/topic/export', { topic }); cmd = exported.cli; S.bridge.state = await api('/api/state'); draw(); }
+      else cmd = S.bridge.state.cli;
     }
-    const seat = mySeat(), ctx = `${scope.kind === 'topic' ? `topic ${scope.group} (epoch ${epoch})` : `campaign ${scope.campaign}`}`;
+    const seat = mySeat(), ctx = topic ? `topic ${topic} (epoch ${epoch})` : `campaign ${scope.campaign}`;
+    const holds = exported ? [`Declaration: ${exported.trust_file}`, `Keyring: ${exported.keyring}`, `Keep both mode 0600 and never print the keyring: it holds this topic's NIP-44 v2 keys for epochs ${exported.epochs.join(', ')}, each under its own number. You write under epoch ${exported.epoch}.`]
+      : topic ? ['Save the exported file as topics/' + topic + '.toml under your nostr-mailbox home (mode 0600). It holds no key.', `The topic's epoch keys reach your own identity as key rings once an admin grants your npub; \`${cmd} topic sync\` fetches them, each under its own epoch number.`]
+        : [S.mode === 'bridge' ? `Transport file: ${S.bridge.state.trust_file}` : 'Transport file: ./nostr.toml', 'Keep it mode 0600 and never print it: it holds the campaign\'s NIP-44 v2 key.'];
     const prompt = [
       `Pair with nostr-mailbox ${ctx} on ${S.trust.relay}, campaign ${scope.campaign}.`,
       '',
-      `Transport file: ${path}`,
-      `Keep it mode 0600 and never print it: it holds the NIP-44 v2 key${scope.kind === 'topic' ? ` for epoch ${epoch} of this topic` : ''}.`,
-      `Use the nostr-mailbox skill and pass --trust ${path} to every command. Seat: ${seat}.`,
+      ...holds,
+      `Use the nostr-mailbox skill and start every command with \`${cmd}\`. Seat: ${seat}.`,
       S.mode === 'bridge' ? 'You sign with this workstation\'s identity, which is already a member.' : 'You sign with your own identity (`nostr-mailbox id`): send its npub to a topic admin to be granted before you start.',
       '',
-      `1. nostr-mailbox --trust ${path} relay check`,
-      `2. nostr-mailbox --trust ${path} watch bus --seat ${seat} --wait-seconds ${NM.C.DEFAULT_WAIT_S}`,
-      `3. nostr-mailbox --trust ${path} triage`,
-      `4. nostr-mailbox --trust ${path} condition list`,
-      `5. nostr-mailbox --trust ${path} directive read --operator-file OPERATOR.md`,
+      `1. ${cmd} relay check`,
+      `2. ${cmd} watch bus --seat ${seat} --wait-seconds ${NM.C.DEFAULT_WAIT_S}`,
+      `3. ${cmd} triage`,
+      `4. ${cmd} condition list`,
+      `5. ${cmd} directive read --operator-file OPERATOR.md`,
       '',
       'Post findings with `post bus "<text>" --kind finding`; settle what you act on with `ack bus <id> --result-ref <PR or commit>`; resolve inbox pointers with `resolve <id> --result-ref <ref>`.',
-      scope.kind === 'topic' ? 'A forward-only grant or a revoke rotates the topic to a new epoch: ask for a fresh export when that happens.' : '',
-    ].filter((l) => l !== null).join('\n');
-    const toml = scope.kind === 'topic' || S.mode === 'standalone' ? exportToml(scope) : null;
-    openModal('Pair a coding agent (Claude Code · Codex · Antigravity)', () => html`<p class="muted">${exported ? html`Written <code>${exported.trust_file}</code> (0600).` : S.mode === 'bridge' ? html`Uses <code>${path}</code>.` : 'Download nostr.toml and save it beside the agent, mode 0600.'}</p>
+      topic ? 'A forward-only grant or a revoke rotates the topic to a new epoch. The CLI fetches the new key itself the next time it connects: no fresh export is needed.' : '',
+    ].join('\n');
+    const toml = S.mode === 'standalone' ? exportToml(scope) : null;
+    openModal('Pair a coding agent (Claude Code · Codex · Antigravity)', () => html`<p class="muted">${exported ? html`Written <code>${exported.trust_file}</code> and <code>${exported.keyring}</code> (0600).` : S.mode === 'bridge' ? html`Uses <code>${S.bridge.state.trust_file}</code>.` : topic ? html`Download the topic's declaration and save it as <code>topics/${topic}.toml</code> under the agent's nostr-mailbox home, mode 0600. It holds no key.` : 'Download nostr.toml and save it beside the agent, mode 0600.'}</p>
       <pre class="doc">${prompt}</pre>
       <div class="actions"><button class="btn primary" data-act="copy" data-text="${prompt}">Copy Prompt for Claude Code / Codex</button>
-      ${toml && S.mode === 'standalone' ? html`<button class="btn" data-act="download" data-name="nostr.toml" data-text="${toml}">Export nostr.toml</button>` : ''}
-      ${S.mode === 'bridge' && exported ? html`<span class="small muted">${exported.note}</span>` : ''}</div>`);
+      ${toml ? html`<button class="btn" data-act="download" data-name="${topic ? topic + '.toml' : 'nostr.toml'}" data-text="${toml}">Export ${topic ? topic + '.toml' : 'nostr.toml'}</button>` : ''}
+      ${exported ? html`<span class="small muted">${exported.note}</span>` : ''}</div>`);
   }
+  /** What the standalone page hands a coding agent: the campaign's own declaration, or a
+      topic's (`cli._as_topic`: its group and keyring, and no key). An epoch key never
+      leaves as a `campaign_key`: the CLI would write under it as epoch 1. */
   function exportToml(scope) {
-    const t = S.trust;
+    const t = S.trust, topic = scope.kind === 'topic' ? scope.group : null;
     return NM.trustToml({ relay: t.relay, campaign: t.campaign, operator_pubkeys: t.operator_pubkeys.map(NM.npub), lead_pubkeys: t.lead_pubkeys.map(NM.npub), reviewer_pubkeys: t.reviewer_pubkeys.map(NM.npub),
-      group: scope.group, blossom: t.blossom, relay_auth_url: t.relay_auth_url, campaign_key: scope.current ? scope.epochs.find((e) => e.n === scope.current).key : null, allow_cleartext: t.allow_cleartext });
+      group: topic || t.group, keyring: topic, blossom: t.blossom, relay_auth_url: t.relay_auth_url, campaign_key: topic ? null : t.campaign_key, allow_cleartext: t.allow_cleartext });
   }
   /** A blob named in the selected scope. Inside a topic it is opened under the epoch
       keys, as `blob get` does; one that no held key opens is said so, with one explicit

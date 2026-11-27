@@ -6,7 +6,7 @@ slug). Every record of the topic carries `["h", g]`, and the relay gates the gro
 (a join without an invite code waits for an admin). What each event means:
 
     9007 create-group  [["h",g],["private"],["restricted"],["closed"]]   any member
-    9000 put-user      [["h",g],["p",pk,"member"]]                       an admin
+    9000 put-user      [["h",g],["p",pk,<role>]]                         an admin
     9001 remove-user   [["h",g],["p",pk]]                                an admin
     9005 delete-event  [["h",g],["e",id]]   (declines a join request)    an admin
     9009 create-invite [["h",g],["code",c]]                              an admin
@@ -16,7 +16,12 @@ Who is an admin and who is a member is read from signed events, never taken on t
 relay's word: the admins are the author of the earliest 9007 for `g` and the campaign's
 operator keys; the members are the newest admin-signed 9000 or 9001 per pubkey. At one
 timestamp a removal beats an addition, and each write here is stamped after the one it
-follows, so a tie never decides anything this client wrote."""
+follows, so a tie never decides anything this client wrote.
+
+A member's role rides in the NIP-29 role slot of its 9000: `read-write` (written
+`member`, as every 9000 before roles was), `read-only` or `write-only`. The relay does
+not enforce a role. What it decides here is who is given the topic's epoch keys: a
+write-only member never is (`keyring.reconcile`)."""
 from __future__ import annotations
 
 import re
@@ -45,6 +50,8 @@ ADMIN_KINDS = frozenset({PUT_USER, REMOVE_USER, EDIT_METADATA, DELETE_EVENT, DEL
 RELAY_KINDS = frozenset({GROUP_METADATA, GROUP_ADMINS, GROUP_MEMBERS, 39003})
 TOPIC_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 FLAGS = (("private",), ("restricted",), ("closed",))
+ROLES = ("read-write", "read-only", "write-only")
+ROLE_TAG = {"read-write": "member", "read-only": "read-only", "write-only": "write-only"}
 
 
 class TopicError(ProfileError):
@@ -56,6 +63,13 @@ def topic_id(value) -> str:
         raise TopicError(f"topic {value!r} must match {TOPIC_ID.pattern}: a NIP-29 group id "
                          "that is also a campaign topic slug")
     return value
+
+
+def role_of(tag) -> str:
+    """The role a 9000's `p` tag gives: its third element when that names read-only or
+    write-only, read-write otherwise (NIP-29's `member`, or no role at all)."""
+    named = tag[2] if len(tag) > 2 else ""
+    return named if named in ("read-only", "write-only") else "read-write"
 
 
 def _first(events: Iterable[Event]) -> Event | None:
@@ -102,14 +116,20 @@ class Topic:
                     newest[pubkey] = (rank, event)
         return {pubkey: event for pubkey, (_, event) in newest.items()}
 
-    def members(self) -> frozenset[str]:
-        """Who the admins say belongs: the group's creator, and every pubkey whose
-        newest admin-signed moderation event adds it."""
-        admins = self.admins()
+    def roles(self) -> dict[str, str]:
+        """Who the admins say belongs, and as what: the group's creator (read-write),
+        and every pubkey whose newest admin-signed moderation event adds it, with the
+        role that event names."""
         made = self.creation()
-        added = {pubkey for pubkey, event in self._moderation(admins).items()
-                 if event.kind == PUT_USER}
-        return frozenset(added | ({made.pubkey} if made else set()))
+        roles = {made.pubkey: "read-write"} if made else {}
+        for pubkey, event in self._moderation(self.admins()).items():
+            if event.kind == PUT_USER:
+                roles[pubkey] = next(role_of(t) for t in event.tags
+                                     if t[0] == "p" and t[1:2] == (pubkey,))
+        return roles
+
+    def members(self) -> frozenset[str]:
+        return frozenset(self.roles())
 
     # ---------------------------------------------------------------- the verbs
     def create(self) -> tuple[Event, bool]:
@@ -128,8 +148,11 @@ class Topic:
         held = self._moderation(self.admins()).get(pubkey)
         return max(now(self.relay.clock), held.created_at + 1 if held else 0)
 
-    def put_user(self, pubkey: str) -> Event:
-        return self._publish(PUT_USER, [["p", pubkey, "member"]],
+    def put_user(self, pubkey: str, role: str = "read-write") -> Event:
+        """Add `pubkey`, or change its role: the newest 9000 is the one that counts."""
+        if role not in ROLES:
+            raise TopicError(f"role {role!r} must be one of {ROLES}")
+        return self._publish(PUT_USER, [["p", pubkey, ROLE_TAG[role]]],
                              created_at=self._stamp(pubkey))[0]
 
     def remove_user(self, pubkey: str) -> Event:

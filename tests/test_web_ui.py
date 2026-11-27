@@ -19,6 +19,7 @@ import http.client
 import json
 import os
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -51,8 +52,8 @@ from nostr_mailbox import (
 from nostr_mailbox import event as event_mod
 from nostr_mailbox import relay as relay_mod
 from nostr_mailbox.event import dumps, sign_with_secret, unsigned, verify_event
-from nostr_mailbox.identity import create_identity
-from nostr_mailbox.profile import MAX_EVENT_BYTES, Kind, encode
+from nostr_mailbox.identity import create_identity, load_identity
+from nostr_mailbox.profile import MAX_EVENT_BYTES, EpochKeys, Kind, decrypt_record, encode
 
 REPO = Path(__file__).resolve().parents[1]
 SKILL = REPO / "skills/nostr-mailbox"
@@ -567,16 +568,22 @@ def test_python_epoch_history_reaches_the_browser_through_a_gift_wrapped_key_rin
                           candidate_digest="12" * 32, evidence_refs=("ci:run/7",)))
     untagged = [e for e in relay.stored() if e.kind == 8891 and not e.values("epoch")]
     assert len(untagged) == 1
-    # Pair Coding Agent: the exported nostr.toml lets the unchanged CLI read the topic
+    # Pair Coding Agent: the topic's declaration and this persona's own keyring let the
+    # unchanged CLI read the topic, with the command prefix the bridge names
     exported = call(workstation, "POST", "/api/topic/export", {"topic": "retry"})
-    path = Path(exported["trust_file"])
-    assert (exported["epoch"], path.name, oct(path.stat().st_mode & 0o777)) == (
-        1, "retry-epoch-1.toml", "0o600")
-    assert (Trust.load(path).group, Trust.load(path).campaign_key) == ("retry", scoped.campaign_key)
+    path, ring = Path(exported["trust_file"]), Path(exported["keyring"])
+    assert (exported["epoch"], exported["epochs"]) == (1, [1])
+    assert path == workstation.home / "topics/retry.toml"
+    assert ring == workstation.home / "keyrings/default/retry.json"
+    assert oct(path.stat().st_mode & 0o777) == oct(ring.stat().st_mode & 0o777) == "0o600"
+    declared = Trust.load(path)
+    assert (declared.group, declared.keyring, declared.campaign_key) == ("retry", "retry", None)
+    assert json.loads(ring.read_text())["epochs"] == {"1": scoped.campaign_key}
+    assert exported["cli"] == shlex.join(["nostr-mailbox", "--home", str(workstation.home),
+                                          "--topic", "retry"])
     agent = subprocess.run(
-        [sys.executable, "-m", "nostr_mailbox", "--trust", str(path), "--home",
-         str(workstation.home), "read", "bus"], capture_output=True, text=True,
-        env=_cli_env(), check=False)
+        [sys.executable, "-m", "nostr_mailbox", *shlex.split(exported["cli"])[1:], "read",
+         "bus"], capture_output=True, text=True, env=_cli_env(), check=False)
     assert agent.returncode == 0, agent.stderr
     assert {m["body"] for m in json.loads(agent.stdout)["messages"]} == {
         "epoch-1 finding: the retry duplicates", "written by the old CLI"}
@@ -797,6 +804,10 @@ def test_the_bridge_mints_an_invite_the_browser_engine_redeems(node, workstation
     assert minted["token"].startswith("nm1_") and minted["max_uses"] == 1
     host = urlsplit(relay.url).netloc
     assert minted["web_link"] == f"http://{host}/#join={minted['token']}&topic=retry"
+    assert "campaign_key" not in cli._decode_invite_token(minted["token"])[1], \
+        "an invite that names a topic declares the topic, not the campaign's key"
+    whole = call(workstation, "POST", "/api/invite", {"member": "roland"})
+    assert cli._decode_invite_token(whole["token"])[1]["campaign_key"] == workstation.campaign_key
     joined = node({"scenario": "session", "secret": NEWCOMER_SK.hex(),
                    "trust": workstation.trust, "timeout_s": WAIT,
                    "join": cli._decode_invite_token(minted["token"])[0], "topics": []})
@@ -1020,6 +1031,9 @@ def test_a_topic_invite_carries_a_role_and_a_join_link_and_admits_only_its_prese
     assert minted["join_url"] == (f"http://{ui.DEFAULT_HOST}:{ui.DEFAULT_PORT}/join/#{token}"
                                   f"&topic=retry&role=read-only&ticket={ticket}")
     assert cli._decode_invite_token(token)[2] == "roland", "the CLI joins with it as well"
+    declared = cli._decode_invite_token(token)[1]
+    assert "campaign_key" not in declared, "a topic invite never carries the campaign's key"
+    assert (declared["group"], declared["keyring"]) == ("retry", "retry")
     book = workstation.home / "invites/retry.json"
     assert oct(book.stat().st_mode & 0o777) == "0o600" and ticket not in book.read_text()
     listed = call(workstation, "GET", "/api/invites")["topics"]["retry"]
@@ -1145,7 +1159,9 @@ def test_read_only_writes_are_held_and_write_only_members_write_sealed_mail_with
 
     assert call(workstation, "GET", "/api/state")["exports"] == {}
     call(workstation, "POST", "/api/topic/export", {"topic": "retry"})
-    assert call(workstation, "GET", "/api/state")["exports"] == {"retry": [3]}
+    state = call(workstation, "GET", "/api/state")
+    assert (state["exports"], state["export_errors"]) == ({"retry": [1, 2, 3]}, {}), \
+        "every epoch this key holds, each under its own number"
 
 
 PAGE_GRANTS = """async (NM, c) => {
@@ -1517,3 +1533,112 @@ def test_each_tab_acts_as_the_persona_it_shows_whatever_another_tab_switches_to(
     assert "no identity 'ghost'" in call(ws, "POST", "/api/post", {"body": "x"},
                                          headers={ui.PERSONA_HEADER: "ghost"},
                                          want=409)["error"]
+
+
+# ======================== topic invites without the campaign key; the agent at epoch N
+def _cli(prefix: str, *argv) -> dict:
+    """The real CLI, as a coding agent runs it from the prefix the bridge named."""
+    done = subprocess.run([sys.executable, "-m", "nostr_mailbox", *shlex.split(prefix)[1:],
+                           *argv], capture_output=True, text=True, env=_cli_env(), check=False)
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+def test_a_topic_invitee_never_holds_the_campaign_key_and_works_inside_its_topic(
+        tmp_path, workstation, relay):
+    """The console's topic invite declares the topic and nothing of the campaign's own
+    key. A newcomer who joins a fresh workstation from it holds a declaration with no
+    `campaign_key`: before an admin admits them the console refuses to write (never in
+    plaintext), afterwards everything they post goes into the topic under its epoch key,
+    and the campaign's own bus stays closed to them."""
+    mint, _ = _admin_cli(workstation, relay, tmp_path)
+    call(workstation, "POST", "/api/topic/create", {"topic": "retry"})
+    call(workstation, "POST", "/api/post", {"topic": "bus", "body": "for the whole campaign"})
+    mint()
+    minted = call(workstation, "POST", "/api/topics/retry/invite", {"history": "full_history"})
+    carried = base64.urlsafe_b64decode(minted["token"][4:] + "=" * (-len(minted["token"]) % 4))
+    assert workstation.campaign_key.encode() not in carried and b"campaign_key" not in carried
+
+    console = ui.Console(base=tmp_path / "newcomer", timeout_s=WAIT, quiet=True)
+    with ui.ConsoleServer(console, port=0) as server:
+        theirs = SimpleNamespace(url=server.url, token=console.token)
+        call(theirs, "POST", "/api/join", {"token": minted["token"]})
+        state = call(theirs, "GET", "/api/state")
+        assert (state["trust"]["campaign_key"], state["trust"]["keyring"],
+                state["trust"]["group"]) == (None, "retry", "retry")
+        assert "campaign_key" not in (tmp_path / "newcomer/nostr.toml").read_text()
+        ident = load_identity("default", base=tmp_path / "newcomer")
+        assert ident.pubkey in relay.members
+        early = call(theirs, "POST", "/api/post", {"topic": "bus", "body": "too soon"}, want=400)
+        assert "holds no key" in early["error"], "no key yet: refused, never sent in plaintext"
+
+        _ask(workstation, bech32.decode(bech32.NSEC, ident.signer_spec["nsec"]), "retry",
+             _ticket(minted["join_url"]))
+        call(workstation, "POST", "/api/topic/grant", {
+            "topic": "retry", "member": ident.pubkey, "ticket": _ticket(minted["join_url"])})
+        posted = call(theirs, "POST", "/api/post", {"topic": "bus", "body": "inside the topic"})
+        assert (posted["group"], posted["epoch"]) == ("retry", 1)
+        stored = next(e for e in relay.stored() if e.id == posted["id"])
+        assert stored.values("h") == ["retry"] and "inside the topic" not in stored.content
+        # with the CLI, on the declaration the join wrote: the topic, and nothing of the root
+        seen = _cli(shlex.join(["nostr-mailbox", "--home", str(tmp_path / "newcomer")]),
+                    "read", "bus")
+        assert [m["body"] for m in seen["messages"]] == ["inside the topic"]
+        assert "for the whole campaign" not in json.dumps(seen)
+
+
+def test_pair_coding_agent_hands_the_cli_a_topic_at_its_true_epoch_and_it_follows_rotations(
+        workstation, relay):
+    """The topic stands at epoch 2 when it is paired. The CLI agent holds epochs 1 and 2
+    under their own numbers and writes under 2 (the old export handed it K2 as a
+    `campaign_key`, so it wrote K2-ciphertext tagged epoch 1, which no reader opens).
+    When the topic rotates again the agent fetches epoch 3 itself: no fresh export. The
+    prefix the bridge names carries --home, --persona and --trust when they are not the
+    CLI's own defaults."""
+    friend = _pub(FRIEND_SK)
+    relay.add_member(friend)
+    call(workstation, "POST", "/api/topic/create", {"topic": "retry"})
+    call(workstation, "POST", "/api/post", {"group": "retry", "topic": "bus",
+                                            "body": "written in epoch 1"})
+    _next_second()
+    assert call(workstation, "POST", "/api/topic/grant", {
+        "topic": "retry", "member": friend, "mode": "forward_only"})["epoch"] == 2
+    exported = call(workstation, "POST", "/api/topic/export", {"topic": "retry"})
+    assert (exported["epoch"], exported["epochs"]) == (2, [1, 2])
+
+    said = _cli(exported["cli"], "post", "bus", "from the agent, epoch 2", "--kind", "finding")
+    stored = next(e for e in relay.stored() if e.id == said["id"])
+    assert stored.values("epoch") == ["2"], "written under the topic's own current epoch"
+    key2 = _topic_trust(workstation, "retry", 2).campaign_key
+    assert "from the agent, epoch 2" in decrypt_record(stored, EpochKeys("camp", {2: key2}, 2))
+    assert {m["body"] for m in _cli(exported["cli"], "read", "bus")["messages"]} == {
+        "written in epoch 1", "from the agent, epoch 2"}
+    with _session(workstation) as session:
+        console_view = workstation.console.enter_scope(session, "retry")
+        assert console_view is not None
+        assert "from the agent, epoch 2" in [
+            m.body for m in NostrRelayChannelBackend(session).history("bus")], \
+            "and the console reads what the agent wrote"
+
+    _next_second()
+    assert call(workstation, "POST", "/api/topic/revoke", {"topic": "retry",
+                                                            "member": friend})["epoch"] == 3
+    later = _cli(exported["cli"], "post", "bus", "from the agent, epoch 3", "--kind", "finding")
+    assert next(e for e in relay.stored() if e.id == later["id"]).values("epoch") == ["3"]
+    assert _cli(exported["cli"], "topic", "sync", "retry")["topics"][0]["held_epochs"] == [
+        1, 2, 3]
+    assert call(workstation, "GET", "/api/state")["exports"] == {"retry": [1, 2, 3]}
+
+    # the prefix names what is not the CLI's own default, quoted for a shell
+    home = workstation.home
+    assert call(workstation, "GET", "/api/state")["cli"] == shlex.join(
+        ["nostr-mailbox", "--home", str(home)])
+    create_identity("alice work".replace(" ", "-"), base=home)
+    as_alice = call(workstation, "GET", "/api/state",
+                    headers={ui.PERSONA_HEADER: "alice-work"})["cli"]
+    assert as_alice == shlex.join(["nostr-mailbox", "--home", str(home), "--persona",
+                                   "alice-work"])
+    elsewhere = home / "other trust.toml"
+    elsewhere.write_bytes((home / "nostr.toml").read_bytes())
+    assert ui.Console(base=home, trust_path=elsewhere, quiet=True).state()["cli"] == shlex.join(
+        ["nostr-mailbox", "--home", str(home), "--trust", str(elsewhere)])

@@ -3,7 +3,8 @@
 Six tools, each the CLI commands it names, run in this process against this machine's
 home (`--home`), as one of its personas (`--persona`, an identity under `identities/`):
 
-- `mailbox_list`   — personas, orgs (the registry `<home>/orgs/*.toml`), channels, keyrings
+- `mailbox_list`   — personas, orgs (the registry `<home>/orgs/*.toml`), channels, and
+                     the active persona's own keyrings
 - `mailbox_invite` — a single-use nm1_ token and its join link, into a channel or an org
 - `mailbox_join`   — redeem an nm1_ token or an `https://…/join/#nm1_…` link
 - `mailbox_post`   — post to a channel; files go along as encrypted blobs
@@ -173,12 +174,14 @@ TOOLS: list[dict] = [
                 "scope": {"type": "string", "enum": ["topic", "org"],
                           "description": "default: topic"},
                 "role": {"type": "string", "enum": list(cli.INVITE_ROLES),
-                         "description": "Channel invites: what the newcomer may do, recorded "
-                                        "in the keeper's registry and not enforced by the "
-                                        "relay (default: read-write)."},
+                         "description": "Channel invites: read-write and read-only "
+                                        "members are given the channel's keys; a write-only "
+                                        "member is given none and writes sealed mail to the "
+                                        "keeper (default: read-write)."},
                 "history": {"type": "string", "enum": list(keyrings.HISTORY),
                             "description": "Channel invites: 'all' replays every epoch; "
-                                           "'from-now' rotates first (default: all)."},
+                                           "'from-now' rotates first (default: all; not for "
+                                           "role write-only, which is given no epoch)."},
                 "recipient": {"type": "string",
                               "description": "The newcomer's name, embedded in the token."},
                 "code_file": {"type": "string",
@@ -520,12 +523,14 @@ def _persona(root: Path, name: str) -> dict:
     return {k: described[k] for k in ("name", "npub", "pubkey", "signer")}
 
 
-def _channel(root: Path, name: str) -> dict:
-    trust = Trust.load(_topic_file(root, name))
+def _channel(call: _Call, name: str) -> dict:
+    """One topic held here, and what the active persona's own ring for it holds: a
+    keyring is one persona's, so another persona of this home lists its own epochs."""
+    trust = Trust.load(_topic_file(call.root, name))
     out = {"name": name, "campaign": trust.campaign, "relay": trust.relay,
            "keyring": trust.keyring}
     if trust.keyring is not None:
-        ring = KeyRing.open(root, trust.keyring, trust.campaign)
+        ring = KeyRing.open(call.root, trust, call.persona)
         out.update(held_epochs=sorted(ring.epochs), current_epoch=ring.current,
                    keeper=ring.registry is not None)
     return out
@@ -576,7 +581,7 @@ def _tool_list(call: _Call, args: dict) -> dict:
     root = call.root
     personas = [_listed(p.stem, lambda s=p.stem: _persona(root, s))
                 for p in sorted((root / "identities").glob("*.json"))]
-    channels = [_listed(name, lambda s=name: _channel(root, s)) for name in _channels(root)]
+    channels = [_listed(name, lambda s=name: _channel(call, s)) for name in _channels(root)]
     out = {"home": str(root), "active_persona": call.persona,
            "timeout_seconds": call.timeout_seconds, "bus": None, "default_org": None}
     try:
@@ -600,7 +605,7 @@ def _tool_list(call: _Call, args: dict) -> dict:
                    else None,
                    **{k: by_ring[p.stem][k] for k in ("held_epochs", "current_epoch", "keeper")
                       if p.stem in by_ring and k in by_ring[p.stem]}}
-                  for p in sorted((root / "keyrings").glob("*.json"))])
+                  for p in sorted((root / "keyrings" / call.persona).glob("*.json"))])
     return out
 
 
@@ -619,7 +624,7 @@ def _tool_invite(call: _Call, args: dict) -> dict:
                        scope=[f"--trust={_org_declaration(call, target)}"])
     else:
         options += [("role", args.get("role", "read-write")),
-                    ("history", args.get("history", "all"))]
+                    *((k, args[k]) for k in ("history",) if k in args)]
         out = call.run(["topic", "invite"], options=options, positionals=[target])
     if "token" in out:
         out["bearer_secret"] = _SECRET_NOTE

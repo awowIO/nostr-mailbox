@@ -8,8 +8,10 @@ Who can read what follows from who holds which keys:
 - `--history all`: a newcomer is given epochs 1..current and replays the whole journal;
 - `--history from-now`: the topic first rotates to current + 1, the existing members
   are given the new epoch, and the newcomer gets only that one;
+- a `write-only` member is given no epoch at all, by token or by gift wrap, at
+  admission or at any rotation: it writes sealed mail to the keeper instead;
 - revoke: the member is removed from the group, the topic rotates, and the new epoch
-  goes to everyone who remains.
+  goes to everyone who remains and reads.
 
 Keys travel two ways, both encrypted to one key: inside the single-use `nm1_…` invite
 token, or as a NIP-59 gift wrap (`giftwrap`) whose rumor is kind 8892:
@@ -23,8 +25,16 @@ campaign's operator keys, the inviter named in its token). The keeper (the seat 
 created the topic) wraps its whole ring to itself after every change, with the
 `registry` it keeps beside the keys, so the ring survives the loss of this machine.
 
-On disk: `<home>/keyrings/<topic>.json`, mode 0600 in a 0700 directory, written whole
-or not at all, refused when anyone else can read it."""
+On disk: `<home>/keyrings/<persona>/<topic>.json`, mode 0600 in a 0700 directory,
+written whole or not at all, refused when anyone else can read it. A ring belongs to one
+key: the file names its owner's pubkey and the relay it was issued on, and is refused
+for any other. Two personas of one home that join the same topic hold two rings, each
+with the epochs that persona was given and nothing of the other's.
+
+A ring written before rings had owners sits at `<home>/keyrings/<topic>.json`. In a
+home with one identity it is that identity's, and moves to its place the first time it
+is opened. In a home with several, nothing here can tell whose it is: it is refused,
+with the one `mv` that settles it."""
 from __future__ import annotations
 
 import hashlib
@@ -37,10 +47,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import giftwrap, secp256k1
-from ._files import PRIVATE, write_private
+from ._files import PRIVATE, PRIVATE_DIR, write_private
 from .event import Event, dumps, now
 from .groups import Topic
-from .identity import Signer
+from .identity import IdentityError, Signer, load_identity
 from .profile import EpochKeys, Kind, ProfileError, Trust
 from .relay import RelayClient
 
@@ -60,8 +70,28 @@ class KeyRingError(ProfileError):
     the keys already held."""
 
 
-def keyring_path(home: Path, name: str) -> Path:
-    return Path(home) / "keyrings" / f"{name}.json"
+def keyring_path(home: Path, persona: str, name: str) -> Path:
+    return Path(home) / "keyrings" / persona / f"{name}.json"
+
+
+def _adopt_unowned(home: Path, persona: str, name: str) -> None:
+    """Move `<home>/keyrings/<name>.json`, a ring from before rings had owners, to
+    `persona`'s place, when this home's one identity is `persona`. With several
+    identities it could be any of theirs, and guessing would hand one persona
+    another's keys: refused, naming the move that says whose it is."""
+    legacy = Path(home) / "keyrings" / f"{name}.json"
+    if not legacy.is_file():
+        return
+    held = sorted(p.stem for p in (Path(home) / "identities").glob("*.json"))
+    target = keyring_path(home, persona, name)
+    if held != [persona]:
+        raise KeyRingError(
+            f"{legacy} was written before keyrings belonged to one persona, and this home "
+            f"holds {len(held)} identities ({', '.join(held)}): it is not opened for any of "
+            f"them until you say whose it is. Move it into its owner's folder, e.g. "
+            f"`mkdir -p {target.parent} && mv {legacy} {target}`")
+    target.parent.mkdir(mode=PRIVATE_DIR, parents=True, exist_ok=True)
+    os.replace(legacy, target)
 
 
 def code_digest(code: str) -> str:
@@ -119,28 +149,43 @@ def empty_registry() -> dict:
 
 @dataclass
 class KeyRing:
-    """This seat's ring for one topic. `registry` is present only on the keeper."""
+    """One key's ring for one topic on one relay. `owner` is that key, `relay` the
+    relay's own name; `registry` is present only on the keeper."""
     path: Path
     name: str
     campaign: str
+    owner: str
+    relay: str
     epochs: dict[int, str] = field(default_factory=dict)
     authorities: set[str] = field(default_factory=set)
     registry: dict | None = None
     seen: set[str] = field(default_factory=set)
 
     def __repr__(self) -> str:                      # never the keys
-        return (f"KeyRing({self.name!r}, epochs={sorted(self.epochs)}, "
-                f"keeper={self.registry is not None})")
+        return (f"KeyRing({self.name!r}, owner={self.owner[:12]}…, "
+                f"epochs={sorted(self.epochs)}, keeper={self.registry is not None})")
 
     # ---------------------------------------------------------------- file
     @classmethod
-    def open(cls, home: Path, name: str, campaign: str) -> KeyRing:
-        """The ring on disk, or an empty one (nothing is written until `save`)."""
-        path = keyring_path(home, name)
+    def open(cls, home: Path, trust: Trust, persona: str) -> KeyRing:
+        """Persona `persona`'s ring for the topic `trust` declares, or an empty one
+        (nothing is written until `save`). The file must be this key's, for this topic
+        of this campaign on this relay: one that names another is refused whole."""
+        name, campaign = trust.keyring, trust.campaign
+        if name is None:
+            raise KeyRingError(f"campaign {campaign!r} declares no epoch keyring")
+        try:
+            owner = load_identity(persona, base=home).pubkey
+        except IdentityError as exc:
+            raise KeyRingError(f"a keyring belongs to one identity, and {exc}") from exc
+        relay = trust.relay_auth_url or trust.relay
+        path = keyring_path(home, persona, name)
+        if not path.exists():
+            _adopt_unowned(home, persona, name)
         try:
             mode = stat.S_IMODE(path.stat().st_mode)
         except FileNotFoundError:
-            return cls(path=path, name=name, campaign=campaign)
+            return cls(path=path, name=name, campaign=campaign, owner=owner, relay=relay)
         if mode & ~PRIVATE:
             raise KeyRingError(f"{path} is mode {mode:04o}; a keyring holds secret keys and "
                                f"must be 0600 (chmod 600 {path})")
@@ -153,7 +198,17 @@ class KeyRing:
         if (body.get("name"), body.get("campaign")) != (name, campaign):
             raise KeyRingError(f"{path} is the keyring of {body.get('name')!r} in campaign "
                                f"{body.get('campaign')!r}, not {name!r} in {campaign!r}")
-        ring = cls(path=path, name=name, campaign=campaign,
+        # A ring from before rings had owners names neither: it is bound to this key and
+        # this relay by the next save. One that names another is never opened.
+        if body.get("owner", owner) != owner:
+            raise KeyRingError(f"{path} is the keyring of another key "
+                               f"({str(body['owner'])[:12]}…), not persona {persona!r}'s "
+                               f"({owner[:12]}…); nothing of it was read")
+        if body.get("relay", relay) != relay:
+            raise KeyRingError(f"{path} holds the keys of topic {name!r} on "
+                               f"{body['relay']}, not on {relay}; nothing of it was read. If "
+                               "the campaign moved relays, correct `relay` in that file")
+        ring = cls(path=path, name=name, campaign=campaign, owner=owner, relay=relay,
                    epochs=_epochs(body["epochs"], str(path)) if body.get("epochs") else {},
                    authorities=set(body.get("authorities", [])),
                    registry=body.get("registry"), seen=set(body.get("seen", [])))
@@ -161,8 +216,17 @@ class KeyRing:
             _check_registry(ring.registry, str(path))
         return ring
 
+    def held_by(self, signer: Signer) -> None:
+        """`KeyRingError` unless `signer` is the key this ring belongs to: no other
+        key's session fills it, reads it out, or delivers from it."""
+        if signer.pubkey != self.owner:
+            raise KeyRingError(f"the keyring of topic {self.name!r} at {self.path} belongs "
+                               f"to {self.owner[:12]}…, and this session signs as "
+                               f"{signer.pubkey[:12]}…; nothing was read or written")
+
     def save(self) -> None:
         body = {"schema": FILE_SCHEMA, "name": self.name, "campaign": self.campaign,
+                "owner": self.owner, "relay": self.relay,
                 "current": self.current, "epochs": _encode_epochs(self.epochs),
                 "authorities": sorted(self.authorities), "seen": sorted(self.seen)}
         if self.registry is not None:
@@ -242,6 +306,7 @@ def parse_delivery(rumor: giftwrap.Rumor) -> dict:
 def deliver(relay: RelayClient, signer: Signer, ring: KeyRing, recipient: str,
             epochs: Iterable[int], mode: str, *, backup: bool = False) -> Event:
     """Gift-wrap `epochs` of `ring` to `recipient` and publish it."""
+    ring.held_by(signer)
     body = ring.content(mode, epochs, backup=backup)
     event = giftwrap.wrap(signer, recipient, int(Kind.EPOCH_KEYS),
                           [["h", ring.name], ["t", ring.campaign]], dumps(body),
@@ -263,6 +328,7 @@ def sync(relay: RelayClient, signer: Signer, trust: Trust, ring: KeyRing) -> dic
     """Fetch every gift wrap addressed to this key and merge the epoch keys meant for
     this ring. A delivery from a key that is not a topic admin, or one that contradicts
     a held key, is reported and not merged. The ring is saved if anything changed."""
+    ring.held_by(signer)
     me = signer.pubkey
     admins: frozenset[str] | None = None
     imported: list[int] = []
@@ -320,14 +386,19 @@ def _owed(ring: KeyRing, record: dict) -> list[int]:
 
 
 def reconcile(relay: RelayClient, signer: Signer, ring: KeyRing, topic: Topic) -> dict:
-    """The keeper's one duty, safe to repeat: every current member of the topic holds
-    every epoch it is owed, and nobody else is sent anything.
+    """The keeper's one duty, safe to repeat: every current member of the topic that
+    reads it holds every epoch it is owed, and nobody else is sent anything.
 
     First the invites: a join request carrying a code this keeper handed out makes its
-    author the invitee (and the keeper publishes the 9000 that says so). Then, per
-    member, what it is owed (all epochs for `--history all`, epochs from its first one
-    for `from-now`, the current one for a member some other admin added) minus what it
-    was already sent, in one gift wrap per member."""
+    author the invitee, in the role the invite was minted for (the keeper publishes the
+    9000 that says so). Then, per member, what it is owed (all epochs for `--history
+    all`, epochs from its first one for `from-now`, the current one for a member some
+    other admin added) minus what it was already sent, in one gift wrap per member.
+
+    A member's role is the one its newest admin-signed 9000 names. A `write-only`
+    member is owed nothing, ever. One an admin later makes a reader reads from the
+    epoch current then, never the ones written while it could only write."""
+    ring.held_by(signer)
     registry = ring.registry
     if registry is None:
         raise KeyRingError(f"this seat holds topic {ring.name!r}'s keys but not its "
@@ -355,7 +426,8 @@ def reconcile(relay: RelayClient, signer: Signer, ring: KeyRing, topic: Topic) -
             continue
         invite["redeemed_by"] = request.pubkey
         members[request.pubkey] = {"history": invite["history"], "from_epoch": invite["from_epoch"],
-                                   "name": invite.get("for"), "via": "invite"}
+                                   "name": invite.get("for"), "via": "invite",
+                                   "role": invite.get("role", "read-write")}
         delivered[request.pubkey] = sorted(set(delivered.get(request.pubkey, []))
                                            | set(invite["epochs"]))
         redeemed.append(request.pubkey)
@@ -364,14 +436,21 @@ def reconcile(relay: RelayClient, signer: Signer, ring: KeyRing, topic: Topic) -
     standing = topic.members()
     for pubkey in redeemed:
         if pubkey not in standing:
-            topic.put_user(pubkey)
+            topic.put_user(pubkey, members[pubkey]["role"])
     if redeemed or cut:
         ring.save()
-    standing = topic.members()
+    roles = topic.roles()
+    standing = frozenset(roles)
     sent: dict[str, list[int]] = {}
+    recorded = dumps(members)
     for pubkey in sorted(standing - {me}):
         record = members.setdefault(pubkey, {"history": "from-now", "from_epoch": ring.current,
                                              "name": None, "via": "added by another admin"})
+        if record.get("role") == "write-only" and roles[pubkey] != "write-only":
+            record.update(history="from-now", from_epoch=ring.current)
+        record["role"] = roles[pubkey]
+        if roles[pubkey] == "write-only":
+            continue                        # it holds no key, and is sent none
         had = set(delivered.get(pubkey, []))
         owed = [epoch for epoch in _owed(ring, record) if epoch not in had]
         if not owed:
@@ -382,8 +461,11 @@ def reconcile(relay: RelayClient, signer: Signer, ring: KeyRing, topic: Topic) -
         delivered[pubkey] = sorted(had | set(owed))
         sent[pubkey] = owed
         ring.save()                         # each delivery recorded before the next
+    if dumps(members) != recorded:
+        ring.save()                         # a role another admin changed, now on record
     return {"redeemed_invites": redeemed, "refused_redemptions": sorted(set(cut)),
-            "delivered": sent, "members": sorted(standing - {me})}
+            "delivered": sent, "members": sorted(standing - {me}),
+            "write_only": sorted(pk for pk in standing - {me} if roles[pk] == "write-only")}
 
 
 def forget(ring: KeyRing, pubkey: str) -> None:

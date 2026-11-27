@@ -2402,7 +2402,9 @@ def _personas(run, tmp_path):
 
 
 def _ring(tmp_path, name: str, topic: str) -> KeyRing:
-    return KeyRing.open(tmp_path / name, topic, "camp")
+    """Persona `name`'s own ring on its machine, opened through the topic's declaration."""
+    return KeyRing.open(tmp_path / name, Trust.load(tmp_path / name / f"topics/{topic}.toml"),
+                        name)
 
 
 def _said(relay, keeper: KeyRing, words: str) -> list:
@@ -2427,7 +2429,7 @@ def test_a_topic_replays_its_whole_history_to_a_full_history_member_and_only_the
     assert created["created"] and created["epoch"] == 1
     keeper = _ring(tmp_path, "operator", "wave")
     assert keeper.registry is not None and sorted(keeper.epochs) == [1]
-    assert keeper.path.parent == tmp_path / "operator/keyrings"
+    assert keeper.path == tmp_path / "operator/keyrings/operator/wave.json"
     assert stat.S_IMODE(keeper.path.stat().st_mode) == 0o600
     assert stat.S_IMODE(keeper.path.parent.stat().st_mode) == 0o700
 
@@ -2851,7 +2853,8 @@ def test_the_dropbox_holds_forged_threads_poisoned_payloads_and_shared_tokens(
                             + [(people["carol"]["npub"], "invalid")] * 2)
     assert all("another member's mailbox" in m["problem"] for m in shown["messages"]
                if m["state"] == "quarantined")
-    ring = KeyRing(path=tmp_path / "alice/keyrings/wave.json", name="wave", campaign="camp")
+    ring = KeyRing(path=tmp_path / "alice/keyrings/alice/wave.json", name="wave",
+                   campaign="camp", owner=owner, relay=relay.url)
     with RelayClient(relay.url, key["alice"], timeout_s=WAIT) as client:
         report = keyrings.sync(client, key["alice"], Trust(
             relay=relay.url, campaign="camp", operator_pubkeys=frozenset({owner})), ring)
