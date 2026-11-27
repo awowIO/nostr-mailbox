@@ -44,7 +44,9 @@ def test_the_wheel_built_from_the_sdist_carries_the_package(tmp_path):
         sdist = archive.getnames()
     with zipfile.ZipFile(next(tmp_path.glob("*.whl"))) as archive:
         wheel = archive.namelist()
-    modules = sorted(p.name for p in (ROOT / "skills/nostr-mailbox/nostr_mailbox").glob("*.py"))
+    package = ROOT / "skills/nostr-mailbox/nostr_mailbox"
+    # the modules, and the console page `ui.py` serves (web/index.html)
+    modules = sorted(p.name for pattern in ("*.py", "web/*") for p in package.glob(pattern))
     assert sorted(n.split("/")[-1] for n in sdist
                   if "/skills/nostr-mailbox/nostr_mailbox/" in n) == modules
     assert sorted(n.split("/")[-1] for n in wheel if n.startswith("nostr_mailbox/")) == modules

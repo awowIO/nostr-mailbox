@@ -845,6 +845,11 @@ def cmd_blob_has(args) -> dict:
     return {"sha256": args.sha256, "exists": _blobs(args).exists(args.sha256)}
 
 
+def cmd_ui(args) -> dict:
+    from .ui import serve
+    return serve(args)
+
+
 # ---------------------------------------------------------------------------- parser
 def _seconds(text: str) -> float:
     try:
@@ -1140,6 +1145,10 @@ def build_parser(prog: str = "nostr-mailbox") -> argparse.ArgumentParser:
     p.add_argument("--out", required=True)
     p = add(blob, "has", cmd_blob_has, "is this blob on the server")
     p.add_argument("sha256")
+
+    from .ui import add_arguments as ui_arguments
+    ui_arguments(add(sub, "ui", cmd_ui,
+                     "serve the Visual Web Console on loopback; the key stays in its file"))
     return ap
 
 

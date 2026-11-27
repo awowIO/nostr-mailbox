@@ -317,6 +317,20 @@ python3 <skill_dir>/scripts/nostr_mailbox.py relay invite --compose deploy/nostr
   seat (or through an in-cluster `ws://` service URL paired with `relay_auth_url` in
   `nostr.toml`; see `deploy/nostr-relay/kubernetes.yaml`).
 
+### The Visual Web Console
+
+```bash
+python3 <skill_dir>/scripts/nostr_mailbox.py ui --port 7890 --open
+```
+
+- `ui` serves the console (`nostr_mailbox/web/index.html`, one self-contained file) on
+  loopback only and signs for it with this machine's 0600 key, which never enters the
+  browser. A non-loopback `--host` is refused: whoever loads the page signs as the key.
+- Shared topics are NIP-29 groups with an epoch key ring sent as kind 1059 gift wraps.
+  Grant **Full History** (every epoch) or **Forward-Only** (the topic rotates to a new
+  epoch); a revoke rotates too. **Pair Coding Agent** writes a 0600 `nostr.toml` for the
+  current epoch and copies a prompt that points `--trust` at it.
+
 ## 8. Seats in containers
 
 A container seat should not hold a key. Run the signer beside the container and mount
