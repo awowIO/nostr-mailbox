@@ -13,5 +13,7 @@ uv.lock
 .env
 # a relay invite is a bearer code: whoever holds the file can join
 *.invite
+# so is an nm1_ or inv_ token written with --code-file
+*.token
 # a self-hosted relay's event store and blobs
 /deploy/nostr-relay/data/

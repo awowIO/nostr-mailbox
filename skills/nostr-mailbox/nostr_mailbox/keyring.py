@@ -27,18 +27,17 @@ On disk: `<home>/keyrings/<topic>.json`, mode 0600 in a 0700 directory, written 
 or not at all, refused when anyone else can read it."""
 from __future__ import annotations
 
-import contextlib
 import hashlib
 import json
 import os
 import re
 import stat
-import tempfile
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import giftwrap, secp256k1
+from ._files import PRIVATE, write_private
 from .event import Event, dumps, now
 from .groups import Topic
 from .identity import Signer
@@ -54,7 +53,6 @@ MODES = ("create", "full_history", "forward_only", "rotate")
 HISTORY = ("all", "from-now")
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 _EPOCH = re.compile(r"^[1-9][0-9]{0,8}$")
-_PRIVATE, _PRIVATE_DIR = 0o600, 0o700
 
 
 class KeyRingError(ProfileError):
@@ -99,9 +97,9 @@ def _epochs(raw, what: str) -> dict[int, str]:
         raise KeyRingError(f"{what}: epochs must be a non-empty object of epoch → key")
     out = {}
     for epoch, key in raw.items():
-        if not isinstance(epoch, str) or not _EPOCH.match(epoch):
+        if not isinstance(epoch, str) or not _EPOCH.fullmatch(epoch):
             raise KeyRingError(f"{what}: an epoch is not a positive integer")
-        if not isinstance(key, str) or not _HEX64.match(key):
+        if not isinstance(key, str) or not _HEX64.fullmatch(key):
             raise KeyRingError(f"{what}: an epoch key is not 64 lowercase hex")
         out[int(epoch)] = key
     return out
@@ -143,7 +141,7 @@ class KeyRing:
             mode = stat.S_IMODE(path.stat().st_mode)
         except FileNotFoundError:
             return cls(path=path, name=name, campaign=campaign)
-        if mode & ~_PRIVATE:
+        if mode & ~PRIVATE:
             raise KeyRingError(f"{path} is mode {mode:04o}; a keyring holds secret keys and "
                                f"must be 0600 (chmod 600 {path})")
         try:
@@ -169,19 +167,7 @@ class KeyRing:
                 "authorities": sorted(self.authorities), "seen": sorted(self.seen)}
         if self.registry is not None:
             body["registry"] = self.registry
-        self.path.parent.mkdir(mode=_PRIVATE_DIR, parents=True, exist_ok=True)
-        fd, staged = tempfile.mkstemp(dir=self.path.parent, prefix=f".{self.name}.",
-                                      suffix=".part")          # mkstemp: born 0600
-        try:
-            with os.fdopen(fd, "w") as fh:
-                json.dump(body, fh, indent=2)
-                fh.write("\n")
-                fh.flush()
-                os.fsync(fh.fileno())
-            os.replace(staged, self.path)
-        finally:
-            with contextlib.suppress(FileNotFoundError):
-                os.unlink(staged)
+        write_private(self.path, json.dumps(body, indent=2) + "\n")
 
     # ---------------------------------------------------------------- keys
     @property

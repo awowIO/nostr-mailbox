@@ -131,9 +131,9 @@ class Message:
     def __post_init__(self) -> None:
         if not isinstance(self.body, str) or not self.body.strip():
             raise ProfileError("a message needs a body")
-        if not isinstance(self.kind, str) or not _MESSAGE_KIND.match(self.kind):
+        if not isinstance(self.kind, str) or not _MESSAGE_KIND.fullmatch(self.kind):
             raise ProfileError(f"message kind {self.kind!r} must match {_MESSAGE_KIND.pattern}")
-        if self.reply_to is not None and not _HEX64.match(self.reply_to):
+        if self.reply_to is not None and not _HEX64.fullmatch(self.reply_to):
             raise ProfileError("reply_to is the id of the message answered")
 
     @property
@@ -731,7 +731,7 @@ class NostrRelayChannelBackend:
             ids = self.session.blobs().download(got["manifest_sha256"]).decode().split("\n")
             ids = [i for i in ids if i]
         if (len(ids) != got["count"] or len(set(ids)) != len(ids)
-                or not all(_HEX64.match(i) for i in ids)
+                or not all(_HEX64.fullmatch(i) for i in ids)
                 or hashlib.sha256("\n".join(ids).encode()).hexdigest() != got["manifest_sha256"]):
             raise ProfileError("seal manifest does not match its own count and digest")
         return ids

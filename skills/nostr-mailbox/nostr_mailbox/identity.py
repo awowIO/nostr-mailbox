@@ -23,13 +23,15 @@ import re
 import socket
 import stat
 import subprocess
-import tempfile
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
 from . import bech32, nip44, secp256k1
+from ._files import PRIVATE as _PRIVATE
+from ._files import PRIVATE_DIR as _PRIVATE_DIR
+from ._files import write_private
 from ._serve import Listener
 from .event import DEFAULT_WAIT_S, Event, NostrError, dumps, sign_with_secret, verify_event
 
@@ -38,8 +40,6 @@ HOME_ENV = "NOSTR_MAILBOX_HOME"
 DEFAULT_HOME = "~/.config/nostr-mailbox"
 DEFAULT_NAME = "default"
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")  # path-safe; the rule a seat id follows
-_PRIVATE = 0o600
-_PRIVATE_DIR = 0o700
 AUTH_KIND = 22_242                                  # NIP-42
 BLOSSOM_AUTH_KIND = 24_242                          # Blossom authorization (BUD-11)
 # One signing request is one unsigned event and a few bytes of envelope. The campaign
@@ -340,7 +340,7 @@ class Identity:
     name: str
     pubkey: str
     path: Path
-    signer_spec: dict
+    signer_spec: dict = field(repr=False)        # holds the nsec of a `local` identity
 
     @property
     def npub(self) -> str:
@@ -372,7 +372,7 @@ class Identity:
 
 
 def _identity_path(name: str, base: str | Path | None) -> Path:
-    if not _SLUG.match(name):
+    if not _SLUG.fullmatch(name):
         raise IdentityError(f"identity name {name!r} must match {_SLUG.pattern}")
     return home(base) / "identities" / f"{name}.json"
 
@@ -403,26 +403,16 @@ def create_identity(name: str = DEFAULT_NAME, *, base: str | Path | None = None,
         pub = secp256k1.pubkey_gen(secret).hex()
     body = {"schema": SCHEMA, "name": name, "pubkey": pub,
             "npub": bech32.encode(bech32.NPUB, bytes.fromhex(pub)), "signer": spec}
-    path.parent.mkdir(mode=_PRIVATE_DIR, parents=True, exist_ok=True)
-    # Whole or absent, and never over an existing key: the file is written complete to
-    # a private sibling (mkstemp makes it 0600), then published under its real name
-    # with a hard link, which fails if that name is already taken.
-    fd, staged = tempfile.mkstemp(dir=path.parent, prefix=f".{name}.", suffix=".part")
+    # Whole or absent, and never over an existing key: `exclusive` publishes the file
+    # under its real name with a hard link, which fails if that name is already taken.
     try:
-        with os.fdopen(fd, "w") as fh:
-            json.dump(body, fh, indent=2)
-            fh.write("\n")
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.link(staged, path)
+        write_private(path, json.dumps(body, indent=2) + "\n", exclusive=True)
     except FileExistsError as exc:
         raise IdentityError(
             f"{path} already exists; refusing to overwrite a key. Pick another --name, "
             "or move the file away yourself if that key is truly retired") from exc
     except OSError as exc:
         raise IdentityError(f"cannot write the identity file {path}: {exc}") from exc
-    finally:
-        Path(staged).unlink(missing_ok=True)
     return Identity(name=name, pubkey=pub, path=path, signer_spec=spec)
 
 

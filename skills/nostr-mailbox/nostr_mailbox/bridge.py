@@ -185,7 +185,7 @@ def adopt_directive(session: CampaignSession, event_id: str, *, operator_file: s
         text = directive.text.strip()
         body = f"{SOURCE}{source}\n\n{text}"
         for line in body.splitlines():          # checked BEFORE the append-only write
-            if line.startswith("## ") or ENTRY.match(line):
+            if line.startswith("## ") or ENTRY.fullmatch(line):
                 raise BridgeError(
                     f"directive {short} carries a line that would read as an entry header "
                     f"in {path.name}: {line!r}. It was not adopted; appended, it would "

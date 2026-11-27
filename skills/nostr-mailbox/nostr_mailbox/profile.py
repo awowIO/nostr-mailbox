@@ -81,7 +81,7 @@ class EventTooLarge(ProfileError):
 
 
 def slug(value, what: str) -> str:
-    if not isinstance(value, str) or not _SLUG.match(value):
+    if not isinstance(value, str) or not _SLUG.fullmatch(value):
         raise ProfileError(f"{what} {value!r} must match {_SLUG.pattern}")
     return value
 
@@ -130,7 +130,7 @@ class EpochKeys:
         for epoch, key in self.epochs.items():
             if type(epoch) is not int or epoch < 1:
                 raise ProfileError(f"epoch {epoch!r} is not an integer from 1")
-            if not isinstance(key, str) or not _HEX64.match(key):
+            if not isinstance(key, str) or not _HEX64.fullmatch(key):
                 raise ProfileError(f"the key of epoch {epoch} is not 64 lowercase hex")
         if self.current not in self.epochs:
             raise ProfileError(f"current epoch {self.current} is not among the held "
@@ -168,7 +168,8 @@ class Trust:
     reviewer_pubkeys: frozenset[str] = frozenset()   # may also decide claims
     allow_cleartext: bool = False            # ws:// or http:// beyond loopback
     relay_auth_url: str | None = None        # the relay's own name for itself, if not `relay`
-    campaign_key: str | None = None          # 32-byte NIP-44 v2 campaign key (64 hex or nsec)
+    # 32-byte NIP-44 v2 campaign key (64 hex or nsec). A secret: never in a repr.
+    campaign_key: str | None = field(default=None, repr=False)
     # The epoch keyring this campaign is encrypted with (`<home>/keyrings/<name>.json`).
     # Declared, so a seat that has not loaded it refuses to write rather than writing
     # in plaintext or under a stale epoch.
@@ -190,17 +191,17 @@ class Trust:
             _url(self.blossom, ("http", "https"), "blossom", origin_only=True)
         slug(self.campaign, "campaign")
         if self.campaign_key is not None and (not isinstance(self.campaign_key, str)
-                                              or not _HEX64.match(self.campaign_key)):
+                                              or not _HEX64.fullmatch(self.campaign_key)):
             raise ProfileError("campaign_key must be 64 lowercase hex characters (or nsec1…)")
         if type(self.allow_cleartext) is not bool:
             raise ProfileError(f"allow_cleartext must be true or false, got "
                                f"{self.allow_cleartext!r}: a quoted \"false\" is a string, "
                                "and a string would have switched cleartext ON")
         if self.group is not None and (not isinstance(self.group, str)
-                                       or not _GROUP.match(self.group)):
+                                       or not _GROUP.fullmatch(self.group)):
             raise ProfileError(f"group {self.group!r} must match {_GROUP.pattern}")
         if self.keyring is not None and (not isinstance(self.keyring, str)
-                                         or not _GROUP.match(self.keyring)):
+                                         or not _GROUP.fullmatch(self.keyring)):
             raise ProfileError(f"keyring {self.keyring!r} must match {_GROUP.pattern}")
         if self.epoch_keys is not None and self.epoch_keys.campaign != self.campaign:
             raise ProfileError(f"epoch keys of campaign {self.epoch_keys.campaign!r} "
@@ -210,7 +211,7 @@ class Trust:
                                "has nobody who can direct or seal it")
         for roster in self._ROSTERS:
             for key in getattr(self, roster):
-                if not isinstance(key, str) or not _HEX64.match(key):
+                if not isinstance(key, str) or not _HEX64.fullmatch(key):
                     raise ProfileError(f"{roster} key {key!r} is not 64 lowercase hex "
                                        "characters")
 
@@ -375,7 +376,7 @@ def decrypt_record(event: Event, ring: EpochKeys) -> str:
     (written before epochs existed) is tried under every held key, newest first, and
     the MAC decides."""
     named = event.values("epoch")
-    if len(named) > 1 or (named and not _EPOCH.match(named[0])):
+    if len(named) > 1 or (named and not _EPOCH.fullmatch(named[0])):
         raise ProfileError(f"epoch tag {named} is not one positive integer")
     epochs = [int(named[0])] if named else ring.held()
     failures = []
@@ -462,7 +463,7 @@ def _line(value, what: str) -> str:
 
 
 def _digest(value, what: str) -> str:
-    if not isinstance(value, str) or not _HEX64.match(value):
+    if not isinstance(value, str) or not _HEX64.fullmatch(value):
         raise ProfileError(f"{what} must be a sha256 in lowercase hex")
     return value
 

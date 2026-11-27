@@ -2135,10 +2135,12 @@ def test_the_shipped_relay_config_keeps_its_gates_and_its_blob_rules():
     That ncli accepts this file, and enforces it, is test_nostr_ncli.py."""
     config = (DEPLOY / "relay.yaml").read_text()
     for gate in ("    auth_required: true", "    membership_required: true",
-                 "  inviteMaxUses: 1", "blossom:\n  enabled: true",
+                 "  inviteMaxUses: 1", "recipientOnlyKinds: [1059, 4410, 4411]",
+                 "blossom:\n  enabled: true",
                  "  uploadPaths: [/upload, /media/upload]", "  blobPrefix: /media",
                  "  membersOnly: {upload: true, download: true}"):
         assert f"\n{gate}\n" in config, gate
+    assert f"recipientOnlyKinds: {list(loopback.RECIPIENT_ONLY_KINDS)}" in config
     assert loopback.UPLOAD_PATHS == ("/upload", "/media/upload")
     assert loopback.BLOB_PREFIX == "/media", "the loopback relay serves what this file configures"
 

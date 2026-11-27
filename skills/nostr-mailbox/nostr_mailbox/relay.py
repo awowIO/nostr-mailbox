@@ -184,7 +184,7 @@ def fetch_info(url: str, *, timeout_s: float = DEFAULT_WAIT_S,
                      membership_required=limits.get("membership_required") is True,
                      max_limit=count("max_limit"),
                      max_message_length=count("max_message_length"),
-                     self_pubkey=own if isinstance(own, str) and _HEX64.match(own) else None,
+                     self_pubkey=own if isinstance(own, str) and _HEX64.fullmatch(own) else None,
                      supported_nips=tuple(n for n in nips if type(n) is int)
                      if isinstance(nips, list) else ())
 

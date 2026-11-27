@@ -100,18 +100,18 @@ def route_of(event: Event) -> Route:
     """The route an envelope declares, checked against its own thread commitment."""
     def one(name: str, pattern: re.Pattern) -> str:
         values = event.values(name)
-        if len(values) != 1 or not pattern.match(values[0]):
+        if len(values) != 1 or not pattern.fullmatch(values[0]):
             raise EnvelopeError(f"envelope tag {name!r} must appear once and be well formed")
         return values[0]
 
     owner, reader = one("mbx", _HEX64), one("p", _HEX64)
     part, thread, msg = one("part", _PART), one("thread", _HEX32), one("msg", _HEX32)
     replies = event.values("reply_to")
-    if len(replies) > 1 or (replies and not _HEX32.match(replies[0])):
+    if len(replies) > 1 or (replies and not _HEX32.fullmatch(replies[0])):
         raise EnvelopeError("an envelope answers at most one message")
     openers = [t for t in event.tags if t[0] == "opener"]
-    if (len(openers) != 1 or len(openers[0]) != 3 or not _HEX64.match(openers[0][1])
-            or not _HEX32.match(openers[0][2])):
+    if (len(openers) != 1 or len(openers[0]) != 3 or not _HEX64.fullmatch(openers[0][1])
+            or not _HEX32.fullmatch(openers[0][2])):
         raise EnvelopeError("an envelope carries one thread commitment [opener, pk, nonce]")
     opener, nonce = openers[0][1], openers[0][2]
     if thread_id(owner, opener, part, nonce) != thread:
@@ -229,7 +229,7 @@ def check_content(event: Event, content) -> None:
         ok = (isinstance(att, dict) and set(att) == {"dest", "bytes", "sha256", "blob", "key"}
               and isinstance(att["dest"], str) and att["dest"] and "\x00" not in att["dest"]
               and type(att["bytes"]) is int and att["bytes"] > 0
-              and all(isinstance(att[k], str) and _HEX64.match(att[k])
+              and all(isinstance(att[k], str) and _HEX64.fullmatch(att[k])
                       for k in ("sha256", "blob", "key")))
         if not ok or att["blob"] not in blobs:
             raise EnvelopeError("an attachment entry is malformed or names a blob the "

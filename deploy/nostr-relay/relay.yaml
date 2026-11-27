@@ -37,6 +37,12 @@ groups:
   roles:
     admin: [9000, 9001, 9002, 9005, 9008, 9009, 9010]
 
+# Served only to a socket authenticated (NIP-42) as a pubkey in the event's `p` tags:
+# NIP-59 gift wraps (1059: epoch-key delivery to one member) and the pairwise mail
+# envelopes and receipts (4410, 4411). Every other member gets nothing back for them,
+# not even that they exist: who writes to whom is not the whole relay's to read.
+recipientOnlyKinds: [1059, 4410, 4411]
+
 limits:
   events:
     # Per key: 60 events a minute, bursts of 60.

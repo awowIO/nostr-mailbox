@@ -44,6 +44,7 @@ from urllib.parse import unquote, urlsplit
 
 from . import acl, bech32, bridge, pairwise, secp256k1
 from . import keyring as keyrings
+from ._files import write_private
 from .backend import (
     BUS,
     DISPOSITIONS,
@@ -144,12 +145,7 @@ def _default_admin_path(args) -> Path:
 
 
 def _write_admin_file(path: Path, admin: RelayAdmin) -> None:
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    tmp = path.with_suffix(".json.tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as fh:
-        json.dump({"exec_prefix": admin.exec_prefix, "config": admin.config}, fh)
-    os.replace(tmp, path)
+    write_private(path, json.dumps({"exec_prefix": admin.exec_prefix, "config": admin.config}))
 
 
 def _topic_path(args, group: str) -> Path:
@@ -191,7 +187,6 @@ def _mapping(trust: Trust) -> dict:
 
 
 def _write_trust_file(path: Path, mapping: dict) -> None:
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     lines = [
         f'schema = {json.dumps(mapping.get("schema", "cf.transport/1"))}',
         f'relay = {json.dumps(mapping["relay"])}',
@@ -208,17 +203,7 @@ def _write_trust_file(path: Path, mapping: dict) -> None:
         lines.append("allow_cleartext = true")
     text = "\n".join(lines) + "\n"
     Trust.from_mapping(mapping, source=str(path))
-    _write_private(path, text)
-
-
-def _write_private(path: Path, text: str) -> None:
-    """Replace `path` whole with `text`, 0600 in a 0700 directory."""
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    tmp = path.with_suffix(".toml.tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as fh:
-        fh.write(text)
-    os.replace(tmp, path)
+    write_private(path, text)
 
 
 # ------------------------------------------------------------------- the org registry
@@ -252,7 +237,7 @@ def _write_org(path: Path, entry: dict) -> None:
     if tomllib.loads(text) != entry:        # JSON escapes that TOML reads otherwise
         raise ProfileError(f"the registry entry for campaign {entry['campaign']!r} does not "
                            "survive as TOML; nothing was written")
-    _write_private(path, text)
+    write_private(path, text)
 
 
 def _org_entry(args, trust: Trust) -> tuple[Path, dict]:

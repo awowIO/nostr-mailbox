@@ -33,12 +33,12 @@ import os
 import secrets
 import socket
 import stat
-import tempfile
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from . import acl, bech32, pairwise, secp256k1
+from ._files import write_private
 from .backend import CampaignSession, NostrRelayChannelBackend
 from .blossom import BlossomError, DigestMismatch
 from .event import Event, dumps, now
@@ -135,17 +135,7 @@ class Dropbox:
                 "claims_seen": dict(body.get("claims_seen", {}))}
 
     def _save(self, state: dict) -> None:
-        self.state_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        fd, staged = tempfile.mkstemp(dir=self.state_path.parent, suffix=".part")
-        try:
-            with os.fdopen(fd, "w") as fh:
-                json.dump(state, fh)
-                fh.flush()
-                os.fsync(fh.fileno())
-            os.replace(staged, self.state_path)
-        finally:
-            with contextlib.suppress(FileNotFoundError):
-                os.unlink(staged)
+        write_private(self.state_path, json.dumps(state))
 
     # ----------------------------------------------------------------------- ACL
     def acl_events(self, owner: str) -> list[Event]:

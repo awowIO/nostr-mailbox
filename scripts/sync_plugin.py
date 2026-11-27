@@ -181,11 +181,14 @@ def package_files() -> list[Path]:
     return sorted(files)
 
 
-def copy_package(target: Path, dry_run: bool) -> None:
+def copy_files(target: Path, base: Path, sources: list[Path], dry_run: bool) -> None:
+    """Copy `sources` into `target`, each at its path relative to `base`. Nothing is
+    written through a symlink: not `target`, not a directory between it and the file,
+    not the file's own name."""
     if target.is_symlink():
-        raise SystemExit(f"refusing to write through symlinked plugin directory {target}")
-    for source in package_files():
-        destination = target / source.relative_to(ROOT)
+        raise SystemExit(f"refusing to write through symlinked directory {target}")
+    for source in sources:
+        destination = target / source.relative_to(base)
         if any(
             part.is_symlink()
             for part in [destination, *destination.parents]
@@ -202,6 +205,10 @@ def copy_package(target: Path, dry_run: bool) -> None:
             stream.write(source.read_bytes())
         os.chmod(stream.name, source.stat().st_mode & 0o777)
         os.replace(stream.name, destination)
+
+
+def copy_package(target: Path, dry_run: bool) -> None:
+    copy_files(target, ROOT, package_files(), dry_run)
 
 
 GITHUB_REPO = "awowIO/nostr-mailbox"
@@ -229,38 +236,26 @@ def install_codex(name: str, dry_run: bool) -> None:
 
 
 def copy_skill_dir(target: Path, dry_run: bool) -> None:
-    """Copy skills/<skill> into a harness skill directory (Pi, Copilot, Cursor, OpenCode)."""
-    if target.is_symlink():
-        raise SystemExit(f"refusing to write through symlinked skill directory {target}")
+    """Copy skills/<skill> into a harness skill directory (Pi, Copilot, Cursor, OpenCode),
+    under the same rules as `copy_package`."""
     skill_root = ROOT / "skills/nostr-mailbox"
-    for candidate in sorted(skill_root.rglob("*")):
-        if candidate.is_symlink():
-            raise SystemExit(f"refusing to package a symlink: {candidate}")
-        if (
-            not candidate.is_file()
-            or "__pycache__" in candidate.parts
-            or candidate.suffix == ".pyc"
-        ):
-            continue
-        destination = target / candidate.relative_to(skill_root)
-        if destination.is_file() and destination.read_bytes() == candidate.read_bytes():
-            continue
-        print(f"copy {candidate.relative_to(ROOT)} -> {destination}", flush=True)
-        if dry_run:
-            continue
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as stream:
-            stream.write(candidate.read_bytes())
-        os.chmod(stream.name, candidate.stat().st_mode & 0o777)
-        os.replace(stream.name, destination)
+    files = [path for path in package_files() if path.is_relative_to(skill_root)]
+    copy_files(target, skill_root, files, dry_run)
 
 
-SKILL_HARNESS_DIRS: dict[str, Path] = {
-    "pi": Path.home() / ".pi/agent/skills",
-    "copilot": Path.home() / ".copilot/skills",
-    "cursor": Path.home() / ".cursor/skills",
-    "opencode": Path.home() / ".config/opencode/skills",
-}
+def pi_agent_dir() -> Path:
+    """Pi's agent directory: PI_CODING_AGENT_DIR when set, else its default."""
+    return Path(os.environ.get("PI_CODING_AGENT_DIR") or Path.home() / ".pi/agent").expanduser()
+
+
+def skill_harness_dirs() -> dict[str, Path]:
+    """Where each skill-directory harness looks for skills, read when asked."""
+    return {
+        "pi": pi_agent_dir() / "skills",
+        "copilot": Path.home() / ".copilot/skills",
+        "cursor": Path.home() / ".cursor/skills",
+        "opencode": Path.home() / ".config/opencode/skills",
+    }
 
 
 def main() -> int:
@@ -309,7 +304,7 @@ def main() -> int:
                 harnesses.append(h)
         if shutil.which("agy") or (Path.home() / ".gemini").is_dir():
             harnesses.append("antigravity")
-        if shutil.which("pi") or (Path.home() / ".pi").is_dir():
+        if shutil.which("pi") or pi_agent_dir().is_dir() or (Path.home() / ".pi").is_dir():
             harnesses.append("pi")
         if shutil.which("opencode") or (Path.home() / ".config/opencode").is_dir():
             harnesses.append("opencode")
@@ -338,8 +333,8 @@ def main() -> int:
             install_codex(meta["name"], args.dry_run)
         elif harness == "antigravity":
             copy_package(args.antigravity_dir / meta["name"], args.dry_run)
-        elif harness in SKILL_HARNESS_DIRS:
-            copy_skill_dir(SKILL_HARNESS_DIRS[harness] / meta["name"], args.dry_run)
+        else:
+            copy_skill_dir(skill_harness_dirs()[harness] / meta["name"], args.dry_run)
     bin_dir = Path.home() / ".local/bin"
     bin_target = bin_dir / "nostr-mailbox"
     script_src = ROOT / "skills/nostr-mailbox/scripts/nostr_mailbox.py"

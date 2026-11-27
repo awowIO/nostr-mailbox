@@ -33,12 +33,20 @@ from urllib.parse import urlsplit
 
 from .event import Clock, NostrError, dumps, now, unsigned
 from .identity import BLOSSOM_AUTH_KIND, Signer
-from .relay import DEFAULT_WAIT_S
+from .relay import DEFAULT_WAIT_S, MAX_MESSAGE_BYTES
 from .ws import CleartextRefused, is_loopback
 
 # How long one signed authorization stays valid: the ±120 s freshness window the relay
 # report sets for a NIP-42 proof, reused so one clock-skew budget covers both.
 AUTH_TTL_S = 120
+# The most one blob may be: the relay's own `blossom.maxBlobBytes` (100 MiB, the pinned
+# release's default, which deploy/nostr-relay/relay.yaml ships). A server that sends
+# more than it could have stored is refused instead of read into memory or onto disk.
+# A campaign on a server with another limit passes its own `max_blob_bytes`.
+MAX_BLOB_BYTES = 104_857_600
+# A server's answer about a blob (its descriptor) is one small JSON object: it gets the
+# room one relay message has (relay.MAX_MESSAGE_BYTES), as the NIP-11 document does.
+MAX_ANSWER_BYTES = MAX_MESSAGE_BYTES
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -73,10 +81,12 @@ def sha256_file(path: str | Path) -> tuple[str, int]:
 class BlossomClient:
     def __init__(self, origin: str, signer: Signer, *, server: str | None = None,
                  timeout_s: float = DEFAULT_WAIT_S, auth_ttl_s: int = AUTH_TTL_S,
-                 allow_cleartext: bool = False, clock: Clock = time.time):
+                 allow_cleartext: bool = False, clock: Clock = time.time,
+                 max_blob_bytes: int = MAX_BLOB_BYTES):
         """`origin` is where requests go. `server` is the `host[:port]` the blob server
         knows itself by, when that differs: a seat inside the cluster dials the Service
-        and still has to name the public host in what it signs."""
+        and still has to name the public host in what it signs. `max_blob_bytes` is the
+        most this client reads for one blob."""
         try:
             parts = urlsplit(origin)
             _ = parts.port                          # reading it is what rejects a bad port
@@ -98,6 +108,7 @@ class BlossomClient:
         self.server = server or parts.netloc
         self._parts, self.signer = parts, signer
         self.timeout_s, self.auth_ttl_s, self.clock = timeout_s, auth_ttl_s, clock
+        self.max_blob_bytes = max_blob_bytes
 
     def _connection(self) -> http.client.HTTPConnection:
         host, port = self._parts.hostname, self._parts.port
@@ -131,13 +142,31 @@ class BlossomClient:
             conn.close()
             raise BlossomError(f"{method} {self.origin}{path} failed: {exc}") from exc
 
-    def _read(self, response, what: str, amount: int | None = None) -> bytes:
+    def _read(self, response, what: str, amount: int) -> bytes:
         try:
-            return response.read() if amount is None else response.read(amount)
+            return response.read(amount)
         except TimeoutError as exc:
             raise BlossomError(f"{what} stalled for {self.timeout_s}s mid-transfer") from exc
         except (OSError, http.client.HTTPException) as exc:
             raise BlossomError(f"{what} broke mid-transfer: {exc}") from exc
+
+    @staticmethod
+    def _over(what: str, size: int, cap: int, *, declared: bool) -> BlossomError:
+        """The refusal of a body over its cap: how far over, and which cap it was."""
+        said = "declares" if declared else "sent at least"
+        return BlossomError(f"{what} {said} {size:,} bytes, {100 * size / cap:.0f}% of the "
+                            f"{cap:,}-byte cap this client reads; discarded")
+
+    def _bounded(self, response, what: str, cap: int) -> bytes:
+        """The whole body, or `BlossomError` when it is (or says it is) over `cap`: a
+        server never decides how much this process holds in memory."""
+        declared = response.getheader("Content-Length")
+        if declared is not None and declared.isdigit() and int(declared) > cap:
+            raise self._over(what, int(declared), cap, declared=True)
+        data = self._read(response, what, cap + 1)
+        if len(data) > cap:
+            raise self._over(what, len(data), cap, declared=False)
+        return data
 
     @staticmethod
     def _refuse(method: str, url: str, response) -> BlossomError:
@@ -166,8 +195,8 @@ class BlossomClient:
         with contextlib.closing(conn):
             if response.status not in (200, 201):
                 raise self._refuse("PUT", f"{self.origin}/upload", response)
-            return self._descriptor(self._read(response, "the upload answer"), sha256,
-                                    len(data))
+            return self._descriptor(
+                self._bounded(response, "the upload answer", MAX_ANSWER_BYTES), sha256, len(data))
 
     def upload_file(self, path: str | Path, *,
                     content_type: str = "application/octet-stream") -> Blob:
@@ -180,14 +209,14 @@ class BlossomClient:
             with contextlib.closing(conn):
                 if response.status not in (200, 201):
                     raise self._refuse("PUT", f"{self.origin}/upload", response)
-                return self._descriptor(self._read(response, "the upload answer"), sha256,
-                                        size)
+                return self._descriptor(
+                    self._bounded(response, "the upload answer", MAX_ANSWER_BYTES), sha256, size)
 
     def exists(self, sha256: str) -> bool:
         self._check(sha256)
         conn, response = self._request("HEAD", f"/{sha256}", "get", sha256)
         with contextlib.closing(conn):
-            self._read(response, "the HEAD answer")
+            self._read(response, "the HEAD answer", MAX_ANSWER_BYTES)   # a HEAD has no body
             if response.status == 200:
                 return True
             if response.status == 404:
@@ -201,7 +230,8 @@ class BlossomClient:
         with contextlib.closing(conn):
             if response.status != 200:
                 raise self._refuse("GET", f"{self.origin}/{sha256}", response)
-            data = self._read(response, f"the download of {sha256[:12]}…")
+            data = self._bounded(response, f"the download of {sha256[:12]}…",
+                                 self.max_blob_bytes)
         got = hashlib.sha256(data).hexdigest()
         if got != sha256:
             raise DigestMismatch(f"{self.origin}/{sha256} returned {len(data):,} bytes "
@@ -221,12 +251,14 @@ class BlossomClient:
             digest, size = hashlib.sha256(), 0
             fd, partial = tempfile.mkstemp(dir=dest.parent, prefix=f".{dest.name}.")
             try:
+                what = f"the download of {sha256[:12]}…"
                 with os.fdopen(fd, "wb") as out:
-                    while chunk := self._read(response, f"the download of {sha256[:12]}…",
-                                              shutil.COPY_BUFSIZE):
+                    while chunk := self._read(response, what, shutil.COPY_BUFSIZE):
+                        size += len(chunk)
+                        if size > self.max_blob_bytes:
+                            raise self._over(what, size, self.max_blob_bytes, declared=False)
                         digest.update(chunk)
                         out.write(chunk)
-                        size += len(chunk)
                 if digest.hexdigest() != sha256:
                     raise DigestMismatch(
                         f"{self.origin}/{sha256} returned {size:,} bytes hashing to "
@@ -240,5 +272,5 @@ class BlossomClient:
 
     @staticmethod
     def _check(sha256: str) -> None:
-        if not _SHA256.match(sha256):
+        if not _SHA256.fullmatch(sha256):
             raise BlossomError(f"{sha256!r} is not a sha256 in lowercase hex")

@@ -66,7 +66,7 @@ class AclError(ProfileError):
 def validate_part(part, *, allow_wildcard: bool = False) -> str:
     if allow_wildcard and part == "*":
         return part
-    if not isinstance(part, str) or len(part) > 128 or not _PART.match(part):
+    if not isinstance(part, str) or len(part) > 128 or not _PART.fullmatch(part):
         raise AclError(f"mailbox part {part!r} must be inbox, bus or topic:<slug>")
     return part
 
@@ -93,7 +93,7 @@ def _deadline(event: Event, *names: str) -> int | None:
     for name in names:
         values = event.values(name)
         if values:
-            if not _STAMP.match(values[0]):
+            if not _STAMP.fullmatch(values[0]):
                 raise AclError(f"{name} {values[0]!r} is not a unix timestamp")
             return int(values[0])
     return None
@@ -232,7 +232,7 @@ def derive(owner: str, events: Iterable[Event], *, relay: str, at: int) -> AclSt
             except AclError as exc:
                 state.rejected.append((event.id, str(exc)))
                 continue
-            if not _HEX64.match(grantee) or grantee == owner:
+            if not _HEX64.fullmatch(grantee) or grantee == owner:
                 state.rejected.append((event.id, "a grant names one peer other than the owner"))
                 continue
             confirms = [i for i in event.values("e") if i in invites]

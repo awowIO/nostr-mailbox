@@ -52,7 +52,7 @@ class TopicError(ProfileError):
 
 
 def topic_id(value) -> str:
-    if not isinstance(value, str) or not TOPIC_ID.match(value):
+    if not isinstance(value, str) or not TOPIC_ID.fullmatch(value):
         raise TopicError(f"topic {value!r} must match {TOPIC_ID.pattern}: a NIP-29 group id "
                          "that is also a campaign topic slug")
     return value

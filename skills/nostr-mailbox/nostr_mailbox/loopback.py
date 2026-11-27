@@ -17,9 +17,9 @@ Where the protocol leaves room, it behaves the way the pinned relay
 - blobs answer at `/<sha256>[.ext]` and `/media/<sha256>[.ext]`, uploads at `/upload`
   and `/media/upload`, and a descriptor's URL is the `/media/…` one.
 
-It also runs the self-service switches of the `nostr-relay-deploy` relay.yaml (this
-repository's own `deploy/nostr-relay/relay.yaml` leaves `memberClaims` off and sets no
-`recipientOnlyKinds`; turning them on is a deployment decision):
+It also runs the switches of the relay.yaml (this repository's own
+`deploy/nostr-relay/relay.yaml` sets `recipientOnlyKinds` and leaves `memberClaims`
+off; `nostr-relay-deploy` turns that on too, a deployment decision):
 
 - `recipientOnlyKinds: [1059, 4410, 4411]`: gift wraps and pairwise envelopes are
   served only to a socket authenticated as a key in the event's `p` tags;
@@ -188,7 +188,7 @@ class _Blobs:
                 "sha256": sha256, "size": len(body), "type": kind,
                 "uploaded": now(self.clock)}).encode(), content_type="application/json")
             return True
-        named = _BLOB_PATH.match(path)
+        named = _BLOB_PATH.fullmatch(path)
         if named is None:
             return False
         if method not in ("GET", "HEAD"):
@@ -485,7 +485,7 @@ class LoopbackRelay:
         if event.kind == groups.CREATE_GROUP:
             if group is not None:
                 return False, f"duplicate: group {gid} already exists", None
-            if not _GROUP_ID.match(gid):
+            if not _GROUP_ID.fullmatch(gid):
                 return False, f"invalid: {gid!r} is not a NIP-29 group id", None
             self.groups[gid] = _Group(admins={author}, members={author},
                                       restricted=event.has_tag("restricted"))

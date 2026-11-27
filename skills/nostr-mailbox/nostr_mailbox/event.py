@@ -84,7 +84,7 @@ def event_id(pubkey: str, created_at: int, kind: int, tags, content: str) -> str
 
 
 def _check_shape(pubkey, created_at, kind, tags, content) -> None:
-    if not isinstance(pubkey, str) or not _HEX64.match(pubkey):
+    if not isinstance(pubkey, str) or not _HEX64.fullmatch(pubkey):
         raise InvalidEvent("pubkey must be 64 lowercase hex characters")
     if type(created_at) is not int or created_at < 0:
         raise InvalidEvent("created_at must be a non-negative integer")
@@ -133,9 +133,9 @@ def check_wire_shape(raw) -> tuple:
         raise InvalidEvent(f"event fields are wrong (missing {missing}, unexpected {extra})")
     fields = (raw["pubkey"], raw["created_at"], raw["kind"], raw["tags"], raw["content"])
     _check_shape(*fields)
-    if not isinstance(raw["id"], str) or not _HEX64.match(raw["id"]):
+    if not isinstance(raw["id"], str) or not _HEX64.fullmatch(raw["id"]):
         raise InvalidEvent("id must be 64 lowercase hex characters")
-    if not isinstance(raw["sig"], str) or not _HEX128.match(raw["sig"]):
+    if not isinstance(raw["sig"], str) or not _HEX128.fullmatch(raw["sig"]):
         raise InvalidEvent("sig must be 128 lowercase hex characters")
     return fields
 

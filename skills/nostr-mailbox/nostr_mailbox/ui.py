@@ -67,7 +67,6 @@ import secrets
 import socket
 import stat
 import sys
-import tempfile
 import threading
 import traceback
 import webbrowser
@@ -78,6 +77,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from . import __version__, bech32, nip44
+from ._files import write_private
 from .backend import (
     DISPOSITIONS,
     INBOX,
@@ -230,7 +230,7 @@ def parse_keyring(rumor: dict, campaign: str) -> dict:
     if body.get("campaign") != campaign:
         raise TopicError(f"key ring of campaign {body.get('campaign')!r}, not {campaign!r}")
     topic = body.get("topic")
-    if not isinstance(topic, str) or not TOPIC_ID.match(topic):
+    if not isinstance(topic, str) or not TOPIC_ID.fullmatch(topic):
         raise TopicError(f"key ring topic {topic!r} is not a topic id")
     if [t[1] for t in rumor["tags"] if t[0] == "h" and len(t) > 1] != [topic]:
         raise TopicError("key ring h tag does not name its topic")
@@ -238,7 +238,7 @@ def parse_keyring(rumor: dict, campaign: str) -> dict:
     epochs: dict[int, str] = {}
     for n, key in (raw.items() if isinstance(raw, dict) else ()):
         if not re.fullmatch(r"[1-9][0-9]*", n) or not isinstance(key, str) \
-                or not _SHA256.match(key):
+                or not _SHA256.fullmatch(key):
             raise TopicError(f"key ring epoch {n!r} is malformed")
         epochs[int(n)] = key
     if not epochs:
@@ -296,7 +296,7 @@ def topic_state(trust: Trust, topic: str, group_events: list[Event], rings: list
                 or e.pubkey not in admins):
             continue
         for tag in e.tags:
-            if len(tag) > 1 and tag[0] == "p" and _SHA256.match(tag[1]):
+            if len(tag) > 1 and tag[0] == "p" and _SHA256.fullmatch(tag[1]):
                 member[tag[1]] = e.kind == PUT_USER
                 role[tag[1]] = role_of(tag) if e.kind == PUT_USER else role.get(tag[1],
                                                                                  "read-write")
@@ -381,7 +381,7 @@ class TopicDesk:
         return self._rings
 
     def state(self, topic: str) -> TopicState:
-        if not TOPIC_ID.match(topic):
+        if not TOPIC_ID.fullmatch(topic):
             raise TopicError(f"topic id {topic!r} must match {TOPIC_ID.pattern}")
         events = self.session.relay.query_all({
             "kinds": [CREATE_GROUP, PUT_USER, REMOVE_USER, DELETE_EVENT, JOIN_REQUEST],
@@ -392,7 +392,7 @@ class TopicDesk:
         created = self.session.relay.query_all({"kinds": [CREATE_GROUP],
                                                 "authors": [self.me]})
         names = {r["topic"] for r in self.rings()} | {
-            t for e in created for t in e.values("h")[:1] if TOPIC_ID.match(t)}
+            t for e in created for t in e.values("h")[:1] if TOPIC_ID.fullmatch(t)}
         return [self.state(name) for name in sorted(names)]
 
     def scope_trust(self, state: TopicState, epoch: int | None = None) -> tuple[Trust, int]:
@@ -421,7 +421,7 @@ class TopicDesk:
         return event
 
     def create(self, topic: str, name: str | None = None) -> dict:
-        if not TOPIC_ID.match(topic):
+        if not TOPIC_ID.fullmatch(topic):
             raise TopicError(f"topic id {topic!r} must match {TOPIC_ID.pattern}")
         taken = self.session.relay.query_all({"kinds": [CREATE_GROUP], "#h": [topic]})
         if taken:
@@ -679,7 +679,7 @@ class Console:
         folder = self.home / "exports"
         held: dict[str, list[int]] = {}
         for path in sorted(folder.glob("*.toml")) if folder.is_dir() else ():
-            match = _EXPORT.match(path.name)
+            match = _EXPORT.fullmatch(path.name)
             if match:
                 held.setdefault(match.group(1), []).append(int(match.group(2)))
         return {topic: sorted(epochs) for topic, epochs in held.items()}
@@ -709,18 +709,7 @@ class Console:
         return book
 
     def _book_save(self, topic: str, book: dict) -> None:
-        path = self._book_path(topic)
-        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        fd, staged = tempfile.mkstemp(dir=path.parent, prefix=f".{topic}.", suffix=".part")
-        try:
-            with os.fdopen(fd, "w") as fh:
-                json.dump(book, fh, indent=1, sort_keys=True)
-                fh.flush()
-                os.fsync(fh.fileno())
-            os.replace(staged, path)
-        finally:
-            with contextlib.suppress(FileNotFoundError):     # replaced: nothing to clean
-                os.unlink(staged)
+        write_private(self._book_path(topic), json.dumps(book, indent=1, sort_keys=True))
 
     def invites(self) -> dict:
         """Every topic invite minted here, as the admin's page matches join requests to
@@ -729,7 +718,7 @@ class Console:
         topics = sorted(p.stem for p in folder.glob("*.json")) if folder.is_dir() else []
         return {"topics": {t: [{"ticket_sha256": digest, **terms}
                                for digest, terms in sorted(self._book(t)["tickets"].items())]
-                           for t in topics if TOPIC_ID.match(t)}}
+                           for t in topics if TOPIC_ID.fullmatch(t)}}
 
     # ---- the API
     def state(self) -> dict:
@@ -820,7 +809,7 @@ class Console:
         from . import cli
         trust, admin = self.need_trust(), self.admin()
         member, topic = body.get("member") or None, body.get("topic") or None
-        if topic is not None and not TOPIC_ID.match(str(topic)):
+        if topic is not None and not TOPIC_ID.fullmatch(str(topic)):
             raise ConsoleError(f"topic {topic!r} must match {TOPIC_ID.pattern}")
         invite = admin.create_invite(ttl=str(body.get("ttl") or INVITE_TTL))
         token = cli._encode_invite_token(trust, invite["code"], member=member)
@@ -1155,7 +1144,7 @@ class _Handler(BaseHTTPRequestHandler):
 
             def blob(c: Console) -> None:
                 self._gate(write=False)
-                if not _SHA256.match(sha256):
+                if not _SHA256.fullmatch(sha256):
                     raise ConsoleError(f"{sha256!r} is not a sha256 in lowercase hex")
                 data, kind = c.blob_get(sha256)
                 self._send(HTTPStatus.OK, data, kind, {"X-Digest-Verified": "sha256"})
@@ -1183,7 +1172,7 @@ class _Handler(BaseHTTPRequestHandler):
             self._serve(put)
             return
         method = self._POSTS.get(path)
-        invited = _TOPIC_INVITE.match(path)
+        invited = _TOPIC_INVITE.fullmatch(path)
         if invited:
             def method(c: Console, body: dict) -> dict:
                 return c.topic_invite(invited.group(1), body)
