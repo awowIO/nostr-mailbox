@@ -152,6 +152,8 @@ def test_two_personas_of_one_home_hold_two_rings_and_neither_reads_the_others(
         KeyRing.open(laptop, elsewhere, "alice")
     ring = KeyRing.open(laptop, trust, "alice")
     bob = load_identity("bob", base=laptop).signer(timeout_s=WAIT)
+    with pytest.raises(KeyRingError, match="this session signs as"):
+        CampaignSession(trust, bob, timeout_s=WAIT, keyring=ring)
     with CampaignSession(trust, bob, timeout_s=WAIT, sync_keys=False) as session, \
             pytest.raises(KeyRingError, match="this session signs as"):
         keyrings.sync(session.relay, bob, trust, ring)

@@ -35,7 +35,7 @@ Install the standalone CLI + local MCP server, or install the skill/plugin direc
 |---|---|---|
 | **Channels & threads** | Slack channels, Signal threads | Persistent team rooms (`#deals`, `#partners-only`), per-task agent rooms (`#wave-7`), or direct 1-to-1 Persona threads (`@alice <-> @dave`). A channel is a `topic`: a NIP-29 group with its own epoch keyring. |
 | **Live agent wire** | Redis Pub/Sub + Streams (`XADD`) | Pushes messages, claims and route updates over the WebSocket as they are published. The relay keeps the encrypted log in SQLite, so a member with the keys can replay the full history. |
-| **Direct intake** | An email address, a dropbox link | Every member has a dropbox: 1-to-1 mail encrypted to one reader and served only to that reader. A write-only channel invite lets an outside sender drop messages or files without reading the room. |
+| **Direct intake** | An email address, a dropbox link | Every member has a dropbox: 1-to-1 mail encrypted to one reader and served only to that reader. A write-only channel invite gives an outside sender no channel key at all: they drop sealed mail into the keeper's dropbox for that channel and never read the room. |
 | **Three-gate ACLs** | Databricks or RBAC grants | (1) The relay's connection allowlist, (2) each channel's roster, and (3) each channel's client-side decryption key. |
 
 ---
@@ -69,7 +69,7 @@ Raw Nostr leaves two gaps for private team and agent work. Group membership is b
 | **`CONNECT`**<br>Relay handshake | **`NIP-42`:** any client opens a WebSocket and signs the relay's auth challenge with its key. | **Relay allowlist (`NIP-43`):** a raw relay admits anyone. Ours refuses every key that has not redeemed a single-use invite, and `relay join` refuses a relay that does not advertise both gates. | **One-link invites (`nm1_...`):** one token or `https://.../join/#nm1_...` link carries the relay, a single-use admission code and, for a channel, its keys. |
 | **`CREATE CHANNEL`**<br>Create a room | **`NIP-29`:** create a named group; the creator becomes its admin. | **Member gate, private by default:** only admitted keys create rooms, and every room is created private, restricted and closed. | **Automatic channel keyring:** creating a channel creates its epoch keyring (`keyrings/<channel>.json`, 0600), so every record is encrypted client-side. |
 | **`READ`**<br>History and live stream | **`REQ`:** a subscription streams stored history, then live events. | **Roster and key gate:** the relay serves a private group only to its members, and without the channel's epoch keys its records stay ciphertext. | **Key delivery:** the invite token carries the epoch keys a newcomer is given (`--history all` or `from-now`). Keys granted with `topic approve` arrive as a `NIP-59` gift wrap. |
-| **`WRITE`**<br>Post messages and files | **`EVENT`:** publish signed events to a channel or to one user. | **`WRITE` decoupled from `READ`:** raw groups lump them together. Invites carry a role: `read-write` (collaborator), `read-only` (observer) or `write-only` (one-way dropbox). | **Encrypted attachments:** files, diffs, OOF parquets and PoC traces are sealed under the channel's current epoch key and stored on the relay's Blossom store by SHA-256. |
+| **`WRITE`**<br>Post messages and files | **`EVENT`:** publish signed events to a channel or to one user. | **`WRITE` decoupled from `READ`:** raw groups lump them together. Invites carry a role: `read-write` (collaborator) and `read-only` (observer) are given the channel's keys; `write-only` (one-way dropbox) is given none, in the token or at any rotation. | **Encrypted attachments:** files, diffs, OOF parquets and PoC traces are sealed under the channel's current epoch key and stored on the relay's Blossom store by SHA-256. |
 | **`MANAGE`**<br>Admin and referee | **`NIP-29`:** group admins add (`kind 9000`) or remove (`kind 9001`) members. | **Keeper and pinned keys:** only the channel's keeper admits and evicts members. Reviewer, lead and operator keys pinned in `nostr.toml` decide claims, write the Route Board, send directives and seal topics. | **Rotation on eviction:** `topic revoke` removes the member and rotates the channel to a new epoch that only the remaining members receive. A revoked key keeps what it already held. |
 | **`POOL <user>/agents`**<br>Agent pools | **Native:** every agent seat has its own keypair and signs its own posts (`alice-seat-1`, `bob-seat-2`). | **Seat certificates:** a person signs a certificate (`kind 34410`) for each seat, and a dropbox reader accepts a seat's mail only with it. Container seats sign through a host-side socket, so the key never enters the container. | **Planned:** granting a channel to `bob/agent-pool` in one step, and revoking Bob's seats with Bob. Today each seat is invited, and revoked, by its own key. |
 
@@ -84,13 +84,13 @@ Permissions in an Org workspace, a multi-pool agent channel, a human-only room, 
 | **`Org: acme-lab`**<br>Curated team workspace | `@alice-work` | Founding admin | `CONNECT`, `CREATE CHANNEL`, `ADMIN` | Manages Org membership, creates channels, evicts keys relay-wide. |
 | **`Org: acme-lab`** | `@bob`, `@carol` | Org teammates | `CONNECT`, `CREATE CHANNEL` | Connect, create channels themselves, and join the channels they are invited to. |
 | **`Org: acme-lab`** | `@dave`, `@vendor_intake` | External Personas | `CONNECT` (scoped) only | **Not part of `Org: acme-lab`.** They see neither its channels nor its roster. |
-| **`#wave-7-auth`**<br>Multi-pool agent channel | `@alice-work` | Channel keeper | `READ`, `WRITE`, `MANAGE` | Holds `keyrings/wave-7-auth.json`, manages the roster, and reviews agent claims. |
-| **`#wave-7-auth`** | `alice/agent-pool` (1..4), `@bob` + `bob/agent-pool` (1..4) | Collaborators | `READ`, `WRITE` | Every seat holds `keyrings/wave-7-auth.json`, reads history and the live stream, and posts encrypted updates. |
-| **`#wave-7-auth`** | `monitor_bot` | Observer | `READ` only | Holds `keyrings/wave-7-auth.json` and streams history and live events, but does not post. |
-| **`#partners-only`**<br>Human-only room | `@alice-work`, `@bob`, `@carol` | Human partners | `READ`, `WRITE` | `keyrings/partners-only.json` lives only in the humans' own keyrings (CLI or browser). |
+| **`#wave-7-auth`**<br>Multi-pool agent channel | `@alice-work` | Channel keeper | `READ`, `WRITE`, `MANAGE` | Holds `keyrings/alice-work/wave-7-auth.json`, manages the roster, and reviews agent claims. |
+| **`#wave-7-auth`** | `alice/agent-pool` (1..4), `@bob` + `bob/agent-pool` (1..4) | Collaborators | `READ`, `WRITE` | Every seat holds its own `keyrings/<persona>/wave-7-auth.json`, reads history and the live stream, and posts encrypted updates. |
+| **`#wave-7-auth`** | `monitor_bot` | Observer | `READ` only | Holds its own `keyrings/<persona>/wave-7-auth.json` and streams history and live events, but does not post. |
+| **`#partners-only`**<br>Human-only room | `@alice-work`, `@bob`, `@carol` | Human partners | `READ`, `WRITE` | `keyrings/<persona>/partners-only.json` lives only in the humans' own keyrings (CLI or browser). |
 | **`#partners-only`** | *All agent pools* | *Not enrolled* | *None* | **No agent is on the roster, and no agent holds the room's key.** |
 | **`#external-intake`**<br>One-way dropbox | `@alice-work` | Channel owner | `READ`, `WRITE`, `MANAGE` | Reads and decrypts every incoming drop. |
-| **`#external-intake`** | `@vendor_intake` | External sender | `WRITE` only | Posts messages and files into the intake, but cannot read the channel. |
+| **`#external-intake`** | `@vendor_intake` | External sender | `WRITE` only | Holds no channel key. Writes sealed mail into the owner's `topic:external-intake` dropbox part (`mail send --part`), held at the owner's human gate, and cannot read the channel. |
 | **`@alice-personal <-> @dave`**<br>Direct Persona thread | `@alice-personal` + `@dave` (+ Dave's MCP client) | Direct peers | `READ`, `WRITE` | Independent Personas talking in a private thread, with no tie to `Org: acme-lab`. |
 
 ---
@@ -202,7 +202,10 @@ nostr-mailbox relay revoke <npub> --kubectl
 ```
 
 - **Invites over the WebSocket or the admin CLI.** `invite` and `topic invite` ask the relay for a code over the socket (NIP-43 `kind 28935`). A relay grants that to any member only when it sets `memberClaims: true`. `nostr-relay-deploy` turns it on, but this repository's `deploy/nostr-relay/relay.yaml` leaves it off, so add `--admin` (the admin CLI that `setup` saved) or `--kubectl`. There is no silent fallback from one to the other.
-- **`join`** accepts an `nm1_...` token, a `https://.../join/#nm1_...` link, or `-` for stdin. It creates the Persona's key if it has none, writes `nostr.toml` (0600), redeems the invite and, for a channel, stores its keyring.
+- **`join`** accepts an `nm1_...` token, a `https://.../join/#nm1_...` link, or `-` for stdin. It creates the Persona's key if it has none, redeems the invite and only then writes `nostr.toml` (0600) and, for a channel, the keyring: a join the relay refuses leaves every trust file as it was. A declaration this machine already holds is never replaced by a token; the output says what the token declared differently.
+- **Keyrings belong to one Persona.** A channel's keys are kept per Persona (`<home>/keyrings/<persona>/<channel>.json`, bound to that Persona's key and the relay), so two Personas sharing one `--home` never read each other's epochs. A ring from before this (`<home>/keyrings/<channel>.json`) moves to its place by itself in a home with one identity, and is refused with the `mv` that settles it in a home with several.
+- **Write-only members** are given no channel key. They write with `nostr-mailbox --topic <channel> mail send --to <keeper npub> --part topic:<channel> "..."`, which the keeper reads with `mail read` behind the human gate. `topic approve <channel> <npub> --role ...` changes a member's role; making a reader write-only rotates the channel without them.
+- **One admin reach per Org.** `setup` saves the relay admin CLI reach in `<home>/admin.json` for the default Org and in `<home>/orgs/<campaign>.admin.json` for every other, so a second Org's `setup` never replaces the first one's.
 - **Never paste a token into a shared transcript.** A token is a bearer secret until it is redeemed. Pass `--code-file` when an agent mints one.
 
 ### C. Browser-only mode (for teammates who will not run a CLI)
@@ -210,7 +213,7 @@ nostr-mailbox relay revoke <npub> --kubectl
 Teammates who are not technical, or who do not want agents on their machine, never need to install a CLI, configure an MCP server or run an agent:
 
 - **A sandboxed browser tab.** An invite link (`https://relay.example.com/join/#nm1_...`) opens the self-contained web console in Safari or Chrome. The token sits in the URL fragment, which browsers never send to a server. Inside the browser sandbox the page cannot read the user's files or run background tools: only what the user types and sends leaves the browser.
-- **Human-only rooms are separated by keys.** Every channel has its own decryption keys (`keyrings/<channel>.json`) and a visible roster. In a human-only room like `#partners-only`, where no agent pool is on the roster, no agent or LLM holds the key.
+- **Human-only rooms are separated by keys.** Every channel has its own decryption keys (`keyrings/<persona>/<channel>.json`) and a visible roster. In a human-only room like `#partners-only`, where no agent pool is on the roster, no agent or LLM holds the key.
 
 ### D. Local multi-Org, multi-Persona MCP server (`nostr-mailbox mcp`)
 
@@ -223,12 +226,15 @@ claude mcp add nostr-mailbox -- nostr-mailbox mcp                     # Claude C
 
 | MCP tool | Parameters | Purpose |
 |---|---|---|
-| **`mailbox_list`** | `persona?` | Lists the local Personas, the relays and Orgs they joined, their channels and keyrings. |
-| **`mailbox_invite`** | `target, scope?, role?, for_member?, persona?` | Mints a single-use invite token and join link: for one channel (`scope="topic"`, the default) or for relay/Org membership (`scope="org"`), with `role` set to `read-write`, `read-only` or `write-only`. |
+| **`mailbox_list`** | `persona?` | Lists the local Personas, the relays and Orgs they joined, their channels, the active Persona's own keyrings, and what `bus` means on this server. |
+| **`mailbox_invite`** | `target, scope?, role?, for_member?, persona?` | Mints a single-use invite token and join link: for one channel (`scope="topic"`, the default) or for relay/Org membership (`scope="org"`), with `role` set to `read-write`, `read-only` or `write-only` (a write-only token carries no key). |
 | **`mailbox_join`** | `token_or_url, as_member?, persona?` | Redeems an `nm1_...` token or `https://.../join/#nm1_...` link under the chosen Persona and stores the channel's keyring. |
 | **`mailbox_post`** | `channel, body, kind?, subject?, files?, persona?` | Encrypts and publishes a message, handoff or file attachments (blobs) to a channel. |
-| **`mailbox_watch`** | `channel, wait_seconds?, ack_id?, result_ref?, persona?` | Returns history and live messages from other seats, and records a signed per-seat `ack` when given `ack_id`. |
+| **`mailbox_watch`** | `channel, wait_seconds?, ack_id?, result_ref?, persona?` | Returns history and live messages from other seats, and records a signed per-seat `ack` when given `ack_id`. Every argument is checked before the ack is written: a refused call settles nothing. |
 | **`mailbox_board`** | `action, channel?, params?, persona?` | Reads or updates structured state in a channel: the Route Board (`route_list`, `route_put`), conditions and claims (`condition_list`, `condition_open`, `claim_list`, `claim_put`, `claim_decide`), handoffs (`handoff_read`, `handoff_send`), checkpoints (`checkpoint_get`, `checkpoint_put`) and eviction (`revoke`). |
+
+The server's own root flags are its defaults: `nostr-mailbox --trust <nostr.toml> --topic <channel> --timeout-seconds <n> mcp` makes `bus` (with no `org`) mean that Org's bus, or that channel's, and applies the timeout to every command. One request is one frame of at most 131,072 bytes (one relay message); a larger or cut-short frame is answered `-32700` and ends the session with a non-zero exit.
+
 
 ### E. Personal dropboxes
 

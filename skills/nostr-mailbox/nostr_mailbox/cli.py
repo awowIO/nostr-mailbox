@@ -158,7 +158,7 @@ def _default_trust_path(args) -> Path:
 def admin_file(base: Path, campaign: str) -> Path:
     """Where this machine keeps the admin CLI reach of `campaign`'s relay:
     `<home>/admin.json` for the default org (the campaign `<home>/nostr.toml` declares),
-    `<home>/orgs/<campaign>.admin.json` for every other. A second org's `setup` so
+    `<home>/orgs/<campaign>.admin.json` for every other, so a second org's `setup`
     never replaces the first one's reach."""
     default = base / "nostr.toml"
     if default.is_file() and Trust.load(default).campaign == campaign:

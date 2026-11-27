@@ -207,13 +207,16 @@ class CampaignSession:
 
     A campaign encrypted with an epoch keyring (`Trust.keyring`) is given its ring:
     on connect the session fetches the epoch keys delivered to this key since it last
-    looked, so it never writes under an epoch a revocation has retired."""
+    looked, so it never writes under an epoch a revocation has retired. The ring must
+    be this signer's own (`KeyRing.held_by`): a session never reads another key's."""
 
     def __init__(self, trust: Trust, signer: Signer, *, timeout_s: float = DEFAULT_WAIT_S,
                  clock: Clock = time.time, keyring: keyrings.KeyRing | None = None,
                  sync_keys: bool = True):
         self.trust, self.clock, self.signer, self.timeout_s = trust, clock, signer, timeout_s
         self.declared = trust
+        if keyring is not None:
+            keyring.held_by(signer)
         self.keyring, self.sync_keys = keyring, sync_keys
         self.key_sync: dict | None = None
         self.relay = RelayClient(trust.relay, signer, timeout_s=timeout_s,

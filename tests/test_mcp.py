@@ -222,6 +222,10 @@ def test_six_tools_carry_a_channel_from_invite_to_revocation(cli_run, tmp_path):
         # what the server refuses, and why
         assert "holds no channel 'wavee'" in _refused(ops, "operator", "mailbox_post",
                                                       channel="wavee", body="typo")
+        blobs = len(relay.blossom.blobs)
+        assert "message kind" in _refused(ops, "operator", "mailbox_post", channel="wave",
+                                          body="x", kind="Not A Kind", files=[str(fixture)])
+        assert len(relay.blossom.blobs) == blobs, "refused before any file was uploaded"
         assert "unknown: ['falsification']" in _refused(
             ops, "operator", "mailbox_board", channel="wave", action="route_put",
             params={"route": "r", "state": "active", "hypothesis": "h",

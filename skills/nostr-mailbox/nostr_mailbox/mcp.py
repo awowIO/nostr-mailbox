@@ -42,7 +42,7 @@ from typing import BinaryIO
 
 from . import __version__, cli
 from . import keyring as keyrings
-from .backend import BUS, DISPOSITIONS
+from .backend import BUS, DISPOSITIONS, Message
 from .errors import NostrError
 from .event import DEFAULT_WAIT_S
 from .groups import topic_id
@@ -637,7 +637,13 @@ def _tool_join(call: _Call, args: dict) -> dict:
 
 
 def _tool_post(call: _Call, args: dict) -> dict:
+    """The message is checked and the post parsed before any file is uploaded: a call
+    refused for its body, kind or reply_to leaves no blob behind."""
     scope = _scope(call, args["channel"], args.get("org"))
+    said = {k: args[k] for k in ("subject", "reply_to") if k in args}
+    Message(body=args["body"], kind=args.get("kind", "message"), **said)
+    call.parse(["post"], options=[("kind", args.get("kind", "message")), *said.items()],
+               scope=scope, positionals=[BUS, args["body"]])
     attachments = []
     for name in args.get("files", []):
         sealed = call.run(["blob", "put"], options=[("encrypt", True)], scope=scope,
@@ -645,8 +651,7 @@ def _tool_post(call: _Call, args: dict) -> dict:
         attachments.append({"file": name, "ref": f"blob:{sealed['sha256']}",
                             **{k: sealed[k] for k in ("sha256", "plaintext_sha256", "bytes",
                                                       "epoch")}})
-    options = [("kind", args.get("kind", "message")),
-               *((k, args[k]) for k in ("subject", "reply_to") if k in args)]
+    options = [("kind", args.get("kind", "message")), *said.items()]
     if attachments:
         options.append(("ref", [one["ref"] for one in attachments]))
     out = call.run(["post"], options=options, scope=scope, positionals=[BUS, args["body"]])

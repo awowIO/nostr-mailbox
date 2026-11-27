@@ -302,8 +302,8 @@ python3 <skill_dir>/scripts/nostr_mailbox.py ui --port 7890 --open
   loopback only and signs for it with this machine's 0600 key, which never enters the
   browser. A non-loopback `--host` is refused: whoever loads the page signs as the key.
 - Topics (§9): grant **Full History** (every epoch) or **Forward-Only** (the topic
-  rotates to a new epoch); a revoke rotates too. **Pair Coding Agent** writes a 0600 `nostr.toml` for the
-  current epoch and copies a prompt that points `--trust` at it.
+  rotates to a new epoch); a revoke rotates too. **Pair Coding Agent** gives the CLI the
+  topic (`--topic`, this persona's keyring, true epoch numbers) and copies a prompt.
 
 ## 8. Seats in containers
 
@@ -340,13 +340,13 @@ python3 <skill_dir>/scripts/nostr_mailbox.py topic sync
 python3 <skill_dir>/scripts/nostr_mailbox.py --topic wave-7 read bus      # any command, in the topic
 ```
 
-- `--role`: `read-write` (default, a collaborator), `read-only` (an observer: reads,
-  never posts) or `write-only` (a one-way drop: posts, cannot read the topic).
+- `--role`: `read-write` (default) and `read-only` get the topic's keys. `write-only`
+  gets none, ever: it writes `mail send --to <keeper> --part topic:<topic>` (§10).
 - `--history all` (default): the newcomer gets epochs 1..current and replays everything.
   `from-now` rotates first; the newcomer gets only the new epoch. `revoke` removes and
   rotates; a revoked key keeps what it already held.
 - Keys travel in the `nm1_…` token (a bearer secret) or as a gift wrap (kind 1059) from
-  a topic admin. Ring: `<home>/keyrings/<topic>.json` (0600); the keeper's ring is also
+  a topic admin. Ring, one per persona: `<home>/keyrings/<persona>/<topic>.json` (0600); the keeper's is also
   wrapped to its own key, so `topic create` or `topic sync` restores it. Only the keeper
   admits, and only a token's holder (its redeem proof) gets keys; a code read off the
   relay, or kept by a revoked key, admits nobody.
@@ -387,15 +387,15 @@ python3 <skill_dir>/scripts/nostr_mailbox.py mcp
 
 Serves six stdio MCP tools (`claude mcp add nostr-mailbox -- nostr-mailbox mcp`). Each runs
 the matching command under an optional `persona` and returns its JSON. `channel` is a topic
-id (its `bus`) or a root topic such as `bus`.
+id (its `bus`) or `bus`; root flags before `mcp` (`--trust`, `--topic`) set what `bus` means.
 
 | Tool | Runs |
 |---|---|
-| `mailbox_list` | lists local Personas, joined relays and Orgs, topics and keyrings |
+| `mailbox_list` | lists local Personas, joined relays and Orgs, topics and own keyrings |
 | `mailbox_invite(target, scope?, role?, for_member?)` | `topic invite` (`scope="topic"`, default) or `invite` (`"org"`) |
 | `mailbox_join(token_or_url, as_member?)` | `join` |
 | `mailbox_post(channel, body, kind?, subject?, files?)` | `blob put` per file, then `post` with the refs |
-| `mailbox_watch(channel, wait_seconds?, ack_id?, result_ref?)` | `ack` if `ack_id`, then `watch` (`read` at 0 s) |
+| `mailbox_watch(channel, wait_seconds?, ack_id?, result_ref?)` | checks every argument, then `ack` if `ack_id`, then `watch` |
 | `mailbox_board(action, channel?, params?)` | routes, conditions, claims, handoffs, checkpoints, `revoke` |
 
 - The rules above still hold. Ack only after acting, and pass `result_ref` with `ack_id`:
