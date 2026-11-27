@@ -1458,9 +1458,14 @@ def cmd_ui(args) -> dict:
 
 def cmd_mcp(args) -> str:
     """Serve the MCP tools on stdin and stdout until stdin closes. Returns "": stdout
-    carries the protocol, and nothing else may be printed on it."""
+    carries the protocol, and nothing else may be printed on it. The root flags are the
+    server's defaults: --trust declares its default org, --topic puts its default scope
+    in that topic, and --timeout-seconds applies to every command it runs."""
     from .mcp import serve_stdio
-    serve_stdio(home_dir=args.home, default_persona=args.identity)
+    if serve_stdio(home_dir=args.home, default_persona=args.identity, trust=args.trust,
+                   topic=args.topic_trust, timeout_seconds=args.timeout_seconds):
+        raise NostrError("the MCP session ended on a frame it could not read (cut short, "
+                         "or over the frame cap); the client was answered -32700 with why")
     return ""
 
 

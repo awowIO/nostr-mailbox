@@ -9,6 +9,7 @@ import hashlib
 import io
 import json
 import os
+import socket
 import stat
 import subprocess
 import sys
@@ -18,6 +19,7 @@ import pytest
 
 from nostr_mailbox import LoopbackRelay, bech32, cli, mcp
 from nostr_mailbox.keyring import KeyRing
+from nostr_mailbox.relay import MAX_MESSAGE_BYTES
 
 SKILL = Path(__file__).resolve().parents[1] / "skills/nostr-mailbox"
 WAIT = 5.0              # the suite's convention: a witness that passes never waits this long
@@ -327,3 +329,161 @@ def test_the_mcp_subcommand_serves_over_real_pipes(tmp_path):
     seen = listed["result"]["structuredContent"]
     assert seen["active_persona"] == "scout"
     assert [p["name"] for p in seen["personas"]] == ["scout"]
+
+
+def test_mailbox_watch_checks_every_argument_before_its_ack_is_written(cli_run, tmp_path):
+    """An ack_id rides with a watch or a history read. Whatever either command refuses
+    (a history filter without history, an infinite wait, a wait with history, an `after`
+    the journal lacks) refuses the whole call before the ack is written: the message
+    stays pending, and the same ack then settles it once."""
+    with LoopbackRelay(member_claims=True) as relay:
+        ops = tmp_path / "ops"
+        _setup(cli_run, relay, ops, "operator", "camp")
+        relay.add_member(bech32.pubkey_hex(cli_run(ops, "worker", "init")["npub"]))
+        _tool(ops, "worker", "mailbox_post", channel="bus", body="work")
+
+        def pending() -> list[str]:
+            return [m["id"] for m in _tool(ops, "operator", "mailbox_watch",
+                                           channel="bus")["messages"]]
+
+        [work] = pending()
+        ack = {"channel": "bus", "ack_id": work, "result_ref": "PR#1"}
+        for refused, said in [({"kind": "finding"}, "filter the history"),
+                              ({"wait_seconds": float("inf")}, "finite number of seconds"),
+                              ({"history": True, "wait_seconds": 1}, "history answers at once"),
+                              ({"history": True, "after": "0" * 64}, "to continue from")]:
+            assert said in _refused(ops, "operator", "mailbox_watch", **ack, **refused)
+            assert pending() == [work], f"{refused} settled nothing"
+        settled = _tool(ops, "operator", "mailbox_watch", **ack)
+        assert [a["result_ref"] for a in settled["acked"]] == ["PR#1"]
+        assert settled["messages"] == [] and pending() == []
+
+
+def test_serve_stdio_tells_a_frame_cut_short_from_a_clean_end_of_input(tmp_path):
+    """A clean end of input between messages returns 0. Input that ends inside a
+    frame's headers or before its Content-Length bytes arrived, and a frame whose length
+    cannot be read, are answered -32700 in Content-Length framing and return 1; nothing
+    after such a frame is read."""
+    def served(data: bytes) -> tuple[int, bytes]:
+        written = io.BytesIO()
+        return mcp.serve_stdio(io.BytesIO(data), written, home_dir=tmp_path), written.getvalue()
+
+    ping = _framed({"jsonrpc": "2.0", "id": 1, "method": "ping"})
+    body = len(ping) - ping.index(b"\r\n\r\n") - 4
+    status, written = served(ping + b"\r\n\n")
+    assert (status, _replies(written)) == (0, [{"jsonrpc": "2.0", "id": 1, "result": {}}])
+    later = json.dumps({"jsonrpc": "2.0", "id": 2, "method": "ping"}).encode() + b"\n"
+    for data, said in [
+            (ping + ping[:-5], f"the input ended {body - 5:,} bytes into a {body:,}-byte message"),
+            (ping + b"Content-Length: 40\r\n", "the input ended inside a frame's headers"),
+            (ping + b"Content-Length: many\r\n\r\n" + later,
+             "a framed message without a readable Content-Length")]:
+        status, written = served(data)
+        assert status == 1, said
+        answered, refused = _replies(written)
+        assert answered["id"] == 1 and refused["error"] == {"code": -32700, "message": said}
+        assert written.count(b"Content-Length:") == 2, "framed as the frame was"
+
+
+def test_a_frame_over_the_cap_is_refused_unread_and_ends_the_session(tmp_path):
+    """`nostr-mailbox mcp` on real pipes, its stdin left open: a Content-Length over the
+    frame cap, a line that does not end within it, and a header block that does not end
+    within it are each answered -32700 at once, with the size, the cap and the share of
+    it used. The server reads nothing it refused and exits 1 without waiting for more."""
+    cap = mcp.MAX_FRAME_BYTES
+    assert cap == MAX_MESSAGE_BYTES
+    header = b"Content-Length: 2\r\nX-Pad: "
+    cases = [(b"Content-Length: %d\r\n\r\n" % (4 * cap), True,
+              f"a {4 * cap:,}-byte message, 400% of the {cap:,}-byte frame cap"),
+             (b"x" * (cap + 1), False,
+              f"a line of more than {cap:,} bytes, over 100% of the {cap:,}-byte frame cap"),
+             (header + b"a" * (cap + 1 - len(header)), True,
+              f"a header block of more than {cap:,} bytes, over 100% of the {cap:,}-byte")]
+    env = {**{k: v for k, v in os.environ.items() if k not in ENV}, "PYTHONPATH": str(SKILL)}
+    for sent, framed, said in cases:
+        with subprocess.Popen([sys.executable, "-m", "nostr_mailbox", "--home", str(tmp_path),
+                               "mcp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, env=env) as server:
+            server.stdin.write(sent)
+            server.stdin.flush()
+            try:
+                status = server.wait(timeout=WAIT)          # stdin is still open
+            except subprocess.TimeoutExpired:
+                server.kill()
+                raise
+            written, err = server.stdout.read(), server.stderr.read().decode()
+        assert status == 1 and "the MCP session ended on a frame it could not read" in err
+        [reply] = _replies(written)
+        assert reply["error"]["code"] == -32700 and said in reply["error"]["message"]
+        assert "refused unread, and the session ends" in reply["error"]["message"]
+        assert written.startswith(b"Content-Length:") is framed
+
+
+def test_the_mcp_subcommand_forwards_trust_topic_and_timeout_seconds(cli_run, tmp_path):
+    """`nostr-mailbox --trust T --timeout-seconds N mcp` and `--topic wave mcp`, on real
+    pipes. With --trust, `bus` with no org is the bus T declares (here another
+    machine's org, beta), not nostr.toml's alpha; with --topic it is topic wave, where
+    the board acts too. A call naming an org acts on that org's own bus and inherits
+    neither. --timeout-seconds bounds every command: one against a relay that never
+    answers fails inside it. mailbox_list says what `bus` means."""
+    with LoopbackRelay(member_claims=True) as relay, \
+            socket.create_server(("127.0.0.1", 0)) as silent:
+        machine, elsewhere = tmp_path / "machine", tmp_path / "elsewhere"
+        _setup(cli_run, relay, machine, "operator", "alpha")
+        cli_run(machine, "operator", "topic", "create", "wave")
+        _setup(cli_run, relay, elsewhere, "bob", "beta")
+        beta = elsewhere / "nostr.toml"
+        cli_run(machine, "operator", "--trust", machine / "quiet.toml", "setup", "--relay",
+                f"ws://127.0.0.1:{silent.getsockname()[1]}", "--campaign", "quiet")
+        patience = WAIT / 10            # the 25-second default would overrun WAIT
+        env = {**{k: v for k, v in os.environ.items() if k not in ENV},
+               "PYTHONPATH": str(SKILL)}
+
+        def serve(*flags, calls) -> list[dict]:
+            requests = b"".join(_framed({"jsonrpc": "2.0", "id": i, "method": "tools/call",
+                                         "params": {"name": name, "arguments": arguments}})
+                                for i, (name, arguments) in enumerate(calls, 1))
+            done = subprocess.run(
+                [sys.executable, "-m", "nostr_mailbox", "--home", str(machine), "--persona",
+                 "operator", *map(str, flags), "mcp"], input=requests, capture_output=True,
+                timeout=WAIT, env=env)
+            assert done.returncode == 0, done.stderr.decode()
+            return [reply["result"] for reply in _replies(done.stdout)]
+
+        def bodies(home: Path, persona: str, *scope) -> list[str]:
+            return [m["body"] for m in cli_run(home, persona, *scope, "read")["messages"]]
+
+        listed, posted, aside, stalled = serve(
+            "--trust", beta, "--timeout-seconds", patience, calls=[
+                ("mailbox_list", {}),
+                ("mailbox_post", {"channel": "bus", "body": "to beta"}),
+                ("mailbox_post", {"channel": "bus", "org": "alpha", "body": "to alpha"}),
+                ("mailbox_watch", {"channel": "bus", "org": "quiet"})])
+        seen = listed["structuredContent"]
+        assert seen["bus"] == {"topic": None, "campaign": "beta", "declaration": str(beta)}
+        assert (seen["default_org"], seen["timeout_seconds"]) == ("beta", patience)
+        assert {o["campaign"]: (o["default"], o["declaration"]) for o in seen["orgs"]} == {
+            "alpha": (False, str(machine / "nostr.toml")), "beta": (True, str(beta)),
+            "quiet": (False, str(machine / "quiet.toml"))}
+        assert posted["isError"] is False and aside["isError"] is False
+        assert stalled["isError"] is True and "deadline" in stalled["content"][0]["text"]
+        assert bodies(elsewhere, "bob") == ["to beta"]
+        assert bodies(machine, "operator") == ["to alpha"]
+
+        listed, posted, routed, aside = serve("--topic", "wave", calls=[
+            ("mailbox_list", {}),
+            ("mailbox_post", {"channel": "bus", "body": "in wave"}),
+            ("mailbox_board", {"action": "route_put", "params": {
+                "route": "r1", "state": "active", "hypothesis": "h",
+                "falsification_criterion": "f"}}),
+            ("mailbox_post", {"channel": "bus", "org": "alpha", "body": "alpha's own"})])
+        assert listed["structuredContent"]["bus"] == {
+            "topic": "wave", "campaign": "alpha",
+            "declaration": str(machine / "topics/wave.toml")}
+        assert not any(r["isError"] for r in (posted, routed, aside))
+        assert bodies(machine, "operator", "--topic", "wave") == ["in wave"]
+        assert sorted(bodies(machine, "operator")) == ["alpha's own", "to alpha"], \
+            "one second orders nothing in the journal"
+        assert [r["route"] for r in cli_run(machine, "operator", "--topic", "wave", "route",
+                                            "list")["routes"]] == ["r1"]
+        assert cli_run(machine, "operator", "route", "list")["routes"] == []
