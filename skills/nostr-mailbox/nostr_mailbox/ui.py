@@ -21,8 +21,21 @@ server only. `/api/nip44` is the NIP-07 `nip44.encrypt/decrypt` pair, for key ri
 and mailbox envelopes; it needs a key held in the identity file (`local` signer).
 
 Personas. Every identity file under `<home>/identities/` is a persona; `/api/state`
-lists them and `/api/persona` switches the one this console signs as (or creates one,
-0600). Each request runs as the persona active when it arrived, start to finish.
+lists them. A tab names the persona it shows in `X-NM-Persona` on every request, and the
+request runs as that persona start to finish, whatever another tab switched to
+meanwhile. A request that names none runs as the console's default persona, which is
+what a freshly opened tab starts from. `/api/persona` switches the tab that asks, and
+the default that new tabs start from (or creates a persona, 0600); other open tabs keep
+theirs.
+
+Blobs. Outside a topic a blob is stored as it is, as the CLI does for the root campaign:
+`POST /api/blob` uploads the body, `GET /api/blob/<sha256>` returns the blob as stored.
+Inside a topic, `POST /api/topics/<topic>/blob` seals the body under the topic's current
+epoch and `GET /api/topics/<topic>/blob/<sha256>` opens a blob under every epoch this key
+holds, newest first, as `blob put` and `blob get` do (`X-NM-Epoch` names the epoch that
+opened it). The digest of what the blob server returned is checked before anything is
+opened; a topic blob that no held epoch opens is refused (`Unopened`), and
+`GET /api/blob/<sha256>` is the explicit way to fetch it as stored (the CLI's --plain).
 
 Invite links. The page is also served at `/join` and `/join/`, so a link such as
 `http://127.0.0.1:7890/join/#nm1_…&topic=retry&role=read-only&ticket=…` opens the
@@ -102,7 +115,7 @@ from .identity import (
     load_identity,
 )
 from .mailbox import Dropbox
-from .profile import EpochKeys, ProfileError, Trust
+from .profile import EpochKeys, ProfileError, Trust, slug
 from .relay import INVITE_CLAIM_KIND, INVITE_TTL, NCLI_CONFIG, RelayAdmin, RelayError
 
 DEFAULT_PORT = 7890
@@ -110,6 +123,7 @@ DEFAULT_HOST = "127.0.0.1"
 PAGE = Path(__file__).with_name("web") / "index.html"
 TOKEN_SLOT = '<meta name="nm-bridge" content="">'
 TOKEN_HEADER = "X-NM-Token"
+PERSONA_HEADER = "X-NM-Persona"         # the persona the asking tab shows
 
 # The wire of shared topics and mailboxes, beside the campaign kinds of profile.Kind.
 NIP59_SEAL, GIFT_WRAP = 13, 1059
@@ -132,6 +146,7 @@ JOIN_PATHS = ("/join", "/join/")
 INVITES = "invites"
 INVITE_BOOK_SCHEMA = "cf.topic-invites/1"
 _TOPIC_INVITE = re.compile(r"^/api/topics/([a-z0-9][a-z0-9_-]{0,63})/invite$")
+_TOPIC_BLOB = re.compile(r"^/api/topics/([a-z0-9][a-z0-9_-]{0,63})/blob$")
 _EXPORT = re.compile(r"^([a-z0-9][a-z0-9_-]{0,63})-epoch-([1-9][0-9]*)\.toml$")
 
 
@@ -162,6 +177,11 @@ class Refused(ConsoleError):
     """A request outside what this console lets a page do."""
 
     status = HTTPStatus.FORBIDDEN
+
+
+class Unopened(ConsoleError):
+    """A topic blob that none of the epoch keys this key holds opens: sealed in an epoch
+    it was not given, or uploaded in plaintext. The page tells it apart by this type."""
 
 
 class TopicError(ProfileError):
@@ -534,9 +554,10 @@ def _page_csp(page: str) -> str:
 
 class Console:
     """What every request needs: where this workstation keeps its files, which persona
-    it signs as, and how long to wait for a relay. Files are read per request, so
-    `setup` or `join` run elsewhere is picked up without a restart. A request works on
-    `pinned()`, a copy that keeps the persona it started with."""
+    it signs as by default, and how long to wait for a relay. Files are read per
+    request, so `setup` or `join` run elsewhere is picked up without a restart. A
+    request works on `pinned()`, a copy that keeps the persona its tab named (or the
+    default one) to the end."""
 
     def __init__(self, *, base: str | Path | None = None, identity: str = DEFAULT_NAME,
                  trust_path: str | Path | None = None, timeout_s: float = DEFAULT_WAIT_S,
@@ -555,11 +576,16 @@ class Console:
         self._persona_lock = threading.Lock()
         self._book_lock = threading.Lock()
 
-    def pinned(self) -> Console:
-        """This console as one request sees it: the persona active when the request
-        arrived, for the whole request, whatever `persona` switches meanwhile."""
+    def pinned(self, persona: str | None = None) -> Console:
+        """This console as one request sees it, for the whole request whatever
+        `/api/persona` switches meanwhile: as `persona` (the one its tab shows) when named,
+        else as the default persona when the request arrived. A name that is not an identity name is
+        refused; one with no usable identity fails as a missing identity does."""
         with self.root._persona_lock:
-            return copy.copy(self.root)
+            mine = copy.copy(self.root)
+        if persona is not None:
+            mine.identity_name = slug(persona, PERSONA_HEADER)
+        return mine
 
     # ---- files
     def identity(self) -> Identity | None:
@@ -658,9 +684,10 @@ class Console:
         return out
 
     def persona(self, body: dict) -> dict:
-        """Switch the persona this console signs as, for every tab, from the next request
-        on. `create: true` makes a fresh 0600 key under that name first, and never
-        replaces one that exists."""
+        """Switch the persona of the tab that asks (it names the new one from its next
+        request on) and the default persona that new tabs, and requests naming none,
+        start from. Other open tabs keep theirs. `create: true` makes a fresh 0600 key
+        under that name first, and never replaces one that exists."""
         name = body.get("name")
         if not isinstance(name, str) or not name:
             raise ConsoleError("persona needs a name")
@@ -1003,13 +1030,38 @@ class Console:
             return self._rejected(session, {"acked": [r.to_dict() for r in receipts],
                                             "epoch": session.epoch})
 
-    def blob_get(self, sha256: str) -> tuple[bytes, str]:
-        with self.session() as session:
-            return session.blobs().download(sha256), "application/octet-stream"
+    def _hold_epochs(self, session: TopicSession, group: str) -> None:
+        """Point `session` at topic `group` with every epoch key this key holds, the
+        current one to seal under: what `put_sealed_blob` and `open_sealed_blob` use."""
+        desk = TopicDesk(session, self.secret())
+        state = desk.state(group)
+        scoped, n = desk.scope_trust(state)
+        session.trust = replace(scoped, epoch_keys=EpochKeys(scoped.campaign, state.epochs, n))
 
-    def blob_put(self, data: bytes, content_type: str) -> dict:
+    def blob_get(self, sha256: str, group: str | None = None) -> tuple[bytes, int | None]:
+        """The blob as stored, its digest verified (`cli.cmd_blob_get`). In topic `group`,
+        then opened under the epochs this key holds, newest first; returns the epoch
+        that opened it."""
         with self.session() as session:
-            return session.blobs().upload(data, content_type=content_type).to_dict()
+            if group is None:
+                return session.blobs().download(sha256), None
+            self._hold_epochs(session, group)
+            stored = session.blobs().download(sha256)
+            try:
+                return session.open_sealed_blob(stored)
+            except ProfileError as exc:
+                raise Unopened(str(exc)) from exc
+
+    def blob_put(self, data: bytes, content_type: str, group: str | None = None) -> dict:
+        """`cli.cmd_blob_put`: in topic `group` the bytes are sealed under its current
+        epoch, elsewhere uploaded as they are."""
+        with self.session() as session:
+            if group is None:
+                return session.blobs().upload(data, content_type=content_type).to_dict()
+            self._hold_epochs(session, group)
+            blob, epoch = session.put_sealed_blob(data)
+        return {**blob.to_dict(), "sealed": True, "epoch": epoch, "bytes": len(data),
+                "plaintext_sha256": hashlib.sha256(data).hexdigest()}
 
     @staticmethod
     def _rejected(session: CampaignSession, result: dict) -> dict:
@@ -1104,10 +1156,12 @@ class _Handler(BaseHTTPRequestHandler):
             raise ConsoleError("the body is a JSON object")
         return value
 
-    def _serve(self, route) -> None:
-        console = self.server.console.pinned()
+    def _serve(self, route, *, write: bool) -> None:
+        """Gate the request, then run `route` on the console pinned to the persona the
+        request names, and answer a refusal with its status and its words."""
         try:
-            route(console)
+            self._gate(write=write)
+            route(self.server.console.pinned(self.headers.get(PERSONA_HEADER)))
         except NotAuthorized as exc:
             self._error(HTTPStatus.FORBIDDEN, exc)
         except ConsoleError as exc:
@@ -1133,22 +1187,23 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(HTTPStatus.OK, console.page.encode(), "text/html; charset=utf-8",
                        {"Content-Security-Policy": console.csp})
             return
+        where, _, sha256 = path.rpartition("/")
+        topic = _TOPIC_BLOB.fullmatch(where)
         if path == "/api/state":
-            self._serve(lambda c: (self._gate(write=False), self._json(200, c.state())))
+            self._serve(lambda c: self._json(200, c.state()), write=False)
         elif path == "/api/topics":
-            self._serve(lambda c: (self._gate(write=False), self._json(200, c.topics())))
+            self._serve(lambda c: self._json(200, c.topics()), write=False)
         elif path == "/api/invites":
-            self._serve(lambda c: (self._gate(write=False), self._json(200, c.invites())))
-        elif path.startswith("/api/blob/"):
-            sha256 = path.rsplit("/", 1)[1]
-
+            self._serve(lambda c: self._json(200, c.invites()), write=False)
+        elif where == "/api/blob" or topic:
             def blob(c: Console) -> None:
-                self._gate(write=False)
                 if not _SHA256.fullmatch(sha256):
                     raise ConsoleError(f"{sha256!r} is not a sha256 in lowercase hex")
-                data, kind = c.blob_get(sha256)
-                self._send(HTTPStatus.OK, data, kind, {"X-Digest-Verified": "sha256"})
-            self._serve(blob)
+                data, epoch = c.blob_get(sha256, topic.group(1) if topic else None)
+                opened = {} if epoch is None else {"X-NM-Epoch": str(epoch)}
+                self._send(HTTPStatus.OK, data, "application/octet-stream",
+                           {"X-Digest-Verified": "sha256", **opened})
+            self._serve(blob, write=False)
         else:
             self._error(HTTPStatus.NOT_FOUND, ConsoleError(f"nothing at {path}"))
 
@@ -1164,12 +1219,13 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:                  # noqa: N802 (stdlib name)
         path = urlsplit(self.path).path
-        if path == "/api/blob":
+        topic = _TOPIC_BLOB.fullmatch(path)
+        if path == "/api/blob" or topic:
             def put(c: Console) -> None:
-                self._gate(write=True)
                 kind = self.headers.get("Content-Type") or "application/octet-stream"
-                self._json(200, c.blob_put(self._body(json_body=False), kind))
-            self._serve(put)
+                self._json(200, c.blob_put(self._body(json_body=False), kind,
+                                           topic.group(1) if topic else None))
+            self._serve(put, write=True)
             return
         method = self._POSTS.get(path)
         invited = _TOPIC_INVITE.fullmatch(path)
@@ -1179,11 +1235,7 @@ class _Handler(BaseHTTPRequestHandler):
         if method is None:
             self._error(HTTPStatus.NOT_FOUND, ConsoleError(f"nothing at {path}"))
             return
-
-        def call(c: Console) -> None:
-            self._gate(write=True)
-            self._json(200, method(c, self._body()))
-        self._serve(call)
+        self._serve(lambda c: self._json(200, method(c, self._body())), write=True)
 
 
 def _loopback(host: str) -> bool:

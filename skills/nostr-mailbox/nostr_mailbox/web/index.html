@@ -717,18 +717,22 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     async nip44Encrypt(peer, text) { return this._nip44().encrypt(peer, text); }
     async nip44Decrypt(peer, payload) { return this._nip44().decrypt(peer, payload); }
   }
+  /** What every request to `nostr-mailbox ui` carries: the per-run token, and the persona
+      the asking tab shows, so the bridge runs it as that persona whatever another tab
+      switched to. No persona: the console's default, which a fresh tab starts from. */
+  const bridgeHeaders = (token, persona) => ({ 'X-NM-Token': token, ...(persona ? { 'X-NM-Persona': persona } : {}) });
   class BridgeSigner {          // `nostr-mailbox ui`: the key stays in the 0600 identity file
-    constructor(base, token, fetchImpl) { this.base = base; this.token = token; this.fetch = fetchImpl || root.fetch.bind(root); this.type = 'bridge'; this.pubkey = null; }
-    async _call(path, body) {
-      const res = await this.fetch(this.base + path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-NM-Token': this.token }, body: JSON.stringify(body) });
+    constructor(base, token, persona, fetchImpl) { this.base = base; this.token = token; this.persona = persona || null; this.fetch = fetchImpl || root.fetch.bind(root); this.type = 'bridge'; this.pubkey = null; }
+    _request(path, init = {}) { return this.fetch(this.base + path, { ...init, headers: { ...(init.headers || {}), ...bridgeHeaders(this.token, this.persona) } }); }
+    async _answer(path, res) {
       const got = await res.json();
       if (!res.ok) throw new NMError(`${path}: ${got.error || res.status}`, got.type || '');
       return got;
     }
+    async _call(path, body) { return this._answer(path, await this._request(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })); }
     async getPublicKey() {
       if (!this.pubkey) {
-        const res = await this.fetch(this.base + '/api/state', { headers: { 'X-NM-Token': this.token } });
-        const st = await res.json(); if (!res.ok) throw new NMError(`/api/state: ${st.error || res.status}`);
+        const st = await this._answer('/api/state', await this._request('/api/state'));
         if (!st.identity) throw new NMError('the local bridge has no identity yet');
         this.pubkey = st.identity.pubkey;
       }
@@ -737,6 +741,23 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     async signEvent(t) { const pk = await this.getPublicKey(); return acceptSigned(t, (await this._call('/api/sign', { event: t })).event, pk); }
     async nip44Encrypt(peer, text) { return (await this._call('/api/nip44', { op: 'encrypt', peer, plaintext: text })).result; }
     async nip44Decrypt(peer, payload) { return (await this._call('/api/nip44', { op: 'decrypt', peer, payload })).result; }
+    /** Desk.putBlob / getBlob through the bridge: inside a topic it seals and opens the
+        blob with every epoch key this persona holds, the digest of what the blob server
+        returned checked before anything is opened; the root campaign's is as stored. */
+    async putBlob(scope, data, contentType) {
+      const path = scope.kind === 'topic' ? `/api/topics/${scope.group}/blob` : '/api/blob';
+      return this._answer(path, await this._request(path, { method: 'POST', headers: { 'Content-Type': contentType || 'application/octet-stream' }, body: data }));
+    }
+    async getBlob(scope, sha256Hex, { asStored = false } = {}) {
+      if (!HEX64.test(sha256Hex)) throw new NMError(`${sha256Hex} is not a sha256 in lowercase hex`);
+      const sealed = scope.kind === 'topic' && !asStored;
+      const path = sealed ? `/api/topics/${scope.group}/blob/${sha256Hex}` : `/api/blob/${sha256Hex}`;
+      const res = await this._request(path);
+      if (!res.ok) await this._answer(path, res);
+      const data = new Uint8Array(await res.arrayBuffer());
+      if (!sealed && hex(sha256(data)) !== sha256Hex) throw new NMError(`blob ${sha256Hex.slice(0, 12)}… does not hash to its name; discarded`, 'digest');
+      return { data, type: 'application/octet-stream', sealed, epoch: sealed ? Number(res.headers.get('X-NM-Epoch')) : null };
+    }
   }
 
   // ------------------------------------------------------------------- relay client
@@ -1648,6 +1669,19 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     if (!got || got.sha256 !== digestHex) throw new NMError(`${trust.blossom_origin} stored the upload under ${got && got.sha256}, not ${digestHex}`, 'digest');
     return { sha256: digestHex, size: data.length, url: got.url || `${trust.blossom_origin}/${digestHex}`, type: got.type || contentType };
   }
+  /** backend.CampaignSession.open_sealed_blob: the stored bytes are NIP-44 v2 as ASCII,
+      tried under every epoch key the scope holds, newest first (the MAC decides). The
+      refusal's code is the bridge's name for the same refusal (ui.Unopened). */
+  function openSealedBlob(scope, stored) {
+    const held = scope.epochs.slice().sort((a, b) => b.n - a.n);
+    const ns = [...new Set(held.map((e) => e.n))].sort((a, b) => a - b);
+    if (stored.some((b) => b > 0x7f)) throw new NMError('the blob is not a sealed blob (not NIP-44 ASCII)', 'Unopened');
+    const text = fromUtf8(stored);
+    for (const e of held) {
+      try { return { data: nip44DecryptBytes(text, epochConv(scope.campaign, e.key)), epoch: e.n }; } catch (err) { if (!(err instanceof NMError)) throw err; }
+    }
+    throw new NMError(`the blob does not open under any of the ${ns.length} epoch key(s) held here ([${ns.join(', ')}]): it was sealed in an epoch this seat was not given, or uploaded in plaintext (open it as stored)`, 'Unopened');
+  }
 
   // ------------------------------------------------- writes: the backend.py verbs
   /** A session: one relay connection, one signer, one trust. Every write follows the
@@ -1773,6 +1807,27 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
       const payload = Object.fromEntries(HANDOFF_FIELDS.map(([k]) => [k, packet[k]]));
       if (forSeat) payload.for_seat = slug(forSeat, 'seat');
       return (await this.publishRecord(scope, KIND.HANDOFF, 'handoff', payload)).id;
+    }
+    // ---- blobs
+    /** cli.cmd_blob_put: inside a topic the bytes are sealed under its current epoch and
+        uploaded as ASCII (CampaignSession.put_sealed_blob); the root campaign's go up as
+        they are. Through the bridge, the bridge does it. */
+    async putBlob(scope, data, contentType) {
+      if (this.signer.type === 'bridge') return this.signer.putBlob(scope, data, contentType);
+      if (scope.kind !== 'topic') return blobUpload(this.trust, this.signer, data, contentType);
+      const key = currentKey(scope);
+      if (key === null) throw new NMError(`this key holds no epoch key of topic ${scope.group}; nothing was uploaded`);
+      const blob = await blobUpload(this.trust, this.signer, utf8(nip44EncryptBytes(data, epochConv(scope.campaign, key))), 'application/octet-stream');
+      return { ...blob, sealed: true, epoch: scope.current, bytes: data.length, plaintext_sha256: hex(sha256(data)) };
+    }
+    /** cli.cmd_blob_get: the digest of what the blob server returned is checked first;
+        inside a topic the blob is then opened (openSealedBlob). `asStored` is the CLI's
+        --plain, asked for explicitly. Through the bridge, the bridge does it. */
+    async getBlob(scope, sha256Hex, { asStored = false } = {}) {
+      if (this.signer.type === 'bridge') return this.signer.getBlob(scope, sha256Hex, { asStored });
+      const got = await blobDownload(this.trust, this.signer, sha256Hex);
+      if (asStored || scope.kind !== 'topic') return { ...got, sealed: false, epoch: null };
+      return { ...openSealedBlob(scope, got.data), type: 'application/octet-stream', sealed: true };
     }
     // ---- topics
     async createTopic(topic, name) {
@@ -1924,13 +1979,13 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     getPublicKey, schnorrSign, schnorrVerify, ecdhX, generateSecret, bech32Encode, bech32Decode, npub, nsec, pubkeyHex,
     calcPaddedLen, pad, unpad, conversationKey, campaignConversationKey, nip44Encrypt, nip44Decrypt, nip44EncryptBytes, nip44DecryptBytes,
     serializeEvent, eventId, verifyEvent, signWithSecret, tagValues, firstTag, wireBytes, matches, order, supersedes,
-    KeySigner, Nip07Signer, BridgeSigner, acceptSigned, RelayClient,
+    KeySigner, Nip07Signer, BridgeSigner, bridgeHeaders, acceptSigned, RelayClient,
     makeTrust, decodeInviteToken, parseLink, trustToml, contentKey, pyDumps, sortedJson,
     rootScope, topicScope, isMember, route, address, scopeTags, keyTag, encodeRecord, decodeRecord, buildView, triage,
     renderHandoff, conditionHandoff, conditionAfter, resolveDirectives, renderOperatorMd, isoStamp,
     giftWrap, unwrapGift, keyringContent, parseKeyring,
     mailTags, threadCommit, checkThread, buildMail, buildReceipt, openMail, mailGrants, grantTags,
-    blossomAuthorization, blobDownload, blobUpload, Desk,
+    blossomAuthorization, blobDownload, blobUpload, openSealedBlob, Desk,
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 </script>
@@ -2006,18 +2061,16 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
   const forgetLink = (k) => { delete S.link[k]; sessionStorage.setItem(LINK, JSON.stringify(S.link)); };
 
   // ----------------------------------------------------------------- the bridge
+  /** One JSON call to the bridge, as the persona this tab shows (`S.bridge.persona`;
+      none until the first `/api/state` names the console's default). Blobs go through
+      the engine (`Desk.putBlob` / `getBlob`), with the same headers. */
   async function api(path, body) {
-    const init = { method: body === undefined ? 'GET' : 'POST', headers: { 'X-NM-Token': S.bridge.token } };
-    if (body instanceof Uint8Array) { init.body = body; init.headers['Content-Type'] = 'application/octet-stream'; }
-    else if (body !== undefined) { init.body = JSON.stringify(body); init.headers['Content-Type'] = 'application/json'; }
+    const init = { method: body === undefined ? 'GET' : 'POST', headers: NM.bridgeHeaders(S.bridge.token, S.bridge.persona) };
+    if (body !== undefined) { init.body = JSON.stringify(body); init.headers['Content-Type'] = 'application/json'; }
     const res = await fetch(path, init);
-    if ((res.headers.get('Content-Type') || '').startsWith('application/json')) {
-      const got = await res.json();
-      if (!res.ok) throw new NM.NMError(`${path}: ${got.error}`, got.type || '');
-      return got;
-    }
-    if (!res.ok) throw new NM.NMError(`${path}: HTTP ${res.status}`);
-    return new Uint8Array(await res.arrayBuffer());
+    const got = await res.json();
+    if (!res.ok) throw new NM.NMError(`${path}: ${got.error}`, got.type || '');
+    return got;
   }
 
   // --------------------------------------------------------------------- names
@@ -2074,12 +2127,13 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     S.link = readLink();
     const token = $('meta[name="nm-bridge"]').getAttribute('content');
     if (token) {
-      S.mode = 'bridge'; S.bridge = { token, state: null };
-      S.bridge.state = await api('/api/state');
+      S.mode = 'bridge'; S.bridge = { token, persona: null, state: null };
+      S.bridge.state = await api('/api/state');       // names no persona: the console's default
       const st = S.bridge.state;
+      S.bridge.persona = st.active_persona;           // this tab's from now on
       S.store = { seat: st.seat, handle: st.seat };
       if (st.identity && st.trust) {
-        S.signer = new NM.BridgeSigner('', token);
+        S.signer = new NM.BridgeSigner('', token, S.bridge.persona);
         S.trust = NM.makeTrust(st.trust);
         await connect();
       }
@@ -2317,15 +2371,15 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
       <div class="fit"><button class="btn primary" data-act="${member ? 'link-topic' : 'bridge-join'}" ${member && !topic ? 'disabled' : ''}>${member ? (topic ? 'Request Access & Open Topic' : 'Nothing to redeem') : `Claim Invite as ${st.active_persona}`}</button></div>
       <div class="fit"><button class="btn ghost" data-act="link-dismiss">Dismiss</button></div></div></section>`;
   }
-  /** Every persona of this workstation (`<home>/identities/*.json`): switch which one the
-      console signs as, or make a new one. */
+  /** Every persona of this workstation (`<home>/identities/*.json`): switch which one this
+      tab signs as (and new tabs open with), or make a new one. */
   function personaCard() {
     const st = S.bridge.state;
     return html`<section class="card"><h3>Personas on this workstation</h3>
-      <p class="small muted">Each is its own key under <code>${st.home}/identities/</code>. Switching changes who this console signs as, for every tab of it.</p>${personaPicker()}</section>`;
+      <p class="small muted">Each is its own key under <code>${st.home}/identities/</code>. Switching changes who this tab signs as, and the persona new tabs open with; tabs already open keep theirs.</p>${personaPicker()}</section>`;
   }
   /** The select is drawn from state, never kept across a redraw: after a switch it shows
-      the persona the bridge now signs as. Only the new-name box keeps what is typed. */
+      the persona this tab now signs as. Only the new-name box keeps what is typed. */
   function personaPicker() {
     const st = S.bridge.state;
     return html`<div class="stack small"><div><label for="pp">Persona</label><select id="pp" name="persona" data-change="persona">${st.personas.map((p) => html`<option value="${p.name}" ${p.name === st.active_persona ? 'selected' : ''} ${p.error ? 'disabled' : ''}>${p.name}${p.error ? ' · unusable: ' + p.error : ' · ' + short(p.pubkey)}</option>`)}${st.personas.some((p) => p.name === st.active_persona) ? '' : html`<option value="${st.active_persona}" selected>${st.active_persona} · no key yet</option>`}</select></div>
@@ -2705,16 +2759,27 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     return NM.trustToml({ relay: t.relay, campaign: t.campaign, operator_pubkeys: t.operator_pubkeys.map(NM.npub), lead_pubkeys: t.lead_pubkeys.map(NM.npub), reviewer_pubkeys: t.reviewer_pubkeys.map(NM.npub),
       group: scope.group, blossom: t.blossom, relay_auth_url: t.relay_auth_url, campaign_key: scope.current ? scope.epochs.find((e) => e.n === scope.current).key : null, allow_cleartext: t.allow_cleartext });
   }
-  async function blobModal(sha) {
-    const got = S.mode === 'bridge' ? { data: await api(`/api/blob/${sha}`), type: 'application/octet-stream' } : await NM.blobDownload(S.trust, S.signer, sha);
-    if (NM.hex(NM.sha256(got.data)) !== sha) throw new NM.NMError(`blob ${sha.slice(0, 12)}… does not hash to its name; discarded`);
+  /** A blob named in the selected scope. Inside a topic it is opened under the epoch
+      keys, as `blob get` does; one that no held key opens is said so, with one explicit
+      action to show it as stored (the CLI's --plain). The digest of what the blob server
+      returned is checked before anything is opened or shown. */
+  async function blobModal(sha, asStored) {
+    const scope = scopeNow();
+    let got;
+    try { got = await S.desk.getBlob(scope, sha, { asStored: !!asStored }); } catch (e) {
+      if (e.code !== 'Unopened') throw e;
+      openModal(`Blob ${sha.slice(0, 16)}…`, () => html`<p class="banner"><span class="grow">${e.message}</span></p>
+        <div class="actions"><button class="btn" data-act="blob-as-stored" data-sha="${sha}">Show as stored, not opened (--plain)</button></div>`);
+      return;
+    }
     const d = got.data, magic = NM.hex(d.subarray(0, 8));
     const type = magic.startsWith('89504e47') ? 'image/png' : magic.startsWith('ffd8ff') ? 'image/jpeg' : magic.startsWith('47494638') ? 'image/gif' : got.type;
     let textBody = null;
     // not valid UTF-8 means a binary blob: shown as binary, which is the answer, not an error
     if (!type.startsWith('image/')) { try { textBody = NM.fromUtf8(d); } catch (e) { textBody = null; } }
     const url = URL.createObjectURL(new Blob([d], { type }));
-    openModal(`Blob ${sha.slice(0, 16)}…`, () => html`<p class="small muted">${d.length} bytes · sha256 verified in this tab</p>
+    const how = got.sealed ? `sealed in epoch ${got.epoch}, opened ${S.mode === 'bridge' ? 'by the bridge' : 'in this tab'} after the stored sha256 was verified` : asStored ? 'as stored, not opened · sha256 verified' : 'sha256 verified';
+    openModal(`Blob ${sha.slice(0, 16)}…`, () => html`<p class="small muted">${d.length} bytes · ${how}</p>
       ${type.startsWith('image/') ? html`<img class="preview" alt="blob ${sha}" src="${url}">` : textBody !== null ? html`<pre class="doc">${textBody}</pre>` : html`<div class="empty">binary (${type})</div>`}
       <div class="actions"><a class="btn" href="${url}" download="${sha}">Download</a></div>`);
   }
@@ -2734,16 +2799,20 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
   const list = (v) => String(v || '').split(',').map((s) => s.trim()).filter(Boolean);
   const scopeNow = () => S.scopes.get(S.selected.id);
   const viewNow = () => S.views.get(S.selected.id);
+  /** A file attached in the selected scope, sealed inside a topic as `blob put` does:
+      the stored blob's sha256 (what a `blob:` ref names) and the digest of the content. */
   async function uploadFile(file) {
     const data = new Uint8Array(await file.arrayBuffer());
-    const got = S.mode === 'bridge' ? await api('/api/blob', data) : await NM.blobUpload(S.trust, S.signer, data, file.type || 'application/octet-stream');
-    return got.sha256;
+    const got = await S.desk.putBlob(scopeNow(), data, file.type || 'application/octet-stream');
+    return { sha256: got.sha256, content: got.sealed ? got.plaintext_sha256 : got.sha256 };
   }
-  /** Sign as another persona of this workstation (`POST /api/persona`), or a new one.
-      Everything read as the previous persona is dropped and read again as this one. */
+  /** Sign as another persona of this workstation (`POST /api/persona`), or a new one, in
+      this tab; tabs already open keep theirs. Everything read as the previous persona is
+      dropped and read again as this one. */
   async function switchPersona(name, create) {
     S.bridge.state = await api('/api/persona', { name, create: !!create });
     const st = S.bridge.state;
+    S.bridge.persona = st.active_persona;
     S.gen += 1;
     if (S.relay) S.relay.close();
     for (const l of S.live) l.close();
@@ -2752,7 +2821,7 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
       selected: null, tab: 'bus', replyTo: null, minted: null, claim: null, rejected: [], invites: { topics: {} },
       store: { seat: st.seat, handle: st.seat }, signer: null, trust: null });
     toast(create ? `Persona ${st.active_persona} created (0600)` : `Signing as persona ${st.active_persona}`);
-    if (st.identity && st.trust) { S.signer = new NM.BridgeSigner('', S.bridge.token); S.trust = NM.makeTrust(st.trust); await connect(); }
+    if (st.identity && st.trust) { S.signer = new NM.BridgeSigner('', S.bridge.token, S.bridge.persona); S.trust = NM.makeTrust(st.trust); await connect(); }
     else draw();
   }
   /** After joining from a link that names a topic: ask its admins (kind 9021), presenting
@@ -2788,6 +2857,7 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     async copy(d) { await navigator.clipboard.writeText(d.text); toast('Copied'); },
     download(d) { const url = URL.createObjectURL(new Blob([d.text], { type: 'text/plain' })); const a = document.createElement('a'); a.href = url; a.download = d.name; a.click(); setTimeout(() => URL.revokeObjectURL(url)); },
     async blob(d) { await blobModal(d.sha); },
+    async 'blob-as-stored'(d) { await blobModal(d.sha, true); },
     'modal-close'() { S.modal = null; draw(); },
     'modal-close-backdrop'(d, el, ev) { if (ev.target === el) { S.modal = null; draw(); } },
     'new-topic'() { openModal('+ New Topic', newTopicModal); },
@@ -2827,7 +2897,7 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
       const member = (f.member || '').trim() || null;
       const got = await api('/api/join', { token: (f.token || S.link.join || '').trim(), member });
       forgetLink('join'); toast(`Joined ${got.campaign} as persona ${got.persona}`);
-      S.bridge.state = await api('/api/state'); S.signer = new NM.BridgeSigner('', S.bridge.token); S.trust = NM.makeTrust(S.bridge.state.trust);
+      S.bridge.state = await api('/api/state'); S.signer = new NM.BridgeSigner('', S.bridge.token, S.bridge.persona); S.trust = NM.makeTrust(S.bridge.state.trust);
       await connect();
       if (S.loaded) await requestLinkedTopic(member);
     },
@@ -2908,7 +2978,7 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     async post(f, el) {
       const scope = scopeNow(), file = el.querySelector('[name=file]').files[0];
       const refs = list(f.refs);
-      if (file) refs.push(`blob:${await uploadFile(file)}`);
+      if (file) refs.push(`blob:${(await uploadFile(file)).sha256}`);
       const msg = { body: f.body, kind: (f.kind || 'message').trim(), subject: f.subject.trim(), refs, reply_to: S.replyTo };
       const got = S.mode === 'bridge' ? await api('/api/post', { topic: S.busTopic, group: scope.kind === 'topic' ? scope.group : null, ...msg }) : await S.desk.post(scope, S.busTopic, msg);
       el.reset(); S.replyTo = null; toast(got.duplicate ? 'Already posted under this key' : `Posted (${got.bytes_used} bytes)`); await refresh();
@@ -2927,7 +2997,7 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     async claim(f, el) {
       const file = el.querySelector('[name=file]').files[0];
       let digest = f.candidate_digest.trim(), refs = list(f.evidence_refs);
-      if (file) { digest = await uploadFile(file); refs = [...refs, `blob:${digest}`]; }
+      if (file) { const up = await uploadFile(file); digest = up.content; refs = [...refs, `blob:${up.sha256}`]; }
       const head = viewNow().heads.get(f.condition);
       await S.desk.claim(scopeNow(), { condition: f.condition, condition_rev: head.rev, effect: f.effect, candidate_digest: digest, evidence_refs: refs });
       el.reset(); toast('Claim submitted'); await refresh();

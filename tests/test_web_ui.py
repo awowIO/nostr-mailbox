@@ -1318,3 +1318,202 @@ def test_nostr_mailbox_ui_serves_the_console_and_refuses_a_public_bind(workstati
         stdout, stderr = proc.communicate(timeout=WAIT)
     assert proc.returncode == 0, stderr
     assert json.loads(stdout)["stopped"] == up["serving"]
+
+
+# ============================================ sealed topic blobs and per-tab personas
+UNOPENED = "it was sealed in an epoch this seat was not given, or uploaded in plaintext"
+
+
+def _epoch_toml(ws, topic: str, epoch: int, path: Path) -> Path:
+    """The declaration of one epoch of a topic, as the unchanged CLI reads it."""
+    scoped = _topic_trust(ws, topic, epoch)
+    cli._write_trust_file(path, {
+        "schema": "cf.transport/1", "relay": scoped.relay, "campaign": scoped.campaign,
+        "group": scoped.group,
+        "operator_pubkeys": [_npub(k) for k in sorted(scoped.operator_pubkeys)],
+        "campaign_key": scoped.campaign_key})
+    return path
+
+
+def _blob_cli(ws, toml: Path, *argv: str) -> dict:
+    done = subprocess.run([sys.executable, "-m", "nostr_mailbox", "--trust", str(toml),
+                           "--home", str(ws.home), "blob", *argv],
+                          capture_output=True, text=True, env=_cli_env(), check=False)
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+def test_the_bridge_seals_topic_blobs_and_opens_them_with_every_epoch_like_the_cli(
+        workstation, relay, tmp_path):
+    """Inside a topic the bridge seals a blob under the current epoch, as `blob put`
+    does, and the real CLI and a CampaignSession open it; a blob the real CLI sealed
+    opens through the bridge. After a rotation the bridge still holds every epoch: the
+    epoch-1 blob opens, a new one is sealed in epoch 2. A plaintext blob does not open in
+    the topic, in the CLI's words, and comes back as stored from /api/blob only. A
+    swapped blob is discarded on its digest before anything is opened."""
+    ws = workstation
+    call(ws, "POST", "/api/topic/create", {"topic": "retry"})
+    data = b"retry log: s1 ran twice\n"
+    put = call(ws, "POST", "/api/topics/retry/blob", raw=data,
+               headers={"Content-Type": "text/plain"})
+    assert (put["sealed"], put["epoch"], put["bytes"]) == (True, 1, len(data))
+    assert put["plaintext_sha256"] == hashlib.sha256(data).hexdigest() != put["sha256"]
+    stored = relay.blossom.blobs[put["sha256"]]
+    assert stored.isascii() and b"retry" not in stored, "the blob server holds ciphertext"
+    with CampaignSession(_topic_trust(ws, "retry", 1), LocalSigner(ws.secret),
+                         timeout_s=WAIT) as session:
+        assert session.open_sealed_blob(stored) == (data, 1)
+
+    epoch1 = _epoch_toml(ws, "retry", 1, tmp_path / "retry-epoch-1.toml")
+    fixture = tmp_path / "fixture.bin"
+    fixture.write_bytes(os.urandom(300))
+    sealed = _blob_cli(ws, epoch1, "put", "--encrypt", str(fixture))
+    assert (sealed["sealed"], sealed["epoch"]) == (True, 1)
+    body, response = call(ws, "GET", f"/api/topics/retry/blob/{sealed['sha256']}")
+    assert body == fixture.read_bytes()
+    assert (response.getheader("X-NM-Epoch"), response.getheader("X-Digest-Verified")) == (
+        "1", "sha256")
+
+    relay.add_member(_pub(NEWCOMER_SK))
+    assert call(ws, "POST", "/api/topic/grant", {"topic": "retry", "member": _pub(NEWCOMER_SK),
+                                                "mode": "forward_only"})["epoch"] == 2
+    body, response = call(ws, "GET", f"/api/topics/retry/blob/{put['sha256']}")
+    assert (body, response.getheader("X-NM-Epoch")) == (data, "1"), "epoch 1 is still held"
+    later = call(ws, "POST", "/api/topics/retry/blob", raw=b"after the rotation")
+    assert later["epoch"] == 2
+    got = _blob_cli(ws, _epoch_toml(ws, "retry", 2, tmp_path / "retry-epoch-2.toml"), "get",
+                    later["sha256"], "--encrypt", "--out", str(tmp_path / "later.bin"))
+    assert got["sealed"] and (tmp_path / "later.bin").read_bytes() == b"after the rotation", \
+        "the CLI opens it with the epoch-2 key (its one-key declaration numbers it 1)"
+
+    plain = call(ws, "POST", "/api/blob", raw=b"left in plaintext")
+    assert plain["sha256"] == hashlib.sha256(b"left in plaintext").hexdigest()
+    assert relay.blossom.blobs[plain["sha256"]] == b"left in plaintext", "the root stays as is"
+    refused = call(ws, "GET", f"/api/topics/retry/blob/{plain['sha256']}", want=400)
+    assert refused["type"] == "Unopened" and UNOPENED in refused["error"]
+    assert "[1, 2]" in refused["error"]
+    as_stored, _ = call(ws, "GET", f"/api/blob/{plain['sha256']}")
+    assert as_stored == b"left in plaintext"
+    assert "holds no key" in call(ws, "POST", "/api/topics/elsewhere/blob", raw=b"x",
+                                  want=400)["error"]
+    relay.blossom.blobs[put["sha256"]] = b"swapped"
+    assert "hashing to" in call(ws, "GET", f"/api/topics/retry/blob/{put['sha256']}",
+                                want=502)["error"]
+
+
+@needs_node
+def test_the_page_seals_and_opens_topic_blobs_like_the_cli_in_both_modes(node, workstation,
+                                                                         relay):
+    """Standalone, the page's engine holding the topic's key ring opens a blob Python
+    sealed, and seals one Python and the bridge open; a root-campaign blob goes up as it
+    is. A blob no held epoch opens is refused in the CLI's words and comes back as stored
+    only when asked; a swapped one is discarded on its digest. In bridge mode the same
+    engine calls are sealed and opened by the bridge, with every epoch it holds."""
+    ws, friend = workstation, _pub(FRIEND_SK)
+    relay.add_member(friend)
+    call(ws, "POST", "/api/topic/create", {"topic": "retry"})
+    call(ws, "POST", "/api/topic/grant", {"topic": "retry", "member": friend,
+                                          "mode": "full_history"})
+    from_python, from_page = os.urandom(500), os.urandom(300)
+    epoch1 = _topic_trust(ws, "retry", 1)
+    with CampaignSession(epoch1, LocalSigner(ws.secret), timeout_s=WAIT) as session:
+        python_blob, _ = session.put_sealed_blob(from_python)
+    plain = call(ws, "POST", "/api/blob", raw=b"left in plaintext")["sha256"]
+
+    standalone = {"scenario": "session", "secret": FRIEND_SK.hex(), "trust": ws.trust,
+                  "timeout_s": WAIT, "root": True, "topics": ["retry"]}
+    got = node({**standalone, "ops": [
+        {"op": "blob_get", "scope": "retry", "sha256": python_blob.sha256},
+        {"op": "blob_put", "scope": "retry", "data": from_page.hex()},
+        {"op": "blob_put", "scope": "", "data": b"root notes".hex(), "type": "text/plain"},
+        {"op": "blob_get", "scope": "retry", "sha256": plain},
+        {"op": "blob_get", "scope": "retry", "sha256": plain, "as_stored": True}]})
+    opened, sealed, rooted, refused, as_stored = got["ops"]
+    assert opened["ok"] == {"data": from_python.hex(), "sealed": True, "epoch": 1}
+    page_blob = sealed["ok"]
+    assert (page_blob["sealed"], page_blob["epoch"], page_blob["bytes"]) == (True, 1, 300)
+    assert page_blob["plaintext_sha256"] == hashlib.sha256(from_page).hexdigest()
+    with CampaignSession(epoch1, LocalSigner(ws.secret), timeout_s=WAIT) as session:
+        assert session.open_sealed_blob(relay.blossom.blobs[page_blob["sha256"]]) == (
+            from_page, 1)
+    body, _ = call(ws, "GET", f"/api/topics/retry/blob/{page_blob['sha256']}")
+    assert body == from_page
+    assert rooted["ok"]["sha256"] == hashlib.sha256(b"root notes").hexdigest()
+    assert relay.blossom.blobs[rooted["ok"]["sha256"]] == b"root notes"
+    assert refused["code"] == "Unopened" and UNOPENED in refused["error"]
+    assert as_stored["ok"] == {"data": b"left in plaintext".hex(), "sealed": False,
+                               "epoch": None}
+
+    bridge = {"base": ws.url, "token": ws.token, "persona": "default"}
+    via = node({"scenario": "session", "bridge": bridge, "trust": ws.trust, "timeout_s": WAIT,
+                "topics": ["retry"], "ops": [
+                    {"op": "blob_put", "scope": "retry", "data": b"through the bridge".hex()},
+                    {"op": "blob_get", "scope": "retry", "sha256": page_blob["sha256"]},
+                    {"op": "blob_get", "scope": "retry", "sha256": plain},
+                    {"op": "blob_get", "scope": "retry", "sha256": plain, "as_stored": True}]})
+    up, back, refused, as_stored = via["ops"]
+    assert (up["ok"]["sealed"], up["ok"]["epoch"]) == (True, 1)
+    with CampaignSession(epoch1, LocalSigner(ws.secret), timeout_s=WAIT) as session:
+        assert session.open_sealed_blob(relay.blossom.blobs[up["ok"]["sha256"]]) == (
+            b"through the bridge", 1)
+    assert back["ok"] == {"data": from_page.hex(), "sealed": True, "epoch": 1}
+    assert refused["code"] == "Unopened" and UNOPENED in refused["error"]
+    assert as_stored["ok"]["data"] == b"left in plaintext".hex()
+
+    relay.blossom.blobs[python_blob.sha256] = b"swapped"
+    swapped = node({**standalone, "ops": [{"op": "blob_get", "scope": "retry",
+                                           "sha256": python_blob.sha256}]})["ops"][0]
+    assert swapped["code"] == "digest" and "hashing to" in swapped["error"]
+
+
+@needs_node
+def test_each_tab_acts_as_the_persona_it_shows_whatever_another_tab_switches_to(
+        node, workstation, relay):
+    """Two tabs over real HTTP, each naming its persona on every request. Both open as
+    the console's default. Tab B switches to alice-work; tab A's next sign, NIP-44 and
+    post, and the page's engine in tab A (NIP-42 and a post through BridgeSigner), still
+    run as default, while tab B and a freshly opened tab, which names none, run as
+    alice-work. A name that is not an identity name is refused; one with no identity
+    fails as a missing identity does."""
+    ws = workstation
+    alice = create_identity("alice-work", base=ws.home)
+    relay.add_member(alice.pubkey)
+    opened = call(ws, "GET", "/api/state")
+    assert opened["active_persona"] == "default"
+    tab_a = tab_b = {ui.PERSONA_HEADER: opened["active_persona"]}
+    switched = call(ws, "POST", "/api/persona", {"name": "alice-work"}, headers=tab_b)
+    tab_b = {ui.PERSONA_HEADER: switched["active_persona"]}
+    assert switched["identity"]["pubkey"] == alice.pubkey
+    still = call(ws, "GET", "/api/state", headers=tab_a)
+    assert (still["active_persona"], still["identity"]["pubkey"]) == ("default", ws.pubkey)
+    assert call(ws, "GET", "/api/state")["active_persona"] == "alice-work", \
+        "a fresh tab starts from the default the switch set"
+
+    def signer(headers: dict | None) -> str:
+        auth = {"created_at": int(time.time()), "kind": 22242,
+                "tags": [["relay", relay.url], ["challenge", "c"]], "content": ""}
+        return verify_event(call(ws, "POST", "/api/sign", {"event": auth},
+                                 headers=headers)["event"]).pubkey
+    assert (signer(tab_a), signer(tab_b), signer(None)) == (ws.pubkey, alice.pubkey,
+                                                            alice.pubkey)
+    sealed = call(ws, "POST", "/api/nip44", {"op": "encrypt", "peer": _pub(PEER_SK),
+                                             "plaintext": "from tab A"}, headers=tab_a)
+    assert nip44.decrypt(sealed["result"], nip44.conversation_key(
+        PEER_SK, bytes.fromhex(ws.pubkey))) == "from tab A"
+    posted = call(ws, "POST", "/api/post", {"topic": "bus", "body": "tab A, still default"},
+                  headers=tab_a)
+    assert next(e for e in relay.stored() if e.id == posted["id"]).pubkey == ws.pubkey
+
+    page = node({"scenario": "session", "trust": ws.trust, "timeout_s": WAIT, "root": True,
+                 "bridge": {"base": ws.url, "token": ws.token, "persona": "default"},
+                 "ops": [{"op": "post", "scope": "", "topic": "bus",
+                          "body": "the engine in tab A"}]})
+    assert page["me"] == ws.pubkey and page["ops"][0].get("error") is None
+    assert next(e for e in relay.stored()
+                if e.id == page["ops"][0]["ok"]["id"]).pubkey == ws.pubkey
+
+    assert "must match" in call(ws, "GET", "/api/state",
+                                headers={ui.PERSONA_HEADER: "Bad Name"}, want=400)["error"]
+    assert "no identity 'ghost'" in call(ws, "POST", "/api/post", {"body": "x"},
+                                         headers={ui.PERSONA_HEADER: "ghost"},
+                                         want=409)["error"]

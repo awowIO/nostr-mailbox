@@ -77,7 +77,7 @@ function summarize(id, scope, view) {
 
 async function session(c) {
   const trust = NM.makeTrust(c.trust);
-  const signer = c.bridge ? new NM.BridgeSigner(c.bridge.base, c.bridge.token) : new NM.KeySigner(h(c.secret));
+  const signer = c.bridge ? new NM.BridgeSigner(c.bridge.base, c.bridge.token, c.bridge.persona) : new NM.KeySigner(h(c.secret));
   const relay = new NM.RelayClient(trust.relay, signer, { authUrl: trust.relay_auth_url || trust.relay, timeoutS: c.timeout_s });
   await relay.connect();
   const desk = new NM.Desk(trust, signer, relay);
@@ -111,6 +111,8 @@ async function session(c) {
     claim: (o) => desk.claim(L.scopes[o.scope], o.claim),
     decide: (o) => desk.decide(L.scopes[o.scope], L.views[o.scope], o.claim, o.ruling),
     profile: (o) => desk.profile(o.handle),
+    blob_put: (o) => desk.putBlob(L.scopes[o.scope], h(o.data), o.type),
+    blob_get: async (o) => { const got = await desk.getBlob(L.scopes[o.scope], o.sha256, { asStored: !!o.as_stored }); return { data: x(got.data), sealed: got.sealed, epoch: got.epoch }; },
     mail_grant: (o) => desk.grantMail(o.peer, { trust: o.trust || 'human_gated', parts: o.parts || ['inbox'] }),
     mail_revoke: (o) => desk.revokeMail(o.peer),
     mail: (o) => desk.sendMail({ owner: o.owner, part: o.part || 'inbox', subject: o.subject, body: o.body }),
