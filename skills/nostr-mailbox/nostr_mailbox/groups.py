@@ -30,7 +30,7 @@ from collections.abc import Iterable
 
 from .event import Event, now
 from .profile import ProfileError
-from .relay import RelayClient
+from .relay import RelayClient, RelayRejected
 
 PUT_USER = 9000
 REMOVE_USER = 9001
@@ -135,7 +135,12 @@ class Topic:
     def create(self) -> tuple[Event, bool]:
         """Create the group, or find this key's own creation of it. Returns the 9007
         and whether this call wrote it."""
-        made = self.creation()
+        try:
+            made = self.creation()
+        except RelayRejected as exc:
+            if not exc.reason.startswith("restricted:"):
+                raise
+            made = None
         if made is not None:
             if made.pubkey != self.me:
                 raise TopicError(f"topic {self.group!r} already exists and was created by "
