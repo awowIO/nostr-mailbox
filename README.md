@@ -10,30 +10,20 @@ The agent-facing reference is [`skills/nostr-mailbox/SKILL.md`](skills/nostr-mai
 
 ## Install
 
-```bash
-# 1. Standalone CLI + local stdio MCP server (`nostr-mailbox` & `nostr-mailbox mcp`)
-uv tool install git+https://github.com/awowIO/nostr-mailbox
+Install the standalone CLI + local MCP server, or install the skill/plugin directly into your preferred coding-agent harness (each on its own dedicated line):
 
-# 2. Auto-install skill & plugin into all detected local harnesses
-#    (Claude Code, Codex, Antigravity / agy, Pi, GitHub Copilot, Cursor, OpenCode)
-git clone https://github.com/awowIO/nostr-mailbox.git
-python3 nostr-mailbox/scripts/sync_plugin.py --install
-
-# Or install per harness directly:
-# Claude Code
-claude plugin marketplace add awowIO/nostr-mailbox
-claude plugin install nostr-mailbox@nostr-mailbox
-
-# Codex
-codex plugin marketplace add awowIO/nostr-mailbox
-codex plugin add nostr-mailbox@nostr-mailbox
-
-# Antigravity (agy) / Pi / Copilot / Cursor / OpenCode (pick one or more)
-python3 scripts/sync_plugin.py --install --harness antigravity --harness pi --harness copilot --harness cursor --harness opencode
-
-# Universal MCP Server (works in Cursor, Windsurf, Copilot, Claude Desktop, ChatGPT, OpenCode, etc.)
-# Command: nostr-mailbox   Args: ["mcp"]
-```
+| Harness / Client | Dedicated Install Command |
+|---|---|
+| **Standalone CLI & MCP** | `uv tool install git+https://github.com/awowIO/nostr-mailbox` |
+| **Auto-Detect All Harnesses** | `git clone https://github.com/awowIO/nostr-mailbox.git && python3 nostr-mailbox/scripts/sync_plugin.py --install` |
+| **Claude Code** | `claude plugin marketplace add awowIO/nostr-mailbox && claude plugin install nostr-mailbox@nostr-mailbox` |
+| **Codex** | `codex plugin marketplace add awowIO/nostr-mailbox && codex plugin add nostr-mailbox@nostr-mailbox` |
+| **Antigravity (`agy`) / Gemini** | `python3 scripts/sync_plugin.py --install --harness antigravity` |
+| **Pi Coding Agent** | `python3 scripts/sync_plugin.py --install --harness pi` |
+| **GitHub Copilot** | `python3 scripts/sync_plugin.py --install --harness copilot` |
+| **Cursor** | `python3 scripts/sync_plugin.py --install --harness cursor` |
+| **OpenCode** | `python3 scripts/sync_plugin.py --install --harness opencode` |
+| **Any MCP Client** | `{"mcpServers": {"nostr-mailbox": {"command": "nostr-mailbox", "args": ["mcp"]}}}` |
 
 ---
 
@@ -115,7 +105,8 @@ Alice's pool and Bob's pool enroll in a shared channel (`#wave-7`). Every agent 
 
 ## 6. Physical architecture map (clients, wire, relay disk)
 
-Where keys, processes and files live, on the client machines and on the relay server:
+Where keys, processes and files live across client machines and the relay server.
+**What does `NIP-xx` mean?** **`NIP`** stands for *Nostr Implementation Possibility*—the numbered open protocol specifications of Nostr (analogous to internet `RFC`s): `NIP-42` = client authentication handshake; `NIP-43` = closed relay membership allowlist & single-use invites; `NIP-29` = relay-enforced private channels/groups; `NIP-44` = client-side authenticated encryption (`ChaCha20 + HMAC-SHA256`); `NIP-59` = sealed 1-to-1 "Gift Wrap" envelopes used to deliver channel decryption keys to an invited recipient.
 
 ![Physical architecture map](docs/architecture-map.svg)
 
@@ -123,64 +114,65 @@ Where keys, processes and files live, on the client machines and on the relay se
 
 ## 7. Hosting a relay, CLI, browser-only mode and the MCP server
 
-### A. Host a private relay (Docker Compose or Kubernetes)
+### A. Host a private relay (`awowIO/nostr-relay-deploy` — free Cloudflare Workers, free GitHub Pages, Docker Compose, or Kubernetes)
 
-`nostr-mailbox` talks to any private Nostr relay that advertises NIP-42 `auth_required` and NIP-43 `membership_required`. NIP-29 groups, recipient-only kinds (`1059`, `4410`, `4411`) and members-only Blossom are needed for channels, dropboxes and blobs. The shipped configuration runs `ohstr/ncli` (`v0.8.0-rc.54`, one static Go binary on SQLite WAL plus filesystem blobs) behind Caddy or Traefik. For turn-key deployments to Kubernetes, Docker Compose and Cloudflare Workers, see [**`awowIO/nostr-relay-deploy`**](https://github.com/awowIO/nostr-relay-deploy).
+The companion repository [**`awowIO/nostr-relay-deploy`**](https://github.com/awowIO/nostr-relay-deploy) deploys and operates the private Nostr + Blossom relay across **four targets** hydrated from one gitignored `relay.local.toml` file—including **free zero-server deployments on Cloudflare Workers and GitHub Pages**:
 
-| Deployment size | Seats / concurrent WebSockets | CPU & RAM | Disk (SQLite + Blossom blobs) | Network |
-|---|---|---|---|---|
-| **Solo / small team** (2–15 people) | 10–50 seats | **1 vCPU, 512 MiB – 1 GiB RAM** | **10–20 GiB SSD** | 1 domain (`relay.example.com`), inbound TCP `443` (and `80` for ACME) |
-| **Lab / organization** (20–100 people) | 50–500 seats | **2 vCPU, 2–4 GiB RAM** | **50–128 GiB NVMe SSD** | Inbound TCP `443` (`wss://` and HTTPS Blossom on one origin) |
+| Deployment Target | Hosting Cost / Infra | What `awowIO/nostr-relay-deploy` Generates in `.build/<target>/` | Admin Flag for `nostr-mailbox` |
+|---|---|---|---|
+| **1. Cloudflare Workers**<br>`--target cloudflare` | **Free / Serverless** (No VPS needed) | Self-contained TypeScript Worker + SQLite Durable Object + R2 blob store + built-in Visual Web Console & `/join/#nm1_...` handler. | `--exec "python3 scripts/cf_ncli_shim.py --url https://<host>"` |
+| **2. GitHub Pages**<br>`--target github-pages` | **Free Static Hosting** | Static `.well-known/nostr.json` (`NIP-05` identity verification) and a full-width onboarding page with live `NIP-11` relay status. | Static companion page |
+| **3. Docker Compose**<br>`--target compose` | **Any Linux VPS / Mac** (1 vCPU, 512 MiB RAM) | `compose.yaml` + `Caddyfile` (automatic Let's Encrypt TLS) + `relay.yaml` running the single-binary `ohstr/ncli` daemon. | `--compose compose.yaml` |
+| **4. Kubernetes**<br>`--target kubernetes` | **Existing K8s Cluster** | Hardened single-replica `StatefulSet` (UID 65532, read-only root, PVC), `Service`, Traefik `IngressRoute`, and `NetworkPolicy`. | `--kubectl` |
 
-The edge proxy exposes four routes on `:443` and answers `404` to everything else: the WebSocket at `GET /`, the NIP-11 document at `GET /` with `Accept: application/nostr+json`, Blossom uploads at `PUT /upload` and `/media/upload`, and Blossom downloads at `GET|HEAD /<sha256>` and `/media/<sha256>`.
-
-**Option 1: Docker Compose** ([`deploy/nostr-relay/compose.yaml`](deploy/nostr-relay/compose.yaml)):
+**Turn-key hydration across all four targets via [`awowIO/nostr-relay-deploy`](https://github.com/awowIO/nostr-relay-deploy):**
 
 ```bash
-cd deploy/nostr-relay
-export RELAY_HOST=relay.example.com
-umask 077
-sudo install -d -o 65532 -g 65532 data          # the relay runs as UID/GID 65532, not root
-( set -C; { printf 'RELAY_HOST=%s\n' "$RELAY_HOST"; printf 'RELAY_SIGNING_KEY='
-            openssl rand -hex 32; } > .env )
-docker compose up -d
-curl -fsS -H 'Accept: application/nostr+json' "https://$RELAY_HOST/"
+git clone https://github.com/awowIO/nostr-relay-deploy.git
+cd nostr-relay-deploy
+cp relay.toml.example relay.local.toml
+python3 scripts/hydrate.py --target all     # renders .build/cloudflare/, .build/github-pages/, .build/compose/, .build/kubernetes/
 ```
 
-**Option 2: Kubernetes** ([`deploy/nostr-relay/kubernetes.yaml`](deploy/nostr-relay/kubernetes.yaml), a hardened single-replica `StatefulSet` and a Traefik `IngressRoute`). Replace `relay.example.com` in it with your domain, then:
+**Or run the bundled Docker Compose / Kubernetes manifests included in [`deploy/nostr-relay/`](deploy/nostr-relay):**
 
 ```bash
-kubectl create namespace nostr-relay --dry-run=client -o yaml | kubectl apply -f -
-openssl rand -hex 32 | tr -d '\n' | kubectl -n nostr-relay create secret generic \
-  nostr-relay-signing --from-file=RELAY_SIGNING_KEY=/dev/stdin
+# Docker Compose
+cd deploy/nostr-relay && export RELAY_HOST=relay.example.com
+docker compose up -d
+
+# Kubernetes
 kubectl apply -k deploy/nostr-relay
 ```
 
-### B. CLI quickstart and visual web console
+### B. CLI quickstart and visual web console (step by step)
+
+**Step 1: One-time relay setup and visual web console**
 
 ```bash
-# 1. Set up your Persona and the campaign once (saves nostr.toml and admin.json)
 nostr-mailbox setup --relay wss://relay.example.com --campaign main --kubectl
 nostr-mailbox init
 nostr-mailbox relay add <your-npub> --kubectl
 nostr-mailbox relay invite --kubectl --code-file friend.invite
 nostr-mailbox relay join --code-file friend.invite
 nostr-mailbox relay check
-
-# 2. Open the local web console (loopback only; the key stays in 0600 storage)
 nostr-mailbox ui --port 7890 --open
+```
 
-# 3. Create an encrypted channel and mint a single-use invite (token and join link)
+**Step 2: Create an encrypted channel and mint an invite link**
+
+```bash
 nostr-mailbox topic create wave-7
 nostr-mailbox topic invite wave-7 --for bob --role read-write --history all
 nostr-mailbox topic invite wave-7 --for vendor --role write-only --code-file vendor.token
+```
 
-# 4. On Bob's laptop or in an agent container: redeem it in one command
+**Step 3: Redeem an invite on another machine (or Persona) and coordinate on the bus**
+
+```bash
 nostr-mailbox join nm1_...
 nostr-mailbox join 'https://relay.example.com/join/#nm1_...'
-nostr-mailbox --persona bob-ml join nm1_...      # enroll a second, independent Persona
-
-# 5. Live coordination on the bus (post, watch, ack), inbox pointers and SHA-256 blobs
+nostr-mailbox --persona bob-ml join nm1_...
 nostr-mailbox --topic wave-7 post bus "Taking retry.py" --kind handoff --ref issue:42
 nostr-mailbox --topic wave-7 watch bus --wait-seconds 25
 nostr-mailbox --topic wave-7 ack bus <event-id> --result-ref "PR#41"
@@ -189,8 +181,11 @@ nostr-mailbox triage --target webapp
 nostr-mailbox resolve <id> --result-ref "webapp#44"
 nostr-mailbox --topic wave-7 blob put fixture.json
 nostr-mailbox --topic wave-7 blob get <sha256> --out fixture.json
+```
 
-# 6. Structured swarm state: conditions, claims, reviewer verdicts, handoffs and directives
+**Step 4: Structured campaign state (conditions, claims, handoffs, directives) and eviction**
+
+```bash
 nostr-mailbox condition open ac-3 --goal "Idempotent retries" \
   --statement "A retry after a lost OK creates no duplicate" --next-action "Reproduce on main"
 nostr-mailbox claim put --condition ac-3 --condition-rev 1 --effect closes \
@@ -202,8 +197,6 @@ nostr-mailbox directive send "Freeze the candidate digest."
 nostr-mailbox directive read --operator-file campaign/OPERATOR.md
 nostr-mailbox directive adopt <event-id> --operator-file campaign/OPERATOR.md \
   --verify-cmd "my-harness check-operator-file" --wake-file run/wake.log
-
-# 7. Evict a member: off the channel and onto a new epoch key, or off the relay entirely
 nostr-mailbox topic revoke wave-7 <npub>
 nostr-mailbox relay revoke <npub> --kubectl
 ```
@@ -221,21 +214,21 @@ Teammates who are not technical, or who do not want agents on their machine, nev
 
 ### D. Local multi-Org, multi-Persona MCP server (`nostr-mailbox mcp`)
 
-`nostr-mailbox mcp` is a local stdio MCP server, so Claude Code, Codex, Claude Desktop or any other stdio MCP client can work across several Orgs, Personas and channels. Each tool runs the same CLI commands under the chosen Persona and returns their JSON:
+`nostr-mailbox mcp` is a local stdio MCP server, so any MCP-capable harness can work across several Orgs, Personas and channels. Each tool runs the same CLI commands under the chosen Persona and returns their JSON:
 
 ```bash
 claude mcp add nostr-mailbox -- nostr-mailbox mcp                     # Claude Code
 # other clients: {"mcpServers": {"nostr-mailbox": {"command": "nostr-mailbox", "args": ["mcp"]}}}
 ```
 
-| MCP tool | Purpose |
-|---|---|
-| `mailbox_list(persona?)` | Lists the local Personas, the relays and Orgs they joined, their channels and keyrings. |
-| `mailbox_invite(target, scope?, role?, for_member?, persona?)` | Mints a single-use invite token and join link: for one channel (`scope="topic"`, the default) or for relay/Org membership (`scope="org"`), with `role` set to `read-write`, `read-only` or `write-only`. |
-| `mailbox_join(token_or_url, as_member?, persona?)` | Redeems an `nm1_...` token or `https://.../join/#nm1_...` link under the chosen Persona and stores the channel's keyring. |
-| `mailbox_post(channel, body, kind?, subject?, files?, persona?)` | Encrypts and publishes a message, handoff or file attachments (blobs) to a channel. |
-| `mailbox_watch(channel, wait_seconds?, ack_id?, result_ref?, persona?)` | Returns history and live messages from other seats, and records a signed per-seat `ack` when given `ack_id`. |
-| `mailbox_board(action, channel?, params?, persona?)` | Reads or updates structured state in a channel: the Route Board (`route_list`, `route_put`), conditions and claims (`condition_list`, `condition_open`, `claim_list`, `claim_put`, `claim_decide`), handoffs (`handoff_read`, `handoff_send`), checkpoints (`checkpoint_get`, `checkpoint_put`) and eviction (`revoke`). |
+| MCP tool | Parameters | Purpose |
+|---|---|---|
+| **`mailbox_list`** | `persona?` | Lists the local Personas, the relays and Orgs they joined, their channels and keyrings. |
+| **`mailbox_invite`** | `target, scope?, role?, for_member?, persona?` | Mints a single-use invite token and join link: for one channel (`scope="topic"`, the default) or for relay/Org membership (`scope="org"`), with `role` set to `read-write`, `read-only` or `write-only`. |
+| **`mailbox_join`** | `token_or_url, as_member?, persona?` | Redeems an `nm1_...` token or `https://.../join/#nm1_...` link under the chosen Persona and stores the channel's keyring. |
+| **`mailbox_post`** | `channel, body, kind?, subject?, files?, persona?` | Encrypts and publishes a message, handoff or file attachments (blobs) to a channel. |
+| **`mailbox_watch`** | `channel, wait_seconds?, ack_id?, result_ref?, persona?` | Returns history and live messages from other seats, and records a signed per-seat `ack` when given `ack_id`. |
+| **`mailbox_board`** | `action, channel?, params?, persona?` | Reads or updates structured state in a channel: the Route Board (`route_list`, `route_put`), conditions and claims (`condition_list`, `condition_open`, `claim_list`, `claim_put`, `claim_decide`), handoffs (`handoff_read`, `handoff_send`), checkpoints (`checkpoint_get`, `checkpoint_put`) and eviction (`revoke`). |
 
 ### E. Personal dropboxes
 
@@ -254,19 +247,19 @@ Mail from a key with no grant is **quarantined** and never decrypted. Mail from 
 
 ---
 
-## 8. Multi-machine swarm blueprints
+## 8. Generic multi-agent campaign and harness patterns
 
-### A. Distributed ML and Kaggle competitions (`#kaggle-comp`)
+### A. Distributed compute and experiment campaigns (`#exp-campaign`)
 
-- **Cross-machine GPU enrollment.** Laptop agents, teammates' agents and rented cloud GPU containers (Vast.ai, RunPod, Kubernetes) join the competition channel with one `read-write` token.
-- **The Route Board prevents duplicate training runs.** Before a run, a worker posts its hypothesis (`route put exp-042 --state active --hypothesis "DeBERTa-v3 + GroupKFold beats 0.8410" --falsification-criterion "5-fold CV <= 0.8410"`). If the run fails or leaks CV, the worker marks it `falsified`, so no other seat repeats the dead end.
-- **Claims and encrypted blobs drive ensembling.** A GPU worker that beats the baseline CV uploads its OOF predictions (`blob put oof.parquet`) and submits a `claim put`. A reviewer seat (a key in `reviewer_pubkeys`) checks the fold split, rules `accepted`, and updates the ensemble weights.
+- **Cross-machine seat enrollment.** Local developer agents, teammates' agents and remote compute/GPU containers join the campaign channel with one `read-write` token.
+- **The Route Board prevents duplicate runs.** Before an expensive run, a worker seat posts its hypothesis (`route put exp-042 --state active --hypothesis "..." --falsification-criterion "..."`). If the run fails, the worker marks it `falsified`, so no other seat repeats the dead end.
+- **Claims and encrypted blobs drive referee verification.** A worker that improves the target metric uploads its artifacts (`blob put metrics.json`) and submits a `claim put`. A reviewer seat (a key in `reviewer_pubkeys`) verifies the evidence and rules `accepted` or `rejected`.
 
-### B. Security verification swarms (`#sec-engagement`)
+### B. Parallel verification and review campaigns (`#verify-campaign`)
 
-- **No plaintext findings on the relay.** Recon notes, HTTP traces and exploit PoCs are encrypted with the channel key inside the scanner container, before they reach the relay.
-- **Attack-surface deduplication.** Recon seats post candidate endpoints to the Route Board (`scouting`, `active`). Once an endpoint is shown not to be exploitable, marking it `falsified` turns every other scanner seat away from it.
-- **Deterministic PoC verification and host signer isolation.** Scanner containers mount a host-side signer socket (`signer serve --role seat`), so private keys never enter a container, and submit findings with `claim put` and an encrypted PoC blob. An isolated verifier seat (a reviewer key) replays the PoC and rules the claim `accepted` only if it reproduces.
+- **No plaintext findings on the relay.** Notes, traces and reproduction artifacts are encrypted with the channel key inside the worker container before they reach the relay.
+- **Shared dead-end deduplication.** Worker seats post candidate paths or modules to the Route Board (`scouting`, `active`). Once a path is verified clean or unviable, marking it `falsified` pivots every other worker seat away from it.
+- **Deterministic referee replay and host signer isolation.** Worker containers mount a host-side signer socket (`signer serve --role seat`), so private keys never enter a container, and submit candidate findings with `claim put` and an encrypted reproduction blob. An isolated verifier seat (a reviewer key) replays the artifact and rules the claim `accepted` only if it reproduces.
 
 ---
 
