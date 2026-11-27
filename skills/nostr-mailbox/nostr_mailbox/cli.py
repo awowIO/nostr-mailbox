@@ -15,7 +15,12 @@ OPERATOR.md). Both can append one wake line to `--wake-file`. Mail attachments a
 written only under the stage root, at 0600, and only once released.
 
 A topic (`topic …`) is a NIP-29 group with its own epoch keyring; its declaration lives
-at `<home>/topics/<topic>.toml` and every command reaches it with `--topic <topic>`."""
+at `<home>/topics/<topic>.toml` and every command reaches it with `--topic <topic>`.
+
+Every campaign this machine set up or joined has an entry in the org registry,
+`<home>/orgs/<campaign>.toml`: its relay, its operators, the personas (identities) that
+joined it, and where its own declaration lives. A second campaign never overwrites the
+first one's `nostr.toml`: its declaration goes to `<home>/orgs/<campaign>/nostr.toml`."""
 from __future__ import annotations
 
 import argparse
@@ -31,8 +36,11 @@ import os
 import shlex
 import sys
 import threading
+import time
+import tomllib
 from dataclasses import replace
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 from . import acl, bech32, bridge, pairwise, secp256k1
 from . import keyring as keyrings
@@ -113,6 +121,13 @@ ROLE_KINDS = {
 TOKEN_EXTRAS = ("topic", "group_code", "redeem", "epochs", "current", "owner")
 TOPICS = "topics"
 SEAT_BLOB_VERBS = frozenset({"get", "upload"})
+# What a topic invite records the newcomer may do. The keeper's registry keeps it; the
+# relay does not enforce it (every member of a topic reads and writes it).
+INVITE_ROLES = ("read-write", "read-only", "write-only")
+ORGS = "orgs"
+ORG_SCHEMA = "cf.org/1"
+ORG_KEYS = ("schema", "campaign", "relay", "operator_pubkeys", "trust_file", "personas",
+            "updated_at")
 
 
 # --------------------------------------------------------------------------- context
@@ -193,11 +208,117 @@ def _write_trust_file(path: Path, mapping: dict) -> None:
         lines.append("allow_cleartext = true")
     text = "\n".join(lines) + "\n"
     Trust.from_mapping(mapping, source=str(path))
+    _write_private(path, text)
+
+
+def _write_private(path: Path, text: str) -> None:
+    """Replace `path` whole with `text`, 0600 in a 0700 directory."""
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     tmp = path.with_suffix(".toml.tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as fh:
         fh.write(text)
     os.replace(tmp, path)
+
+
+# ------------------------------------------------------------------- the org registry
+def _org_path(args, campaign: str) -> Path:
+    return home(args.home) / ORGS / f"{campaign}.toml"
+
+
+def read_org(path: Path) -> dict:
+    """One registry entry, checked, or ProfileError naming what is wrong with it."""
+    try:
+        with open(path, "rb") as fh:
+            entry = tomllib.load(fh)
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise ProfileError(f"cannot read the org registry entry {path}: {exc}") from exc
+    unknown = sorted(set(entry) - set(ORG_KEYS))
+    if entry.get("schema") != ORG_SCHEMA or unknown:
+        raise ProfileError(f"{path} is not a {ORG_SCHEMA} registry entry"
+                           + (f" (unknown keys {unknown})" if unknown else ""))
+    if entry.get("campaign") != path.stem or not isinstance(entry.get("relay"), str):
+        raise ProfileError(f"{path} does not name campaign {path.stem!r} and its relay")
+    personas = entry.get("personas", [])
+    if not isinstance(personas, list) or not all(isinstance(p, str) for p in personas):
+        raise ProfileError(f"{path}: personas must be a list of identity names")
+    return entry
+
+
+def _write_org(path: Path, entry: dict) -> None:
+    lines = [f"{key} = {json.dumps(entry[key], ensure_ascii=False)}"
+             for key in ORG_KEYS if key in entry]
+    text = "\n".join(lines) + "\n"
+    if tomllib.loads(text) != entry:        # JSON escapes that TOML reads otherwise
+        raise ProfileError(f"the registry entry for campaign {entry['campaign']!r} does not "
+                           "survive as TOML; nothing was written")
+    _write_private(path, text)
+
+
+def _org_entry(args, trust: Trust) -> tuple[Path, dict]:
+    """This machine's registry entry for `trust`'s campaign ({} if none). A campaign of
+    that name on another relay is another org: refused, before anything is written."""
+    path = _org_path(args, trust.campaign)
+    entry = read_org(path) if path.is_file() else {}
+    if entry and entry["relay"] != trust.relay:
+        raise ProfileError(
+            f"this machine already holds campaign {trust.campaign!r} on {entry['relay']} "
+            f"({path}); one of that name on {trust.relay} is another org, and the two "
+            "would share one registry entry and one set of topic files. Nothing was "
+            "written. If the campaign moved relays, remove that file and run this again")
+    return path, entry
+
+
+def _register_org(args, trust: Trust, *, trust_file: Path | None) -> Path:
+    """Record that persona `args.identity` set up or joined `trust`'s campaign, and
+    (when this machine holds one) where the campaign's own declaration lives."""
+    path, entry = _org_entry(args, trust)
+    updated = {"schema": ORG_SCHEMA, "campaign": trust.campaign, "relay": trust.relay,
+               "operator_pubkeys": [_npub(k) for k in sorted(trust.operator_pubkeys)],
+               "personas": sorted({*entry.get("personas", []), args.identity}),
+               "updated_at": int(time.time())}
+    held = str(trust_file) if trust_file is not None else entry.get("trust_file")
+    if held:
+        updated["trust_file"] = held
+    _write_org(path, updated)
+    return path
+
+
+def _root_trust_path(args, campaign: str) -> Path:
+    """Where `campaign`'s declaration goes when no --trust names one: the default
+    nostr.toml, unless it declares another campaign. That one is another org's, with
+    its own campaign_key; the newcomer goes to <home>/orgs/<campaign>/nostr.toml."""
+    default = _default_trust_path(args)
+    if not default.is_file() or Trust.load(default).campaign == campaign:
+        return default
+    return home(args.home) / ORGS / campaign / "nostr.toml"
+
+
+def _beside_default(args, path: Path) -> dict:
+    """The hint a command gives when it wrote a declaration that is not the default."""
+    if path == _default_trust_path(args):
+        return {}
+    return {"next": f"this machine's default nostr.toml declares another campaign and is "
+                    f"kept as it is: reach this one with --trust {path}"}
+
+
+def _join_url(trust: Trust, token: str) -> str:
+    """The one-click link for a token: the relay's public origin (wss→https, ws→http)
+    and /join/, with the token in the fragment, which a browser never sends."""
+    parts = urlsplit(trust.relay_auth_url or trust.relay)
+    return f"{'https' if parts.scheme == 'wss' else 'http'}://{parts.netloc}/join/#{token}"
+
+
+def _token_from_link(link: str) -> str:
+    """The nm1_ token a join link carries: its fragment (…/join/#nm1_…, or the web
+    console's #join=nm1_…&topic=…), or a segment of its path. The token, not the link's
+    host, names the relay joined. (A token is unpadded base64url: it holds no `=`.)"""
+    parts = urlsplit(link)
+    for piece in (*parts.fragment.split("&"), *reversed(parts.path.split("/"))):
+        value = unquote(piece).rpartition("=")[2]
+        if value.startswith("nm1_"):
+            return value
+    raise ProfileError("the join link carries no nm1_ token (expected …/join/#nm1_…)")
 
 
 def _encode_invite_token(trust: Trust, code: str, *, member: str | None = None,
@@ -409,8 +530,8 @@ def cmd_setup(args) -> dict:
     32-byte NIP-44 v2 campaign_key (reusing an existing one for the same campaign), writes
     `<home>/nostr.toml` (0600), saves `<home>/admin.json` (0600) so future `invite` /
     `relay revoke` calls need no flags, and enrolls the operator key on the relay."""
+    trust_path = Path(args.trust) if args.trust else _root_trust_path(args, args.campaign)
     ident, created = _ensure_identity(args)
-    trust_path = Path(args.trust) if args.trust else _default_trust_path(args)
     existing_ck = None
     if trust_path.is_file():
         with contextlib.suppress(ProfileError):
@@ -426,15 +547,18 @@ def cmd_setup(args) -> dict:
     }
     if ck:
         mapping["campaign_key"] = ck
+    _org_entry(args, Trust.from_mapping(mapping, source="setup"))
     _write_trust_file(trust_path, mapping)
     out = {
         "identity": ident.name,
         "npub": ident.npub,
         "identity_created": created,
         "trust_file": str(trust_path),
+        "org_file": str(_register_org(args, Trust.load(trust_path), trust_file=trust_path)),
         "relay": args.relay,
         "campaign": args.campaign,
         "encrypted_nip44_v2": bool(ck),
+        **({} if args.trust else _beside_default(args, trust_path)),
     }
     if args.kubectl or args.compose or args.exec:
         admin = _admin(args)
@@ -456,6 +580,8 @@ def _invite_input(args) -> tuple[str, dict | None, str | None, dict]:
     text = text.strip()
     if not text:
         raise ProfileError("no invite code given")
+    if text.startswith(("https://", "http://")):
+        text = _token_from_link(text)
     if text.startswith("nm1_"):
         return _decode_invite_token(text)
     if not text.startswith("{"):
@@ -509,17 +635,22 @@ def cmd_relay_join(args) -> dict:
     target = None
     if bundle is not None:
         # A topic's declaration has one place, the one `--topic` reads; a campaign's
-        # goes to the default nostr.toml, or to a --trust path that does not exist yet.
+        # goes to the default nostr.toml (unless that is another campaign's), or to a
+        # --trust path that does not exist yet.
+        declared = Trust.from_mapping(bundle, source="the nm1_ invite token")
+        _org_entry(args, declared)
         if topic:
             target = _topic_path(args, topic)
         elif not args.trust:
-            target = _default_trust_path(args)
+            target = _root_trust_path(args, declared.campaign)
         elif not Path(args.trust).exists():
             target = Path(args.trust)
         if target is not None:
             _write_trust_file(target, bundle)
         _ensure_identity(args)
-    trust = Trust.load(target) if topic else _trust(args)
+    trust = Trust.load(target) if target is not None else _trust(args)
+    if bundle is None:
+        _org_entry(args, trust)
     advertised = _advertised(trust, args)
     if not advertised["advertises_private"]:
         raise ProfileError(
@@ -555,6 +686,14 @@ def cmd_relay_join(args) -> dict:
                 key=f"member-joined:{member}:{ident.pubkey[:16]}")
             out["member"] = member
             out["introduced_on_bus"] = receipt.id
+    # A topic token carries no campaign_key: its declaration is the topic's, never the
+    # campaign's own, so it is not recorded as one.
+    root_file = None if topic else (target or Path(args.trust or _default_trust_path(args)))
+    out["org_file"] = str(_register_org(args, trust, trust_file=root_file))
+    if root_file is not None:
+        out["trust_file"] = str(root_file)
+        if target is not None and not args.trust:
+            out.update(_beside_default(args, target))
     if bundle is not None and args.home is None and not args.trust:
         installed = _auto_install_harnesses()
         if installed:
@@ -625,7 +764,7 @@ def _hand_out(args, minted, wrap) -> dict:
         json.dump(secret, fh)
     return {"invite_written": args.code_file, "mode": "0600",
             **{k: secret[k] for k in ("max_uses", "expires_at", "via", "topic", "history",
-                                     "epochs_in_token") if k in secret}}
+                                     "role", "role_note", "epochs_in_token") if k in secret}}
 
 
 def cmd_relay_invite(args) -> dict:
@@ -641,6 +780,7 @@ def cmd_relay_invite(args) -> dict:
             return invite
         token = _encode_invite_token(trust, invite["code"], member=member)
         return {**invite, **({"member": member} if member else {}), "token": token,
+                "join_url": _join_url(trust, token),
                 "one_liner": f"uvx --from git+https://github.com/awowIO/nostr-mailbox "
                              f"nostr-mailbox join {token}"}
 
@@ -1049,9 +1189,14 @@ def cmd_topic_create(args) -> dict:
 def cmd_topic_invite(args) -> dict:
     """A single-use `nm1_…` token for the topic: relay admission, a group invite code,
     and the epoch keys the newcomer is given (every epoch with --history all; with
-    from-now the topic rotates first and the token holds only the new epoch)."""
+    from-now the topic rotates first and the token holds only the new epoch). The
+    `--role` is recorded beside the invite in the keeper's registry."""
     trust, ring = _keeper(args)
-    result: dict = {"topic": trust.group, "history": args.history}
+    result: dict = {"topic": trust.group, "history": args.history, "role": args.role}
+    if args.role != "read-write":
+        result["role_note"] = ("recorded in the keeper's invite registry only: the relay "
+                               "does not enforce it, and every member of the topic reads "
+                               "and writes it")
 
     def minted() -> dict:
         with _session(args, trust=trust, ring=ring) as session:
@@ -1068,7 +1213,8 @@ def cmd_topic_invite(args) -> dict:
             epochs = sorted(ring.epochs) if args.history == "all" else [ring.current]
             group_code, redeem = topic.new_code(), secp256k1.generate_secret()
             ring.registry["invites"][keyrings.code_digest(group_code)] = {
-                "for": args.member, "history": args.history, "from_epoch": epochs[0],
+                "for": args.member, "history": args.history, "role": args.role,
+                "from_epoch": epochs[0],
                 "epochs": epochs, "created_at": now(session.clock),
                 "redeem_key": secp256k1.pubkey_gen(redeem).hex()}
             ring.save()                     # recorded before the code is published
@@ -1085,6 +1231,7 @@ def cmd_topic_invite(args) -> dict:
         token = _encode_invite_token(trust, got["relay_invite"]["code"], member=args.member,
                                      extra=extra)
         return {**result, "epochs_in_token": got["epochs"], "token": token,
+                "join_url": _join_url(trust, token),
                 "via": got["relay_invite"].get("via", "admin CLI"),
                 "one_liner": f"nostr-mailbox join {token}"}
 
@@ -1324,6 +1471,14 @@ def cmd_ui(args) -> dict:
     return serve(args)
 
 
+def cmd_mcp(args) -> str:
+    """Serve the MCP tools on stdin and stdout until stdin closes. Returns "": stdout
+    carries the protocol, and nothing else may be printed on it."""
+    from .mcp import serve_stdio
+    serve_stdio(home_dir=args.home, default_persona=args.identity)
+    return ""
+
+
 # ---------------------------------------------------------------------------- parser
 def _seconds(text: str) -> float:
     try:
@@ -1351,8 +1506,8 @@ def build_parser(prog: str = "nostr-mailbox") -> argparse.ArgumentParser:
     ap.add_argument("--trust", help=f"the campaign's nostr.toml (or {TRUST_ENV})")
     ap.add_argument("--topic", dest="topic_trust", metavar="TOPIC",
                     help="work inside this topic: its declaration <home>/topics/TOPIC.toml")
-    ap.add_argument("--identity",
-                    help=f"identity name (or {IDENTITY_ENV}; default: {DEFAULT_NAME})")
+    ap.add_argument("--identity", "--persona", dest="identity",
+                    help=f"identity (persona) name (or {IDENTITY_ENV}; default: {DEFAULT_NAME})")
     ap.add_argument("--home", default=None, help=f"identity directory (or {HOME_ENV})")
     ap.add_argument("--timeout-seconds", type=_patience, default=DEFAULT_WAIT_S,
                     help=f"how long to wait for one relay, signer or verify-command answer "
@@ -1409,7 +1564,7 @@ def build_parser(prog: str = "nostr-mailbox") -> argparse.ArgumentParser:
     # `--for` with its own None default.
     p.add_argument("member_name", nargs="?", metavar="member",
                    help="friend's name (e.g. 'roland'), embedded in the token")
-    p.add_argument("--for", dest="member", help="friend's name (e.g. 'roland')")
+    p.add_argument("--for", "--recipient", dest="member", help="friend's name (e.g. 'roland')")
     reach(p, admin=True)
     p.add_argument("--ttl", help=f"invite lifetime, admin CLI only (default {INVITE_TTL})")
     p.add_argument("--code-file", help="write the invite here (0600) instead of printing it")
@@ -1648,8 +1803,12 @@ def build_parser(prog: str = "nostr-mailbox") -> argparse.ArgumentParser:
     p.add_argument("group", help="topic id: a-z 0-9 _ -")
     p = add(topic, "invite", cmd_topic_invite, "a single-use nm1_ token into the topic (keeper)")
     p.add_argument("group")
-    p.add_argument("--for", dest="member", help="the newcomer's name, embedded in the token")
+    p.add_argument("--for", "--recipient", dest="member",
+                   help="the newcomer's name, embedded in the token")
     p.add_argument("--history", **history)
+    p.add_argument("--role", choices=INVITE_ROLES, default="read-write",
+                   help="what the newcomer may do, recorded in the keeper's invite registry "
+                        "(not enforced by the relay; default: read-write)")
     reach(p, admin=True)
     p.add_argument("--ttl", help=f"relay invite lifetime, admin CLI only (default {INVITE_TTL})")
     p.add_argument("--code-file", help="write the token here (0600) instead of printing it")
@@ -1728,6 +1887,8 @@ def build_parser(prog: str = "nostr-mailbox") -> argparse.ArgumentParser:
     from .ui import add_arguments as ui_arguments
     ui_arguments(add(sub, "ui", cmd_ui,
                      "serve the Visual Web Console on loopback; the key stays in its file"))
+    add(sub, "mcp", cmd_mcp, "serve the mailbox_* MCP tools over stdio (JSON-RPC 2.0, "
+                             "newline-delimited or Content-Length framed)")
     return ap
 
 
