@@ -2,9 +2,9 @@
   <title id="architecture-map-title">Physical Architecture Map: Clients vs. Wire vs. Relay Disk</title>
   <desc id="architecture-map-desc">A client encrypts and signs. The wire carries ciphertext. The relay checks access and stores signed events and encrypted files on disk.</desc>
   <style>
-    :root { --panel: #fff; --head: #eef1f5; --ink: #18212f; --muted: #596677; --soft: #f0f3f7; --line: #e0e5eb; --accent: #335ade; }
+    :root { --panel: #faf9f6; --head: #f0eee9; --ink: #16181d; --muted: #5a5d64; --soft: #f0eee9; --line: #e4e1da; --accent: #35547a; --ancient-bg: #14171c; --ancient-rule: #2b313a; --ancient-ink: #e8eaed; }
     @media (prefers-color-scheme: dark) {
-      :root { --panel: #171e28; --head: #1d2734; --ink: #f0f4fb; --muted: #b5c0d0; --soft: #212b38; --line: #2c3644; --accent: #92acff; }
+      :root { --panel: #1c2027; --head: #1c2027; --ink: #e8eaed; --muted: #a9b0bc; --soft: #222730; --line: #2b313a; --accent: #8fa8c4; }
     }
   </style>
   <defs>
@@ -13,10 +13,11 @@
     </marker>
   </defs>
   <g transform="translate(14 16)">
-    <rect width="252" height="288" rx="6" fill="var(--panel)" stroke="var(--line)" stroke-width="1.25"/>
-    <rect width="252" height="30" rx="6" fill="var(--head)"/>
-    <text x="14" y="19" font-size="10" font-weight="550" letter-spacing=".6" fill="var(--muted)">ZONE 01</text>
-    <text x="76" y="20" font-size="12.5" font-weight="600" fill="var(--ink)">Client machines</text>
+    <rect width="252" height="288" fill="var(--panel)"/>
+    <path d="M0 0h252" stroke="var(--ink)"/>
+    <path d="M0 31h252M0 288h252" stroke="var(--line)"/>
+    <text x="14" y="19" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">ZONE 01</text>
+    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="16" fill="var(--ink)">Client machines</text>
     <g font-size="11.5" fill="var(--muted)">
       <text x="14" y="55" fill="var(--ink)" font-weight="600">Keys on the device</text>
       <text x="14" y="72">A laptop keeps its Persona and epoch</text>
@@ -28,16 +29,17 @@
       <text x="14" y="189">and open topic messages on the client.</text>
     </g>
     <path d="M14 210h224" stroke="var(--line)"/>
-    <text x="14" y="230" font-size="10" font-weight="550" letter-spacing=".6" fill="var(--muted)">LOCAL KEYRING</text>
-    <rect x="14" y="238" width="224" height="25" rx="4" fill="var(--soft)" stroke="var(--line)"/>
-    <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ink)">keyrings/&lt;persona&gt;/&lt;topic&gt;.json</text>
+    <text x="14" y="230" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">LOCAL KEYRING</text>
+    <rect x="14" y="238" width="224" height="25" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
+    <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">keyrings/&lt;persona&gt;/&lt;topic&gt;.json</text>
   </g>
   <path d="M270 160h20" stroke="var(--accent)" stroke-width="1.5" marker-start="url(#architecture-map-arrow)" marker-end="url(#architecture-map-arrow)"/>
   <g transform="translate(294 16)">
-    <rect width="252" height="288" rx="6" fill="var(--panel)" stroke="var(--line)" stroke-width="1.25"/>
-    <rect width="252" height="30" rx="6" fill="var(--head)"/>
-    <text x="14" y="19" font-size="10" font-weight="550" letter-spacing=".6" fill="var(--muted)">ZONE 02</text>
-    <text x="76" y="20" font-size="12.5" font-weight="600" fill="var(--ink)">Encrypted wire</text>
+    <rect width="252" height="288" fill="var(--panel)"/>
+    <path d="M0 0h252" stroke="var(--ink)"/>
+    <path d="M0 31h252M0 288h252" stroke="var(--line)"/>
+    <text x="14" y="19" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">ZONE 02</text>
+    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="16" fill="var(--ink)">Encrypted wire</text>
     <g font-size="11.5" fill="var(--muted)">
       <text x="14" y="55" fill="var(--ink)" font-weight="600">Outbound WebSocket</text>
       <text x="14" y="72">NIP-44 v2 protects the message body.</text>
@@ -49,16 +51,17 @@
       <text x="14" y="189">the Blossom store over HTTPS.</text>
     </g>
     <path d="M14 210h224" stroke="var(--line)"/>
-    <text x="14" y="230" font-size="10" font-weight="550" letter-spacing=".6" fill="var(--muted)">RELAY ENDPOINT</text>
-    <rect x="14" y="238" width="224" height="25" rx="4" fill="var(--soft)" stroke="var(--line)"/>
-    <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ink)">wss://crosswire.sh</text>
+    <text x="14" y="230" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">RELAY ENDPOINT</text>
+    <rect x="14" y="238" width="224" height="25" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
+    <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">wss://crosswire.sh</text>
   </g>
   <path d="M550 160h20" stroke="var(--accent)" stroke-width="1.5" marker-start="url(#architecture-map-arrow)" marker-end="url(#architecture-map-arrow)"/>
   <g transform="translate(574 16)">
-    <rect width="252" height="288" rx="6" fill="var(--panel)" stroke="var(--line)" stroke-width="1.25"/>
-    <rect width="252" height="30" rx="6" fill="var(--head)"/>
-    <text x="14" y="19" font-size="10" font-weight="550" letter-spacing=".6" fill="var(--muted)">ZONE 03</text>
-    <text x="76" y="20" font-size="12.5" font-weight="600" fill="var(--ink)">Relay process</text>
+    <rect width="252" height="288" fill="var(--panel)"/>
+    <path d="M0 0h252" stroke="var(--ink)"/>
+    <path d="M0 31h252M0 288h252" stroke="var(--line)"/>
+    <text x="14" y="19" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">ZONE 03</text>
+    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="16" fill="var(--ink)">Relay process</text>
     <g font-size="11.5" fill="var(--muted)">
       <text x="14" y="55" fill="var(--ink)" font-weight="600">Check membership</text>
       <text x="14" y="72">NIP-42 authenticates each connection.</text>
@@ -70,16 +73,17 @@
       <text x="14" y="189">The topic keys stay with the readers.</text>
     </g>
     <path d="M14 210h224" stroke="var(--line)"/>
-    <text x="14" y="230" font-size="10" font-weight="550" letter-spacing=".6" fill="var(--muted)">SERVICE</text>
-    <rect x="14" y="238" width="224" height="25" rx="4" fill="var(--soft)" stroke="var(--line)"/>
-    <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ink)">ohstr/ncli daemon</text>
+    <text x="14" y="230" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">SERVICE</text>
+    <rect x="14" y="238" width="224" height="25" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
+    <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">ohstr/ncli daemon</text>
   </g>
   <path d="M830 160h20" stroke="var(--accent)" stroke-width="1.5" marker-start="url(#architecture-map-arrow)" marker-end="url(#architecture-map-arrow)"/>
   <g transform="translate(854 16)">
-    <rect width="252" height="288" rx="6" fill="var(--panel)" stroke="var(--line)" stroke-width="1.25"/>
-    <rect width="252" height="30" rx="6" fill="var(--head)"/>
-    <text x="14" y="19" font-size="10" font-weight="550" letter-spacing=".6" fill="var(--muted)">ZONE 04</text>
-    <text x="76" y="20" font-size="12.5" font-weight="600" fill="var(--ink)">Persistent disk</text>
+    <rect width="252" height="288" fill="var(--panel)"/>
+    <path d="M0 0h252" stroke="var(--ink)"/>
+    <path d="M0 31h252M0 288h252" stroke="var(--line)"/>
+    <text x="14" y="19" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">ZONE 04</text>
+    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="16" fill="var(--ink)">Persistent disk</text>
     <g font-size="11.5" fill="var(--muted)">
       <text x="14" y="55" fill="var(--ink)" font-weight="600">Event database</text>
       <text x="14" y="72">SQLite stores signed ciphertext, visible</text>
@@ -91,9 +95,9 @@
       <text x="14" y="189">download and opens the file locally.</text>
     </g>
     <path d="M14 210h224" stroke="var(--line)"/>
-    <text x="14" y="230" font-size="10" font-weight="550" letter-spacing=".6" fill="var(--muted)">STORED PATHS</text>
-    <rect x="14" y="238" width="224" height="40" rx="4" fill="var(--soft)" stroke="var(--line)"/>
-    <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ink)">/data/relay/nostr.db</text>
-    <text x="22" y="269" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ink)">/data/blossom/&lt;sha256&gt;</text>
+    <text x="14" y="230" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">STORED PATHS</text>
+    <rect x="14" y="238" width="224" height="40" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
+    <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">/data/relay/nostr.db</text>
+    <text x="22" y="269" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">/data/blossom/&lt;sha256&gt;</text>
   </g>
 </svg>

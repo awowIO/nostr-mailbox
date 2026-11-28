@@ -181,23 +181,27 @@ def _session(ws, *, trust: Trust | None = None) -> ui.TopicSession:
 
 
 # =============================================================== the page itself
-# The weights.fyi design system crosswire.sh's console is drawn in: its light tokens, and
+# The AWOW.io design system crosswire.sh's console is drawn in: its light tokens, and
 # the dark ones under both the ◐ toggle and the system's preference.
-LIGHT = {"bg": "#f6f7f9", "panel": "#fff", "ink": "#18212f", "muted": "#596677",
-         "line": "#e0e5eb", "soft": "#f0f3f7", "accent": "#335ade", "green": "#137657",
-         "red": "#b14439", "amber": "#956014", "head": "#eef1f5", "hover": "#f4f7ff",
-         "shadow": "0 16px 70px #14243c26"}
-DARK = {"bg": "#10151c", "panel": "#171e28", "ink": "#f0f4fb", "muted": "#b5c0d0",
-        "line": "#2c3644", "soft": "#212b38", "accent": "#92acff", "green": "#78d1aa",
-        "red": "#ec9990", "amber": "#dfb472", "head": "#1d2734", "hover": "#243045",
-        "shadow": "0 16px 70px #0008"}
+LIGHT = {"bg": "#faf9f6", "panel": "#faf9f6", "ink": "#16181d", "muted": "#5a5d64",
+         "line": "#e4e1da", "soft": "#f0eee9", "accent": "#35547a", "green": "#4a6b53",
+         "red": "#8c3843", "amber": "#78683a", "head": "#f0eee9", "hover": "#e8eef0",
+         "shadow": "0 16px 70px #16181d1f", "violet": "#6d4c5c",
+         "paper": "#faf9f6", "stone": "#f0eee9", "rule": "#e4e1da", "rule-strong": "#c9c4b9",
+         "teal": "#3f5e63", "terracotta": "#35547a", "terracotta-ink": "#263f5d",
+         "sage": "#4a6b53", "ancient-bg": "#14171c", "ancient-surface": "#1c2027",
+         "ancient-ink": "#e8eaed", "ancient-rule": "#2b313a"}
+DARK = {"bg": "#14171c", "panel": "#1c2027", "ink": "#e8eaed", "muted": "#a9b0bc",
+        "line": "#2b313a", "soft": "#222730", "accent": "#8fa8c4", "green": "#8fae95",
+        "red": "#e08b94", "amber": "#b8ab84", "head": "#1c2027", "hover": "#252c37",
+        "shadow": "0 16px 70px #0008", "violet": "#b89aa8"}
 
 
 def test_the_page_is_one_self_contained_full_width_html_file():
     """One file that runs from the relay's origin or from loopback with nothing fetched:
     no external URL, no script or stylesheet by reference, no font or CDN. Full width:
     the page wrapper and `main` span the viewport behind fluid gutters, and no
-    declaration caps a width with a fixed length. Drawn in the weights.fyi design
+    declaration caps a width with a fixed length. Drawn in the AWOW.io design
     system: its tokens in both themes, its type, a 61px header with the crosswire.sh
     wordmark, and a ◐ toggle that flips <html data-theme>."""
     page = PAGE.read_text()
@@ -1879,12 +1883,30 @@ def test_public_harness_switcher_and_docs_chapters(tmp_path):
         harnesses = js("[...document.querySelectorAll('[data-act=harness]')].map(b=>b.textContent)")
         assert harnesses == ["Claude Code", "Codex", "CLI (uv)", "Claude Desktop", "ChatGPT",
                              "Antigravity", "Cursor"]
+        prompts = set()
         for harness in harnesses:
             js(f"document.querySelector('[data-act=harness][data-id={json.dumps(harness)}]').click()")
+            prompt = js("document.querySelector('#agent-prompt').textContent")
+            assert "awowIO/crosswire" in prompt and "ask me for my nm1_ invite" in prompt
+            prompts.add(prompt)
             shown = js("document.querySelector('.terminal code').textContent")
             assert js("document.querySelector('.terminal [data-act=copy]').dataset.text") == shown
             install, join = shown.splitlines()
             assert "github.com/awowIO/crosswire" in install and "crosswire join" in join
+        assert len(prompts) == len(harnesses)
+        trust = Trust.from_mapping({"schema": "cf.transport/1", "relay": relay.url,
+                                    "campaign": "camp", "operator_pubkeys": [_npub(_pub(PEER_SK))]})
+        token = cli._encode_invite_token(trust, relay.create_invite(), member=None)
+        join_url = relay.http_url + "/join/#" + token
+        js("const box = document.querySelector('[name=token]'); box.value=" + json.dumps(join_url) +
+           ";box.dispatchEvent(new Event('input', {bubbles:true}))")
+        js("document.querySelector('[data-id=Codex]').click()")
+        assert token in js("document.querySelector('#agent-prompt').textContent")
+        assert js("document.querySelector('#prompt-invite').value") == join_url
+        js("const draft = document.querySelector('#prompt-invite'); draft.value='';"
+           "draft.dispatchEvent(new Event('input', {bubbles:true}))")
+        assert not js("document.querySelector('[name=token]').value")
+        assert token not in js("document.querySelector('#agent-prompt').textContent")
         specimen = "document.querySelector('.specimen [role=tabpanel]').innerText"
         bus = js(specimen)
         assert all(text in bus for text in ("@alice", "alice/claude-code", "@bob/codex",
@@ -1936,6 +1958,7 @@ def test_browser_redeems_once_backs_up_locks_and_rechecks_membership(tmp_path):
         with _browser(tmp_path, relay.http_url + "/join/#" + token) as js:
             assert not js("location.hash")
             assert js("document.querySelector('[name=token]').value") == token
+            assert token in js("document.querySelector('#agent-prompt').textContent")
             assert not js("!!document.querySelector('.shell, [data-act=lock]')")
             js("document.querySelector('[name=handle]').value='alice';"
                "document.querySelector('[data-form=redeem] button').click()")
