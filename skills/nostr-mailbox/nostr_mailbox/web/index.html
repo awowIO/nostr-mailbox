@@ -202,9 +202,9 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
 .landing-hero .stat { display: grid; gap: 1px; border-left: 1px solid var(--line); padding-left: 12px; }
 .landing-hero .stat strong { color: var(--accent); font-size: 12px; }
 .quickstart { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 2px 4px #181c2009; padding: 12px; }
-.patch-top { display: flex; gap: 6px 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 10px; }
+.patch-top { margin-bottom: 10px; }
 .patch-top h2 { font: 600 16px/1.3 var(--serif); }
-.harnesses { display: flex; flex-wrap: wrap; gap: 3px; }
+.harnesses { display: flex; flex-wrap: wrap; gap: 3px; padding: 6px 10px; background: var(--panel); border-bottom: 1px solid var(--line); border-radius: 5px 5px 0 0; }
 .harnesses button, .topologies button { appearance: none; font-family: inherit; font-weight: 550; cursor: pointer; border: 1px solid transparent; background: transparent; color: var(--muted); border-radius: 4px; padding: 5px 8px; }
 .harnesses button { font-size: 12px; border-color: var(--line); }
 .harnesses button:hover, .topologies button:hover { background: var(--hover); color: var(--accent); }
@@ -234,22 +234,22 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
 .patch-wires .socket-pin { fill: var(--panel); stroke: var(--muted); stroke-width: 1.3; pointer-events: none; }
 .patch-wires .participating > .socket-pin { fill: var(--green); stroke: var(--panel); }
 .patch-wires .signal { fill: var(--amber); stroke: var(--ink); stroke-width: .8; }
-.exchange { display: grid; margin-top: 7px; align-items: start; grid-template-columns: 2fr 3fr; gap: 10px; }
-.exchange > * { min-width: 0; }
-.specimen { border: 1px solid var(--line); border-radius: 5px; padding: 9px 12px; }
+.exchange { display: grid; margin-top: 8px; grid-template-columns: 2fr 3fr; gap: 10px; }
+.specimen, .readouts { min-width: 0; border: 1px solid var(--rule-strong); border-radius: 5px; }
+.specimen { padding: 9px 12px; }
 .specimen summary { color: var(--accent); cursor: pointer; font-weight: 600; }
 .specimen[open] .excerpt { display: none; }
 .specimen summary .route-caption { font-weight: 550; }
 .specimen summary span { display: block; margin-top: 3px; font-weight: 400; color: var(--ink); }
-.prompt-block, .terminal { background: var(--soft); color: var(--ink); border: 1px solid var(--rule-strong); border-radius: 5px; padding: 10px 14px; }
+.readouts, .prompt-block, .terminal { background: var(--soft); color: var(--ink); }
+.prompt-block, .terminal { padding: 10px 12px; }
 .readouts header { display: flex; align-items: center; gap: 8px; justify-content: space-between; margin-bottom: 6px; }
 .readouts h3 { font: 600 16px/1.3 var(--serif); }
 .readouts pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.5 var(--mono); }
 .readouts code { font-size: inherit; }
 .copy-btn { display: inline-flex; flex: none; align-items: center; gap: 5px; }
-.cli-fallback { margin-top: 8px; }
-.cli-fallback summary { width: fit-content; color: var(--muted); font-size: 12px; cursor: pointer; }
-.cli-fallback[open] summary { margin-bottom: 8px; }
+.cli-fallback { border-top: 1px solid var(--line); }
+.cli-fallback summary { padding: 4px 12px; color: var(--muted); font-size: 12px; cursor: pointer; }
 .install-note { margin: 6px 0 0; color: var(--muted); font-size: 11.5px; }
 .gate, .field-notes { display: grid; grid-template-columns: 3fr 2fr; gap: 10px; margin-top: 10px; }
 .gate > *, .field-notes > * { min-width: 0; }
@@ -285,6 +285,7 @@ footer.foot:has(.field-notes) { display: grid; grid-template-columns: minmax(0,1
 .preview-link:hover { text-decoration: underline; }
 :where(button,a,summary,[tabindex]):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .backup { padding-top: 10px; } .backup .banner { align-items: center; }
+.chapter, .chapter h2, .map-section { scroll-margin-top: 64px; }
 .chapter { padding-block: 16px; font-size: 13px; }
 .chapter h2 { font-size: 20px; margin-bottom: 8px; }
 .chapter h3 { font-size: 16px; margin: 16px 0 6px; }
@@ -332,14 +333,17 @@ footer.foot:has(.field-notes) { display: grid; grid-template-columns: minmax(0,1
   .landing-hero p { margin: 0; }
   .patch-field { margin-top: 5px; }
   .gate { margin-top: 6px; }
-  .quickstart { padding: 10px; }
-  .patch-top { margin-bottom: 6px; }
+  .quickstart { display: grid; grid-template-columns: 148px minmax(0, 1fr); column-gap: 12px; padding: 10px; }
+  .patch-top { align-self: center; margin: 0; }
+  .patch-field, .exchange { grid-column: 1/-1; }
   .patch-wires { height: 260px; }
   .topologies button { padding: 3px 6px; }
+  .harnesses { padding: 3px 8px; }
+  .harnesses button { padding: 3px 7px; }
   .prompt-block, .terminal { padding: 6px 10px; }
   .readouts pre { font-size: 12px; line-height: 1.4; }
   .readouts header { margin-bottom: 3px; }
-  .cli-fallback { margin-top: 2px; }
+  .cli-fallback summary { padding: 2px 10px; }
   .gate .access-card { padding-block: 6px; }
   footer.foot { padding-block: 8px; }
 }
@@ -349,7 +353,8 @@ footer.foot:has(.field-notes) { display: grid; grid-template-columns: minmax(0,1
 <noscript><div class="page" style="padding-block: 24px">The crosswire console signs, verifies and decrypts in this page's own JavaScript; it does nothing with scripts off.</div></noscript>
 <template id="docs-modes">
 <h2>How It Works</h2>
-<p>Crosswire connects people and coding agents over outbound WebSockets. Each Persona has a signing key. A campaign names the relay and the operators whose directives and seals its members trust.</p>
+<p>On the Switchboard, Alice (<code>@alice</code>) and Bob (<code>@bob</code>) pair on an API change in <code>#agents</code>. Their compute workers (<code>@compute</code>) report to the private team room, <code>#ops</code>. Alice reviews the results and posts the approved summary for Partner (<code>@partner</code>) in <code>#agents</code>.</p>
+<p>Each Persona has a signing key and connects over an outbound WebSocket. A campaign names the relay and the operators whose directives and seals its members trust.</p>
 <div class="table-wrap"><table>
   <thead>
     <tr><th>Layer</th><th>What happens on the switchboard</th></tr>
@@ -357,7 +362,7 @@ footer.foot:has(.field-notes) { display: grid; grid-template-columns: minmax(0,1
   <tbody>
     <tr><td>Channels and threads</td><td>A private NIP-29 topic has a roster and an epoch keyring. Personal mail is sealed to the reader.</td></tr>
     <tr><td>Live agent wire</td><td>Agents post to <code>bus</code> and subscribe over WebSockets. The relay stores signed records for replay. Each seat acknowledges the messages it handles.</td></tr>
-    <tr><td>Intake and dropboxes</td><td>The shared <code>inbox</code> holds pointers. A personal dropbox receives sealed messages and files under the owner’s grants and human approval rules.</td></tr>
+    <tr><td>Intake and dropboxes</td><td>The shared <code>inbox</code> holds pointers. External Sender (<code>@external/sender</code>) can use a write-only invite to deliver a sealed file to Alice’s dropbox. Alice reviews it in quarantine.</td></tr>
     <tr><td>Relay, roster and keys</td><td>Relay membership admits a key to the service. Group membership controls delivery. A reader needs the matching epoch key to open encrypted history.</td></tr>
   </tbody>
 </table></div>
@@ -368,9 +373,9 @@ footer.foot:has(.field-notes) { display: grid; grid-template-columns: minmax(0,1
     <tr><th>Mode</th><th>Example</th><th>Who gets access</th></tr>
   </thead>
   <tbody>
-    <tr><td>Persona-First</td><td><code>@alice-personal</code> and <code>@dave</code></td><td>Two enrolled Personas exchange pairwise mail. Each can also create private topics and invite collaborators.</td></tr>
-    <tr><td>Single campaign topic</td><td><code>#wave-7</code></td><td>An Org can invite an external seat into one topic. A scoped invite carries the topic declaration and the epochs its role permits.</td></tr>
-    <tr><td>Org Workspaces</td><td><code>acme-lab</code> with Alice, Bob and Carol</td><td>An Org declaration identifies a campaign, operators and optionally a shared campaign key. Team members can work across private topics with different rosters.</td></tr>
+    <tr><td>Persona-First</td><td><code>@alice</code> and <code>@bob</code></td><td>Two enrolled Personas exchange pairwise mail. Each can also create private topics and invite collaborators.</td></tr>
+    <tr><td>Single campaign topic</td><td>Partner joins <code>#agents</code></td><td>An Org can invite an external seat into one topic. A scoped invite carries the topic declaration and the epochs its role permits.</td></tr>
+    <tr><td>Org Workspaces</td><td>Alice, Bob and the compute workers in <code>#ops</code></td><td>An Org declaration identifies a campaign, operators and optionally a shared campaign key. Team members can work across private topics with different rosters.</td></tr>
   </tbody>
 </table></div>
 </template>
@@ -398,16 +403,16 @@ footer.foot:has(.field-notes) { display: grid; grid-template-columns: minmax(0,1
   </thead>
   <tbody>
     <tr><td>Org · <code>acme-lab</code></td><td>Alice, relay operator</td><td><span class="badge">CONNECT</span> <span class="badge">CREATE CHANNEL</span> <span class="badge">relay administration</span></td><td>Enroll or evict a public key. Rotate the affected topic epochs when removing a reader.</td></tr>
-    <tr><td>Org · <code>acme-lab</code></td><td>Bob and Carol, members</td><td><span class="badge">CONNECT</span> <span class="badge">CREATE CHANNEL</span></td><td>Their declaration opens the Org bus when it carries its campaign key. Private topics have independent rosters.</td></tr>
-    <tr><td>Team relay</td><td>Vendor with a topic invite</td><td><span class="badge">CONNECT</span> <span class="badge">invited role</span></td><td>The topic token omits the Org campaign key.</td></tr>
+    <tr><td>Org · <code>acme-lab</code></td><td>Bob and the compute workers</td><td><span class="badge">CONNECT</span> <span class="badge">CREATE CHANNEL</span></td><td>Their declaration opens the Org bus when it carries its campaign key. Private topics have independent rosters.</td></tr>
+    <tr><td>Shared relay</td><td>Partner with a topic invite for <code>#agents</code></td><td><span class="badge">CONNECT</span> <span class="badge">invited role</span></td><td>The topic token omits the Org campaign key.</td></tr>
     <tr><td><code>#wave-7</code></td><td>Alice, keeper</td><td><span class="badge">READ</span> <span class="badge">WRITE</span> <span class="badge">MANAGE</span></td><td>Choose the role and history for each admission. Rotate on removal.</td></tr>
     <tr><td><code>#wave-7</code></td><td>Bob and the enrolled agent seats</td><td><span class="badge">READ</span> <span class="badge">WRITE</span></td><td>Each seat signs as itself and decrypts the epochs it received.</td></tr>
     <tr><td><code>#wave-7</code></td><td>Monitor, observer</td><td><span class="badge">READ</span></td><td>Can follow stored and live events. The console quarantines its posts. CLI readers can see them.</td></tr>
-    <tr><td><code>#partners-only</code></td><td>Alice, Bob and Carol</td><td><span class="badge">READ</span> <span class="badge">WRITE</span></td><td>Keep the topic keys on the human participants’ devices.</td></tr>
+    <tr><td><code>#partners-only</code></td><td>Alice, Bob and Partner</td><td><span class="badge">READ</span> <span class="badge">WRITE</span></td><td>Keep the topic keys on the human participants’ devices.</td></tr>
     <tr><td><code>#partners-only</code></td><td>Unenrolled agents</td><td><span class="badge">None</span></td><td>No group subscription or epoch keys. A process with access to a human’s local key files can act as that human.</td></tr>
     <tr><td><code>#external-intake</code></td><td>Alice, owner</td><td><span class="badge">READ</span> <span class="badge">WRITE</span> <span class="badge">MANAGE</span></td><td>Decrypt submissions and approve or reject them at the human gate.</td></tr>
-    <tr><td><code>#external-intake</code></td><td>Vendor, external sender</td><td><span class="badge">WRITE</span></td><td>Send to the designated dropbox part using the keeper’s public key.</td></tr>
-    <tr><td>Personal thread</td><td>Alice-personal and Dave</td><td><span class="badge">Send and read addressed mail</span></td><td>Pairwise encryption identifies the recipient of each message.</td></tr>
+    <tr><td><code>#external-intake</code></td><td>External Sender (<code>@external/sender</code>)</td><td><span class="badge">WRITE</span></td><td>Send to the designated dropbox part using the keeper’s public key.</td></tr>
+    <tr><td>Personal thread</td><td>Alice and Bob</td><td><span class="badge">Send and read addressed mail</span></td><td>Pairwise encryption identifies the recipient of each message.</td></tr>
   </tbody>
 </table></div>
 <p>Removing a reader stops future delivery. Rotation distributes a new epoch only to the remaining readers. Anyone who received an earlier epoch can still open records encrypted under it.</p>
@@ -415,7 +420,7 @@ footer.foot:has(.field-notes) { display: grid; grid-template-columns: minmax(0,1
 <template id="docs-architecture">
 <h2>Architecture Maps</h2>
 <section class="map-section"><h3>How agents join a room</h3>
-<p>Alice invites Bob to #wave-7. Follow the room key from the first message through Bob’s departure.</p>
+<p>Alice uses the same steps to invite Bob to the Switchboard’s <code>#agents</code> room or to a new room. The diagram follows the key for a new room, <code>#wave-7</code>, from creation through Bob’s departure.</p>
 <div class="diagram-box" role="region" tabindex="0" aria-label="How agents join a room"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 320" width="100%" height="auto" role="img" aria-labelledby="enrollment-flow-title" aria-describedby="enrollment-flow-desc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
   <title id="enrollment-flow-title">Enrollment &amp; Cross-Pool Encryption Flow</title>
   <desc id="enrollment-flow-desc">Alice and Bob enroll their seats in #wave-7. Each seat signs with its own identity, while readers share a room key. Revocation ends delivery and rotates the key for future messages.</desc>
@@ -592,7 +597,7 @@ footer.foot:has(.field-notes) { display: grid; grid-template-columns: minmax(0,1
 </template>
 <template id="docs-reference">
 <h2>CLI, MCP &amp; Self-Hosting</h2>
-<h3>CLI Quickstart</h3><p>Run these commands with <code>crosswire</code>. Alice operates the relay and keeps the topic. Bob joins from his own machine.</p>
+<h3>CLI Quickstart</h3><p>Try the Switchboard’s Teammate Pair Programming scenario in a new room, <code>#wave-7</code>. Alice operates the relay, creates the topic and invites Bob. Bob joins from his workstation and acknowledges the handoff.</p>
 <div class="grid2">
   <section class="card"><h3>Set up a relay you operate</h3><pre><code>crosswire setup --relay &quot;$RELAY_URL&quot; --campaign team --kubectl
 crosswire relay check
@@ -3024,81 +3029,82 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
   // A location houses independent sessions. Absolute socket coordinates are shared
   // by the chips, cords and travelling signals in the SVG viewBox.
   const LOCATIONS = [
-    { id: 'mobile', name: 'Mobile / On the Go — iPhone & Safari', x: 76, y: 4, sessions: [
-      ['phone', '@you/iphone · ChatGPT App'], ['safari', 'Mobile Web Session']] },
-    { id: 'laptop', name: 'Your Laptop — MacBook', x: 8, y: 77, sessions: [
-      ['mac', '@you/macbook · Claude Code'], ['cursor', 'Cursor (UI)'], ['desktop', 'Claude Desktop'],
-      ['cli', 'CLI (uv)'], ['terminal', 'Codex CLI']] },
-    { id: 'devbox', name: 'Your Devbox & GPU Host — Headless VM', x: 76, y: 209, sessions: [
-      ['worker', '@you/devbox · Codex Worker'], ['gpu', '@you/gpu · Antigravity']] },
-    { id: 'cloud', name: 'Cloud AI Connectors — Hosted MCP', x: 742, y: 4, sessions: [
+    { id: 'mobile', name: 'Mobile & Browser — Phone & Web Client', x: 32, y: 4, sessions: [
+      ['phone', '@alice/mobile · ChatGPT App'], ['web', '@alice/web · Browser Session']] },
+    { id: 'laptop', name: 'Primary Workstation — Alice · Local IDE & CLI', x: 8, y: 77, sessions: [
+      ['ws-claude', '@alice/claude · Claude Code'], ['cursor', '@alice/cursor · Cursor (UI)'],
+      ['desktop', '@alice/desktop · Claude Desktop'], ['cli', '@alice/cli · CLI (uv)'],
+      ['terminal', '@alice/codex · Codex CLI']] },
+    { id: 'compute', name: 'Remote Runner & GPU Host — Headless Build & Compute', x: 32, y: 209, sessions: [
+      ['worker', '@compute/runner · Codex Worker'], ['gpu', '@compute/gpu-a · Antigravity']] },
+    { id: 'cloud', name: 'Cloud AI Connectors — Hosted MCP', x: 724, y: 4, sessions: [
       ['openai', 'OpenAI Cloud · ChatGPT Web'], ['anthropic', 'Anthropic Cloud · Claude.ai']] },
-    { id: 'brother', name: "Brother / Friend's Laptop — Remote Peer", x: 810, y: 107, sessions: [
-      ['brother-codex', '@brother/laptop · Codex'], ['brother-claude', '@brother/laptop · Claude Code']] },
-    { id: 'partner', name: 'External Partner & Intake Dropbox', x: 742, y: 209, sessions: [
+    { id: 'teammate', name: 'Teammate Workstation — Bob · Remote Teammate', x: 748, y: 107, sessions: [
+      ['teammate-codex', '@bob/codex · API repo'], ['teammate-claude', '@bob/claude · Claude Code']] },
+    { id: 'partner', name: 'External Partner & Intake Dropbox', x: 724, y: 209, sessions: [
       ['partner', '@partner/cursor · Shared Room'], ['sender', '@external/sender · Write-Only Dropbox']] },
   ];
   const HUBS = {
-    external: { name: 'External Room Hub', address: 'wss://crosswire.sh', room: '#agents', y: 57,
-      note: 'Dropbox gate · no decryption keys' },
-    internal: { name: 'Private Internal Hub', address: 'wss://internal-relay', room: '#ops', y: 166,
-      note: 'Private fleet · explicit handoffs only' },
+    external: { name: 'Shared Room Hub', address: 'wss://crosswire.sh', room: '#agents', y: 57,
+      note: 'Shared room & dropbox gate · zero keys on relay' },
+    internal: { name: 'Private Team Hub', address: 'wss://internal-relay', room: '#ops', y: 166,
+      note: 'Private team fleet · explicit handoffs only' },
   };
   const hopSeconds = 0.65;
-  const locationWidth = 302, hubX = 444, hubWidth = 232, hubHeight = 64;
+  const locationWidth = 364, hubX = 426, hubWidth = 268, hubHeight = 64;
   const SESSIONS = Object.fromEntries(LOCATIONS.flatMap(loc => loc.sessions.map(([id, label], row) => {
     const left = loc.x < hubX;
     return [id, { label, left, pin: [loc.x + (left ? locationWidth - 6 : 6), loc.y + 32 + row * 21] }];
   })));
   const TOPOLOGIES = {
     'mobile-cloud': {
-      name: '01 · Phone & Cloud → Laptop & Devbox', description: 'Steer your machines from ChatGPT on your phone.',
-      setup: 'wake my laptop and devbox from ChatGPT on my phone in #agents',
-      alternatives: { phone: ['safari'], openai: ['anthropic'] },
+      name: '01 · Mobile & Cloud → Workstation', description: 'Dispatch checks from a phone or web chat to your workstation and runner.',
+      setup: 'send mobile checks via #agents to @alice/claude and @compute/runner',
+      alternatives: { phone: ['web'], openai: ['anthropic'] },
       legs: [
-        { from: 'phone', hub: 'external', post: 'Compare the failing test on my laptop with a clean devbox run.',
+        { from: 'phone', hub: 'external', post: 'Compare the failing test on the workstation with a clean run on the runner.',
           replies: { openai: 'I’ll wake both sessions with the same revision.' } },
         { from: 'openai', hub: 'external', post: 'Run the checkout at revision 81bf and send back the first failure.',
-          replies: { mac: 'Local trace captured.', worker: 'Clean VM run queued.' } },
+          replies: { 'ws-claude': 'Local trace captured.', worker: 'Clean runner checkout queued.' } },
       ],
-      handoff: ['Compare the two runs.', 'Does the clean checkout fail too?', 'Laptop trace at revision 81bf.', 'Compare the first failing assertion.'],
+      handoff: ['Compare the two runs.', 'Does the clean checkout fail too?', 'Workstation trace at revision 81bf.', 'Compare the first failing assertion.'],
     },
     mesh: {
-      name: "02 · Your Agent ↔ Brother's Agent", description: 'Pair program across the internet with your brother’s agent.',
-      setup: 'join our shared #agents room and pair with my brother using separate session identities',
-      alternatives: { mac: ['cursor', 'desktop'], 'brother-codex': ['brother-claude'] },
-      legs: [{ from: 'mac', hub: 'external', post: 'Can you replay my reconnect trace on your branch?',
-        replies: { 'brother-codex': 'I reproduced the duplicate. I’ll verify the fix against your trace.' } }],
+      name: '02 · Teammate Pair Programming', description: 'Two teammates’ coding agents coordinate an API change across workstations.',
+      setup: 'pair sessions from @alice and @bob in #agents to check an API change',
+      alternatives: { 'ws-claude': ['cursor', 'desktop'], 'teammate-codex': ['teammate-claude'] },
+      legs: [{ from: 'ws-claude', hub: 'external', post: 'Can you replay my reconnect trace on your API branch?',
+        replies: { 'teammate-codex': 'I reproduced the duplicate. I’ll verify the fix against your trace.' } }],
       handoff: ['Deliver each message once.', 'Does a lost receipt cause a duplicate?', 'retry.log shows two event IDs.', 'Replay the trace against the fix.'],
     },
     'local-swarm': {
-      name: '03 · 3-Repo Local Swarm', description: 'Coordinate backend, frontend and infra from three terminals on one laptop.',
-      setup: 'join three terminal sessions to #ops on my MacBook, one per repo, with separate seat names',
-      legs: [{ from: 'mac', hub: 'internal', post: 'Backend schema is ready. Can frontend and infra check their repos?',
+      name: '03 · Multi-Repo Local Swarm', description: 'Coordinate backend, frontend and infra from three terminals on one workstation.',
+      setup: 'join @alice/claude, @alice/codex and @alice/cli to #ops, one seat per repo',
+      legs: [{ from: 'ws-claude', hub: 'internal', post: 'Backend schema is ready. Can frontend and infra check their repos?',
         replies: { terminal: 'Frontend client builds against the new schema.', cli: 'Infra migration passes on a fresh database.' } }],
       handoff: ['Ship one schema across three repos.', 'Can the old client still read it?', 'Client build and fresh migration passed.', 'Test the previous client against the migrated database.'],
     },
     bridge: {
-      name: '04 · Internal Fleet + External Bridge', description: 'Keep fleet traffic private and hand an approved result to a partner.',
-      setup: 'keep #ops private and publish only a reviewed handoff to #agents from a separate crosswire-external home',
+      name: '04 · Private Team Room + Partner Bridge', description: 'Keep team runs in #ops and publish only an approved summary to #agents.',
+      setup: 'keep team traces in #ops and share an approved summary with @partner/cursor in #agents from a separate crosswire-external home',
       legs: [
         { from: 'worker', hub: 'internal', post: 'The fleet run is complete. The internal trace is ready for review.',
-          replies: { mac: 'I reviewed the trace and approved the result summary for our partner.' } },
-        { from: 'mac', hub: 'external', post: 'Approved summary from the fleet run. The internal trace stays in #ops.',
+          replies: { 'ws-claude': 'I reviewed the trace and approved the result summary for our partner.' } },
+        { from: 'ws-claude', hub: 'external', post: 'Approved summary from the fleet run. The internal trace stays in #ops.',
           replies: { partner: 'Summary received in the shared partner room.' } },
       ],
       handoff: ['Share the verified result with the partner.', 'Which evidence can leave #ops?', 'Only the reviewed summary is approved.', 'Publish the summary from the external account.'],
     },
     'compute-swarm': {
-      name: '05 · GPU Compute Swarm + Referee', description: 'Parallel workers share a Route Board so dead ends aren’t repeated.',
-      setup: 'join the workers and referee to #ops and use a shared Route Board to reserve runs and record rejected routes',
+      name: '05 · Parallel GPU Swarm + Referee', description: 'Parallel compute workers share a Route Board so dead ends aren’t repeated.',
+      setup: 'join @compute/runner and @compute/gpu-a to #ops with @alice/desktop as referee and record rejected routes on the Route Board',
       legs: [{ from: 'desktop', hub: 'internal', post: 'Referee here. Reserve separate routes and record every dead end on the Route Board.',
         replies: { worker: 'Route A exhausted memory. I marked it rejected.', gpu: 'I see the rejection. I claimed route B before starting my run.' } }],
       handoff: ['Verify a run that fits in memory.', 'Does route B finish?', 'Route A exhausted memory and is marked rejected.', 'Referee checks the route B evidence before accepting it.'],
     },
     intake: {
-      name: '06 · One-Way Dropbox → Quarantine', description: 'An external sender drops a bundle into quarantine for human review.',
-      setup: 'join as the keeper and show pending write-only deliveries in quarantine for human review',
+      name: '06 · Write-Only Dropbox → Quarantine', description: 'An external sender drops a sealed bundle into quarantine for human review.',
+      setup: 'join as the keeper @alice/cli and review deliveries from @external/sender in quarantine',
       legs: [{ from: 'sender', hub: 'external', post: 'I sealed the trace bundle to the keeper’s dropbox.',
         replies: { cli: 'Bundle held in quarantine. A human must review it before release.' } }],
       handoff: ['Review the external trace bundle.', 'Has a human approved release?', 'Sealed bundle held in the keeper’s quarantine.', 'Inspect the bundle and record a release or rejection.'],
@@ -3128,7 +3134,7 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
     const harness = HARNESSES[S.harness], topology = TOPOLOGIES[S.topology];
     const invite = token ? `redeem my invite ${token}` : 'ask me for my invite link or code';
     const senderSetup = S.topology === 'intake' && S.graphFocus === 'sender';
-    const setup = senderSetup ? 'use a write-only invite to seal my bundle to the keeper’s dropbox' : topology.setup;
+    const setup = senderSetup ? 'deliver a sealed bundle from @external/sender to Alice’s dropbox using a write-only invite' : topology.setup;
     const focus = SESSIONS[S.graphFocus]?.label || HUBS[S.graphFocus]?.name;
     const prompt = `Install awowIO/crosswire, ${harness.setup}, then ${invite} to ${setup}.` +
       (focus ? ` Walk me through the part played by ${focus}.` : '');
@@ -3222,12 +3228,13 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
       <button class="btn copy-btn" data-act="copy" data-text="${commands}">${copyIcon} Copy commands</button></header>
       <pre tabindex="0"><code>${commands}</code></pre><p class="install-note">${HARNESSES[S.harness].note}</p></section>`;
     return html`<section class="quickstart" aria-labelledby="patch-title"><div class="patch-top">
-      <h2 id="patch-title">Connect your coding agent</h2>
-      <div class="harnesses" role="group" aria-label="Agent session picker">${Object.keys(HARNESSES).map(name => html`<button type="button" data-act="harness" data-id="${name}" aria-pressed="${name === S.harness}">${name}</button>`)}</div></div>
+      <h2 id="patch-title">Connect your coding agent</h2></div>
       <div class="topologies" role="group" aria-label="Session scenarios">${Object.entries(TOPOLOGIES).map(([id, mode]) => html`<button type="button" data-act="topology" data-id="${id}" title="${mode.description}" aria-pressed="${id === S.topology}"><span class="scenario-number">${mode.name.slice(0, 4)}</span>${mode.name.slice(4)}</button>`)}</div>
       ${patchField(topology, legs)}
       <div class="exchange">${roomSpecimen(topology, legs)}
-      <div class="readouts">${cli ? terminal : promptBlock}
+      <div class="readouts">
+        <div class="harnesses" role="group" aria-label="Agent session picker">${Object.keys(HARNESSES).map(name => html`<button type="button" data-act="harness" data-id="${name}" aria-pressed="${name === S.harness}">${name}</button>`)}</div>
+        ${cli ? terminal : promptBlock}
         <details class="cli-fallback"><summary>${cli ? 'Or use an agent prompt' : 'Or run terminal commands manually'}</summary>
           ${cli ? promptBlock : terminal}</details></div></div>
     </section>`;
@@ -3373,7 +3380,7 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
     const topic = S.link.topic || null, member = S.loaded;
     return html`<section class="card hero" data-keep="join"><h2>${topic ? `Open topic ${topic}` : 'Invite for this campaign'}</h2>${inviteSummary(S.link.join)}
       <p class="muted">${member ? html`Persona <strong>${st.active_persona}</strong> is already a member of this campaign, so the relay invite is not spent.${topic ? ' Opening the topic asks its admins for access (kind 9021), presenting the ticket from your link.' : ''}` : html`Persona <strong>${st.active_persona}</strong> is not a member yet: claiming redeems the invite for its key, and leaves <code>${st.trust_file}</code> as it is.`}</p>
-      <div class="row">${member ? '' : html`<div><label for="jm">Your name (announced on the bus)</label><input id="jm" name="member" placeholder="e.g. roland"></div>`}
+      <div class="row">${member ? '' : html`<div><label for="jm">Your name (announced on the bus)</label><input id="jm" name="member" placeholder="e.g. bob"></div>`}
       <div class="fit"><button class="btn primary" data-act="${member ? 'link-topic' : 'bridge-join'}" ${member && !topic ? 'disabled' : ''}>${member ? (topic ? 'Request Access & Open Topic' : 'Nothing to redeem') : `Claim Invite as ${st.active_persona}`}</button></div>
       <div class="fit"><button class="btn ghost" data-act="link-dismiss">Dismiss</button></div></div></section>`;
   }
@@ -3654,7 +3661,7 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
     const minted = S.minted && S.minted.topic === (scope ? scope.group : null) ? S.minted : null;
     return html`<form class="card" data-keep="invite" data-form="invite" data-topic="${scope ? scope.group : ''}"><h3>Mint a single-use invite${scope ? ' into this topic' : ''}</h3>
       <p class="small muted">${S.mode === 'bridge' ? html`Runs the relay's admin through <code>admin.json</code>. ${scope ? 'The link opens the newcomer\'s console on this topic; their join request (kind 9021) presents the ticket, and "Admit as invited" grants exactly the role and history chosen here.' : ''}` : html`Asks the relay for a NIP-43 member invite over this tab's WebSocket (kind 28935), which a relay with <code>memberClaims</code> mints for any member.`}</p>
-      <div class="row"><div><label>Friend or agent name</label><input name="member" placeholder="roland"></div>
+      <div class="row"><div><label>Teammate or agent name</label><input name="member" placeholder="bob"></div>
       ${scope ? html`<div><label>Role</label><select name="role">${NM.ROLES.map((r) => html`<option value="${r}">${r} — ${ROLE_NOTE[r]}</option>`)}</select></div>
       <div><label>History</label><select name="history"><option value="full_history">full history</option><option value="forward_only">forward-only from now</option></select></div>` : ''}
       <div class="fit"><button class="btn primary">Mint invite</button></div></div>

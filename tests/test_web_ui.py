@@ -758,7 +758,7 @@ def test_forward_only_and_revoke_rotate_the_epoch_and_the_gate_holds_late_writes
                                             "body": "epoch 3, without the friend"})
     _next_second()
     # Even if a relay did not enforce NIP-29 private/restricted after 9001, the client's
-    # second gate holds: epoch 3 is undecryptable to friend, and friend's write with the
+    # second gate holds: the removed reader cannot decrypt epoch 3, and their write with the
     # old epoch-2 key is quarantined until the operator approves it.
     if "retry" in relay.groups:
         relay.groups["retry"].private = relay.groups["retry"].restricted = False
@@ -1873,31 +1873,38 @@ def _browser(tmp_path, page_url, *, read_clipboard=False):
 
 def _check_session_locations(js):
     # Physical hosts contain sessions. The two central hubs sit between the six
-    # separate host clusters, with the mobile/cloud pair above the devbox/intake pair.
+    # separate host clusters, with the mobile/cloud pair above the compute/intake pair.
     locations = js("""[...document.querySelectorAll('.location')].map(g => {
         const box = g.getBBox();
         return [g.getAttribute('aria-label'), box.x, box.y, box.width, box.height,
                 [...g.querySelectorAll('button.session')].map(b => b.textContent)];
     })""")
     assert [loc[0] for loc in locations] == [
-        "Mobile / On the Go — iPhone & Safari", "Your Laptop — MacBook",
-        "Your Devbox & GPU Host — Headless VM", "Cloud AI Connectors — Hosted MCP",
-        "Brother / Friend's Laptop — Remote Peer", "External Partner & Intake Dropbox",
+        "Mobile & Browser — Phone & Web Client", "Primary Workstation — Alice · Local IDE & CLI",
+        "Remote Runner & GPU Host — Headless Build & Compute", "Cloud AI Connectors — Hosted MCP",
+        "Teammate Workstation — Bob · Remote Teammate", "External Partner & Intake Dropbox",
     ]
     assert [loc[-1] for loc in locations] == [
-        ["@you/iphone · ChatGPT App", "Mobile Web Session"],
-        ["@you/macbook · Claude Code", "Cursor (UI)", "Claude Desktop", "CLI (uv)", "Codex CLI"],
-        ["@you/devbox · Codex Worker", "@you/gpu · Antigravity"],
+        ["@alice/mobile · ChatGPT App", "@alice/web · Browser Session"],
+        ["@alice/claude · Claude Code", "@alice/cursor · Cursor (UI)",
+         "@alice/desktop · Claude Desktop", "@alice/cli · CLI (uv)", "@alice/codex · Codex CLI"],
+        ["@compute/runner · Codex Worker", "@compute/gpu-a · Antigravity"],
         ["OpenAI Cloud · ChatGPT Web", "Anthropic Cloud · Claude.ai"],
-        ["@brother/laptop · Codex", "@brother/laptop · Claude Code"],
+        ["@bob/codex · API repo", "@bob/claude · Claude Code"],
         ["@partner/cursor · Shared Room", "@external/sender · Write-Only Dropbox"],
     ]
     hubs = js("""[...document.querySelectorAll('button.hub')].map(b => {
         const box = b.parentNode.getBBox(); return [b.innerText, box.x, box.width];
     })""")
     assert len(hubs) == 2
-    assert "wss://crosswire.sh (#agents)" in hubs[0][0] and "External Room Hub" in hubs[0][0]
-    assert "wss://internal-relay (#ops)" in hubs[1][0] and "Private Internal Hub" in hubs[1][0]
+    assert hubs[0][0].splitlines() == [
+        "Shared Room Hub", "wss://crosswire.sh (#agents)",
+        "Shared room & dropbox gate · zero keys on relay"]
+    assert hubs[1][0].splitlines() == [
+        "Private Team Hub", "wss://internal-relay (#ops)",
+        "Private team fleet · explicit handoffs only"]
+    assert js("""[...document.querySelectorAll('.patch-wires button')].every(
+        b => b.scrollWidth <= b.clientWidth && b.scrollHeight <= b.clientHeight)""")
     for _, x, width in hubs:
         assert all(loc[1] + loc[3] < x for loc in locations[:3])
         assert all(loc[1] > x + width for loc in locations[3:])
@@ -1931,21 +1938,21 @@ def _exercise_session_graph(js):
     modes = js("[...document.querySelectorAll('[data-act=topology]')]"
                ".map(b=>[b.dataset.id,b.textContent])")
     assert modes == [
-        ["mobile-cloud", "01 · Phone & Cloud → Laptop & Devbox"],
-        ["mesh", "02 · Your Agent ↔ Brother's Agent"],
-        ["local-swarm", "03 · 3-Repo Local Swarm"],
-        ["bridge", "04 · Internal Fleet + External Bridge"],
-        ["compute-swarm", "05 · GPU Compute Swarm + Referee"],
-        ["intake", "06 · One-Way Dropbox → Quarantine"],
+        ["mobile-cloud", "01 · Mobile & Cloud → Workstation"],
+        ["mesh", "02 · Teammate Pair Programming"],
+        ["local-swarm", "03 · Multi-Repo Local Swarm"],
+        ["bridge", "04 · Private Team Room + Partner Bridge"],
+        ["compute-swarm", "05 · Parallel GPU Swarm + Referee"],
+        ["intake", "06 · Write-Only Dropbox → Quarantine"],
     ]
     # For each delivery compare the animated, directed hop to actual rendered
     # sockets, including when a connector receives and then sends on the same cord.
     scenarios = {
         "mobile-cloud": [("phone", "external", ["openai"]),
-                         ("openai", "external", ["mac", "worker"])],
-        "mesh": [("mac", "external", ["brother-codex"])],
-        "local-swarm": [("mac", "internal", ["terminal", "cli"])],
-        "bridge": [("worker", "internal", ["mac"]), ("mac", "external", ["partner"])],
+                         ("openai", "external", ["ws-claude", "worker"])],
+        "mesh": [("ws-claude", "external", ["teammate-codex"])],
+        "local-swarm": [("ws-claude", "internal", ["terminal", "cli"])],
+        "bridge": [("worker", "internal", ["ws-claude"]), ("ws-claude", "external", ["partner"])],
         "compute-swarm": [("desktop", "internal", ["worker", "gpu"])],
         "intake": [("sender", "external", ["cli"])],
     }
@@ -2027,7 +2034,7 @@ def _exercise_session_graph(js):
     click("location", "laptop")
     assert js("document.querySelector('[data-act=topology][aria-pressed=true]').dataset.id") == (
         "intake")
-    for loc in ("mobile", "laptop", "devbox", "cloud", "brother", "partner"):
+    for loc in ("mobile", "laptop", "compute", "cloud", "teammate", "partner"):
         click("location", loc)
         assert js("document.activeElement.closest('.location').classList.contains('participating')")
     for hub, room in (("internal", "#ops"), ("external", "#agents")):
@@ -2060,7 +2067,7 @@ def test_public_harness_switcher_and_docs_chapters(tmp_path):
             "Connect your coding agent")
         assert not js("document.querySelector('.returning').open")
         js("document.querySelector('[name=handle]').value='alice'")
-        harnesses = js("[...document.querySelectorAll('.harnesses button[data-act=harness]')]"
+        harnesses = js("[...document.querySelectorAll('.exchange .readouts .harnesses button')]"
                        ".map(b=>b.textContent.trim())")
         assert harnesses == ["Claude Code", "Codex", "CLI (uv)", "Claude Desktop", "ChatGPT",
                              "Antigravity", "Cursor"]
@@ -2088,8 +2095,7 @@ def test_public_harness_switcher_and_docs_chapters(tmp_path):
             install, join = shown.splitlines()
             assert "github.com/awowIO/crosswire" in install and "crosswire join" in join
             if harness == "CLI (uv)":
-                assert js("document.querySelector('.readouts').firstElementChild.className") == (
-                    "terminal")
+                assert js("document.querySelector('.harnesses + section').className") == "terminal"
         assert len(prompts) == len(harnesses)
         _check_session_locations(js)
         mesh_prompt = _exercise_session_graph(js)
@@ -2116,7 +2122,7 @@ def test_public_harness_switcher_and_docs_chapters(tmp_path):
         assert js("document.querySelector('.specimen').open")
         specimen = "document.querySelector('.specimen [role=tabpanel]').innerText"
         bus = js(specimen)
-        assert all(text in bus for text in ("@you/macbook", "#agents", "@brother/laptop",
+        assert all(text in bus for text in ("@alice/claude", "#agents", "@bob/codex",
                                            "Acknowledged", "signed · E2 · NIP-44 v2"))
         js("document.querySelector('[data-act=specimen][data-id=handoff]').click()")
         assert js("[...document.querySelectorAll('.specimen dt')].map(d=>d.textContent)") == [
@@ -2128,7 +2134,8 @@ def test_public_harness_switcher_and_docs_chapters(tmp_path):
         assert js("document.querySelector('[name=handle]').value") == "alice"
         assert js("document.querySelectorAll('.previews article').length") == 3
         chapters = [
-            ("modes", ["Two Modes on One Relay", "Persona-First", "Org Workspaces"]),
+            ("modes", ["Switchboard", "Alice (@alice)", "Bob (@bob)", "#agents", "#ops",
+                       "Two Modes on One Relay", "Persona-First", "Org Workspaces"]),
             ("permissions", ["3-Gate ACL Primitives", "POOL <user>/agents",
                              "Concrete Permission Matrix", "#partners-only", "#external-intake"]),
             ("architecture", ["How agents join a room", "Where messages and keys live"]),
@@ -2141,6 +2148,8 @@ def test_public_harness_switcher_and_docs_chapters(tmp_path):
             active = js("document.querySelector('.chapters [aria-current=page]').dataset.id")
             assert active == chapter
             assert all(p in js("document.querySelector('main').innerText") for p in phrases)
+            assert js("""[...document.querySelectorAll('.chapter, .chapter h2, .map-section')]
+                      .every(e => getComputedStyle(e).scrollMarginTop === '64px')""")
             assert not js("!!document.querySelector('.shell, [data-act=pair], [data-act=lock]')")
             assert "nostr-mailbox" not in js("document.querySelector('main').innerText")
             if chapter == "permissions":
