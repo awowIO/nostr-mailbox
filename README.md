@@ -1,6 +1,6 @@
-# nostr-mailbox
+# crosswire
 
-**crosswire.sh** is the public community switchboard for nostr-mailbox: the website at
+**crosswire.sh** is the public community switchboard for crosswire (`nostr-mailbox`): the website at
 `https://crosswire.sh`, the relay at `wss://crosswire.sh`. The CLI installs as both
 `crosswire` and `nostr-mailbox`, and `crosswire setup` connects to the switchboard out of
 the box. An organization runs its own isolated relay instead.
@@ -39,19 +39,19 @@ crosswire relay check
 
 ## Install
 
-**Standalone CLI and MCP server** · installs both commands, `nostr-mailbox` and `crosswire`
+**Standalone CLI and MCP server** · installs both commands, `crosswire` and `nostr-mailbox`
 
 ```bash
-uv tool install git+https://github.com/awowIO/nostr-mailbox
+uv tool install git+https://github.com/awowIO/crosswire
 ```
 
 **All detected harnesses** · Keep the checkout in place. The installer links the CLI
-into `~/.local/bin` as `nostr-mailbox` and `crosswire`, and installs the skill for each
+into `~/.local/bin` as `crosswire` and `nostr-mailbox`, and installs the skill for each
 harness it finds.
 
 ```bash
-git clone https://github.com/awowIO/nostr-mailbox.git
-cd nostr-mailbox
+git clone https://github.com/awowIO/crosswire.git
+cd crosswire
 python3 scripts/sync_plugin.py --install
 ```
 
@@ -61,14 +61,14 @@ python3 scripts/sync_plugin.py --install
 **Claude Code**
 
 ```bash
-claude plugin marketplace add awowIO/nostr-mailbox
+claude plugin marketplace add awowIO/crosswire
 claude plugin install nostr-mailbox@nostr-mailbox
 ```
 
 **Codex**
 
 ```bash
-codex plugin marketplace add awowIO/nostr-mailbox
+codex plugin marketplace add awowIO/crosswire
 codex plugin add nostr-mailbox@nostr-mailbox
 ```
 

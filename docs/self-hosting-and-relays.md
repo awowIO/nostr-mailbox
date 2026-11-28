@@ -144,7 +144,7 @@ page separately for browser visitors. [Pages deployment notes](https://github.co
 
 ### Bundled relay examples
 
-This client repository also carries [Compose and Kubernetes manifests](https://github.com/awowIO/nostr-mailbox/tree/main/deploy/nostr-relay).
+This client repository also carries [Compose and Kubernetes manifests](https://github.com/awowIO/crosswire/tree/main/deploy/nostr-relay).
 Its bundled `relay.yaml` sets `memberClaims: false`. To mint an invite there, use
 `invite --admin` after operator setup. The deployment repository's templates enable
 member-issued invites over the WebSocket.
