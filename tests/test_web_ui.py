@@ -257,7 +257,9 @@ def test_readme_and_console_maps_share_the_same_artwork():
                              "/data/db/relay.db", "/data/media/<sha256>"),
     }
     for drawing, (name, labels) in zip(maps, landmarks.items(), strict=True):
-        assert drawing == (REPO / "docs" / f"{name}.svg").read_text().strip()
+        # The console uses square plates with the same artwork as the README.
+        reference = (REPO / "docs" / f"{name}.svg").read_text().strip()
+        assert drawing == re.sub(r'(<rect\b[^>]*?\srx=")[^"]+"', r'\g<1>0"', reference)
         svg = ET.fromstring(drawing)
         assert svg.attrib["viewBox"] == "0 0 1120 320"
         diagram_text = "".join(svg.itertext())
