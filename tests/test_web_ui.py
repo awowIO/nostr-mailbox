@@ -234,7 +234,8 @@ def test_the_page_is_one_self_contained_full_width_html_file():
             in style)
     assert "ui-monospace, SFMono-Regular, Consolas, monospace" in style
     assert "font-variant-numeric: tabular-nums" in style
-    assert 'class="bird-btn" data-act="bird" aria-label="Animate the wire courier"><svg' in page
+    assert '<span class="mark" aria-hidden="true"><svg' in page
+    assert "bird-btn" not in page and 'data-act="bird"' not in page
     assert 'aria-label="Switch color theme"><svg' in page
     assert not re.search(r"[\U0001f000-\U0001faff\ufe0f●◐⬇]", page)
     assert "document.documentElement.dataset.theme = next" in page
@@ -267,7 +268,7 @@ def test_the_page_links_its_repository_and_uses_origin_bound_invite_requests():
     assert "maywe.email" not in page
     assert "01 · Already invited — Open your room" in page
     assert "<h2>02 · Request an invite</h2>" in page
-    assert page.count('placeholder="nm1_… or https://crosswire.sh/join/#nm1_…"') == 2
+    assert page.count('placeholder="Paste your invite link or code"') == 2
     card = re.search(r"function mayweInviteCard\(\) \{.*?\n  \}\n", page, re.S).group(0)
     for needed in ('<form data-form="maywe-invite"', 'name="email" type="email" required',
                    'name="note" maxlength="500"', 'name="website" tabindex="-1"',
@@ -1809,7 +1810,7 @@ def _until(read):
 
 
 @contextmanager
-def _browser(tmp_path, page_url):
+def _browser(tmp_path, page_url, *, read_clipboard=False):
     """Chromium's DevTools socket, using the package's stdlib WebSocket client."""
     chrome = next((p for p in (shutil.which("chromium"), shutil.which("chromium-browser"),
                                shutil.which("google-chrome"),
@@ -1838,6 +1839,9 @@ def _browser(tmp_path, page_url):
                             break
                     return answer["result"]
 
+                if read_clipboard:
+                    command("Browser.grantPermissions", {"origin": page_url, "permissions": [
+                        "clipboardReadWrite", "clipboardSanitizedWrite"]})
                 command("Emulation.setFocusEmulationEnabled", {"enabled": True})
                 command("Emulation.setEmulatedMedia", {"features": [
                     {"name": "prefers-reduced-motion", "value": "no-preference"}]})
@@ -1859,40 +1863,68 @@ def _browser(tmp_path, page_url):
 
 
 def test_public_harness_switcher_and_docs_chapters(tmp_path):
-    with ConsoleRelay() as relay, _browser(tmp_path, relay.http_url) as js:
+    with ConsoleRelay() as relay, _browser(tmp_path, relay.http_url, read_clipboard=True) as js:
         assert js("document.querySelector('.landing h1').textContent") == "Interlinked switchboards"
         assert js("document.querySelector('.gate').getBoundingClientRect().bottom <= innerHeight")
         assert "maywe" not in js("document.body.innerText.toLowerCase()")
         assert js("[...document.querySelectorAll('.overview strong')].map(s=>s.textContent)") == [
-            "wss://crosswire.sh", "NIP-44 v2", "3 roles", "7 clients"]
+            "wss://crosswire.sh", "End-to-end encrypted", "3 roles", "6"]
+        assert js("document.querySelector('.wordmark').textContent.trim()") == "crosswire.sh"
+        assert js("[...document.querySelector('.header-right').children].map(e=>e.tagName)") == [
+            "A", "BUTTON"]
+        landing = js("document.body.innerText")
+        assert all(term not in landing for term in ("nm1_", "NIP-44", "uv tool", "nostr-mailbox"))
+        assert js("document.querySelector('.cli-fallback summary').textContent") == (
+            "Or run terminal commands manually")
+        assert not js("document.querySelector('.cli-fallback').open")
+        assert js("document.querySelector('.patch-wires').getAttribute('viewBox')") == "0 0 920 140"
+        assert js("document.querySelectorAll('.patch-field svg').length") == 1
         assert js("document.querySelector('.quickstart h2').textContent") == (
-            "Try It Now — Install & Join in 2 Commands")
+            "Connect your coding agent")
         assert not js("document.querySelector('.returning').open")
         js("document.querySelector('[name=handle]').value='alice'")
         harnesses = js("[...document.querySelectorAll('[data-act=harness]')]"
                        ".map(b=>b.textContent.trim())")
-        assert harnesses == ["Claude Code", "Codex", "CLI (uv)", "Claude Desktop", "ChatGPT",
+        assert harnesses == ["Claude Code", "Codex", "Claude Desktop", "ChatGPT",
                              "Antigravity", "Cursor"]
-        prompts, paths = set(), set()
+        js("document.querySelector('.cli-fallback summary').click()")
+        assert js("document.querySelector('.terminal code').getBoundingClientRect().height > 0")
+        if js("getComputedStyle(document.documentElement).colorScheme") == "dark":
+            js("document.querySelector('#theme').click()")
+        for surface in (".prompt-block", ".terminal"):
+            assert js(f"getComputedStyle(document.querySelector('{surface}')).backgroundColor") == (
+                "rgb(241, 240, 236)")
+            assert js(f"getComputedStyle(document.querySelector('{surface}')).color") == (
+                "rgb(24, 28, 32)")
+        prompts = set()
         for harness in harnesses:
             js(f"document.querySelector('[data-act=harness][data-id={json.dumps(harness)}]').click()")
             prompt = js("document.querySelector('#agent-prompt').textContent")
-            assert "awowIO/crosswire" in prompt and "ask me for my nm1_ invite" in prompt
+            assert "awowIO/crosswire" in prompt and "ask me for my invite link or code" in prompt
             prompts.add(prompt)
-            paths.add(js("document.querySelector('.cord-color').getAttribute('d')"))
+            assert harness in js("document.querySelector('.patch-wires').textContent")
+            assert harness in js("document.querySelector('.prompt-block h3').textContent")
+            assert js("document.querySelector('.cli-fallback').open")
             shown = js("document.querySelector('.terminal code').textContent")
             assert js("document.querySelector('.terminal [data-act=copy]').dataset.text") == shown
             install, join = shown.splitlines()
             assert "github.com/awowIO/crosswire" in install and "crosswire join" in join
-        assert len(prompts) == len(paths) == len(harnesses)
+        assert len(prompts) == len(harnesses)
         modes = js("[...document.querySelectorAll('[data-act=topology]')].map(b=>b.textContent)")
         assert modes == ["Shared Room Mesh", "Dual-Relay Bridge", "Sealed Dropbox Intake"]
         variants = []
         for mode, peers, direction in (("bridge", 1, "0;1"), ("intake", 1, "1;0"),
                                        ("mesh", 3, "0;1")):
             js(f"document.querySelector('[data-act=topology][data-id={mode}]').click()")
-            assert js("document.querySelectorAll('.peer-jack[data-plugged=true]').length") == peers
-            assert js("document.querySelectorAll('.patch-wires .cord-color').length") == peers
+            assert js("document.querySelectorAll('.patch-wires .cord').length") == 1 + peers
+            assert js("document.querySelectorAll('.patch-wires .board').length") == 2 + peers
+            assert js("""(() => {
+                const sockets = [...document.querySelectorAll('.patch-wires .socket')];
+                const touches = point => sockets.some(s => Math.hypot(
+                    point.x - s.cx.baseVal.value, point.y - s.cy.baseVal.value) < 0.01);
+                return [...document.querySelectorAll('.patch-wires .cord')].every(p =>
+                    touches(p.getPointAtLength(0)) && touches(p.getPointAtLength(p.getTotalLength())));
+            })()""")
             assert js("document.querySelector('.signal animateMotion')"
                       ".getAttribute('keyPoints')") == direction
             variants.append((js("document.querySelector('.prompt-code').textContent"),
@@ -1900,7 +1932,9 @@ def test_public_harness_switcher_and_docs_chapters(tmp_path):
         assert len({p for p, _ in variants}) == len({c for _, c in variants}) == 3
         assert "crosswire-external" in variants[0][1] and "status --hook" in variants[1][1]
         js("document.querySelector('[data-act=copy-prompt]').click()")
-        _until(lambda: js("!!document.querySelector('.bird-btn.playing')"))
+        _until(lambda: js("document.querySelector('.toast')?.textContent === 'Copied'"))
+        js("navigator.clipboard.readText().then(text => window.copiedPrompt = text)")
+        assert _until(lambda: js("window.copiedPrompt")) == variants[-1][0]
         assert not relay.members
         trust = Trust.from_mapping({"schema": "cf.transport/1", "relay": relay.url,
                                     "campaign": "camp", "operator_pubkeys": [_npub(_pub(PEER_SK))]})
@@ -1935,8 +1969,7 @@ def test_public_harness_switcher_and_docs_chapters(tmp_path):
             ("modes", ["Two Modes on One Relay", "Persona-First", "Org Workspaces"]),
             ("permissions", ["3-Gate ACL Primitives", "POOL <user>/agents",
                              "Concrete Permission Matrix", "#partners-only", "#external-intake"]),
-            ("architecture", ["Enrollment & Cross-Pool Encryption Flow",
-                              "Physical Architecture Map: Clients vs. Wire vs. Relay Disk"]),
+            ("architecture", ["How agents join a room", "Where messages and keys live"]),
             ("reference", ["CLI Quickstart", "mailbox_board", "GitHub Pages", "Kubernetes",
                            "Multi-Agent Campaign Blueprints"]),
         ]
@@ -1947,9 +1980,14 @@ def test_public_harness_switcher_and_docs_chapters(tmp_path):
             assert active == chapter
             assert all(p in js("document.querySelector('main').innerText") for p in phrases)
             assert not js("!!document.querySelector('.shell, [data-act=pair], [data-act=lock]')")
+            assert "nostr-mailbox" not in js("document.querySelector('main').innerText")
+            if chapter == "permissions":
+                assert js("""[...document.querySelectorAll('.chapter tbody tr')]
+                          .some(tr => [...tr.querySelectorAll('td .badge')].map(
+                              b => b.textContent).join(' ') === 'READ WRITE MANAGE')""")
             if chapter == "architecture":
                 assert js("Array.from(document.querySelectorAll('main svg'), s=>s.getAttribute("
-                          "'viewBox'))") == ["0 0 1120 320"] * 2
+                          "'viewBox'))") == ["0 0 1120 192"] * 2
                 sizes = js("Array.from(document.querySelectorAll('main svg'), s => "
                            "[s.clientWidth, s.clientHeight])")
                 assert sizes[0] == sizes[1] and sizes[0][1] > 0

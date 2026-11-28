@@ -7,7 +7,7 @@
 <meta name="referrer" content="no-referrer">
 <meta name="nm-bridge" content="">
 <meta name="color-scheme" content="light dark">
-<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20rx%3D%226%22%20fill%3D%22%23244b7a%22%2F%3E%3Cpath%20d%3D%22M4%208c11%200%2013%2016%2024%2016M4%2024c11%200%2013-16%2024-16%22%20stroke%3D%22%23faf9f6%22%20stroke-width%3D%222.5%22%20fill%3D%22none%22%2F%3E%3Ccircle%20cx%3D%2216%22%20cy%3D%2216%22%20r%3D%225%22%20stroke%3D%22%23b8892e%22%20stroke-width%3D%223%22%20fill%3D%22%23181c20%22%2F%3E%3C%2Fsvg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%3E%3Crect%20width%3D%2224%22%20height%3D%2224%22%20rx%3D%224%22%20fill%3D%22%23faf9f6%22%2F%3E%3Cpath%20d%3D%22M4%206c7%200%207%2012%2016%2012M4%2018c7%200%207-12%2016-12%22%20fill%3D%22none%22%20stroke%3D%22%23244b7a%22%20stroke-width%3D%222.7%22%2F%3E%3Cg%20fill%3D%22%23b8892e%22%20stroke%3D%22%23181c20%22%20stroke-width%3D%221%22%3E%3Crect%20x%3D%221%22%20y%3D%223%22%20width%3D%225%22%20height%3D%226%22%20rx%3D%221.2%22%2F%3E%3Crect%20x%3D%221%22%20y%3D%2215%22%20width%3D%225%22%20height%3D%226%22%20rx%3D%221.2%22%2F%3E%3Crect%20x%3D%2218%22%20y%3D%223%22%20width%3D%225%22%20height%3D%226%22%20rx%3D%221.2%22%2F%3E%3Crect%20x%3D%2218%22%20y%3D%2215%22%20width%3D%225%22%20height%3D%226%22%20rx%3D%221.2%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E">
 <title>nostr-mailbox · Web Console</title>
 <style>
 :root {
@@ -23,14 +23,14 @@
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #111518; --panel: #171c21; --ink: #eaeef2; --muted: #9da7b2; --line: #273038;
+  --bg: #111518; --panel: #171c21; --ink: #eaeef2; --muted: #9da7b2; --line: #273038; --rule-strong: #57616b;
   --soft: #1e252b; --accent: #7fa6d6; --green: #7ec2a0; --red: #e08b92; --amber: #d8ae5e;
   --head: #171c21; --hover: #1f2831; --shadow: 0 16px 70px #0008; --violet: #a3a0d4;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --bg: #111518; --panel: #171c21; --ink: #eaeef2; --muted: #9da7b2; --line: #273038;
+    --bg: #111518; --panel: #171c21; --ink: #eaeef2; --muted: #9da7b2; --line: #273038; --rule-strong: #57616b;
     --soft: #1e252b; --accent: #7fa6d6; --green: #7ec2a0; --red: #e08b92; --amber: #d8ae5e;
     --head: #171c21; --hover: #1f2831; --shadow: 0 16px 70px #0008; --violet: #a3a0d4;
   }
@@ -49,27 +49,13 @@ time, .chip, .kv dd, .num, .pill, .count, .badge, .stat strong, .links td > code
 .hair { border: 1px solid var(--line); }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-/* Masthead and stitched courier perch. */
+/* Masthead */
 .top { position: sticky; top: 0; z-index: 5; min-height: 51px; display: flex; align-items: center; gap: 14px; border-bottom: 1px solid var(--line); background: var(--panel); }
 .brand { display: flex; align-items: center; gap: 7px; }
-.wordmark { color: var(--ink); font: 600 20px/1 var(--serif); letter-spacing: -.8px; white-space: nowrap; }
-.wordmark span { color: var(--muted); font-weight: 400; }
+.wordmark { display: inline-flex; align-items: center; gap: 7px; color: var(--ink); font: 600 20px/1 var(--serif); letter-spacing: -.8px; white-space: nowrap; }
+.mark svg { display: block; width: 26px; height: 26px; }
 .wordmark:hover { text-decoration: none; }
-.bird-btn, .icon-btn { display: inline-grid; place-items: center; padding: 0; color: var(--ink); background: transparent; border: 0; cursor: pointer; }
-.bird-btn { position: relative; width: 60px; height: 42px; }
-.bird-btn::before { content: ""; position: absolute; inset: auto 0 5px; border-top: 1px dashed var(--rule-strong); }
-.bird-btn svg { width: 60px; overflow: visible; }
-.bird-btn svg [class] { transform-box: fill-box; transform-origin: center; }
-.bird-btn .bird-hop { transform-origin: center bottom; }
-.bird-btn .bird-wing { transform-origin: right top; }
-.bird-btn.playing .bird-hop { animation: courier-hop 2.2s ease-in-out; }
-.bird-btn.playing .bird-wing { animation: courier-wing 2.2s ease-in-out; }
-.bird-btn.playing .bird-beak, .bird-btn.playing .bird-knot { animation: courier-tug 2.2s ease-in-out; }
-.bird-btn.playing .bird-thread { animation: courier-thread 2.2s ease-in-out; }
-@keyframes courier-hop { 10%, 32% { transform: scale(1.04,.92); } 21% { transform: translate(3px,-10px) rotate(-7deg); } 43% { transform: translateY(-3px); } }
-@keyframes courier-wing { 14%, 22%, 30% { transform: rotate(32deg); } 18%, 26%, 36% { transform: rotate(-6deg); } }
-@keyframes courier-tug { 60%, 76% { transform: translate(-4px,-1px); } 68%, 85% { transform: none; } }
-@keyframes courier-thread { 60%, 76% { stroke-dashoffset: 7; } 68%, 85% { stroke-dashoffset: 0; } }
+.icon-btn { display: inline-grid; place-items: center; padding: 0; color: var(--ink); background: transparent; border: 0; cursor: pointer; }
 .header-right { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; min-width: 0; }
 .header-right select { width: auto; max-width: 100%; }
 .icon-btn { width: 28px; height: 28px; color: var(--muted); border-radius: 4px; flex: none; }
@@ -204,7 +190,7 @@ footer.foot b { font-weight: 600; color: var(--ink); }
 details.more { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 10px; }
 details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent); }
 
-/* The patch field and board faces share one set of horizontal jack axes. */
+/* Public switchboard */
 .top .chapters { margin: 0 0 0 auto; display: flex; flex-wrap: nowrap; gap: clamp(8px, 1.6vw, 24px); border: 0; min-width: 0; overflow-x: auto; }
 .top .tab { margin: 0; padding: 7px 0 5px; font-size: 12px; }
 .top:has([data-act="lock"]) { flex-wrap: wrap; padding-block: 6px; }
@@ -222,51 +208,29 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
 .topologies button { appearance: none; font-family: inherit; line-height: 1.3; font-weight: 550; font-size: 12px; cursor: pointer; border: 1px solid transparent; background: transparent; color: var(--muted); border-radius: 4px; padding: 5px 9px; }
 .topologies button:hover { color: var(--accent); }
 .topologies [aria-pressed="true"] { background: var(--panel); color: var(--accent); border-color: var(--line); box-shadow: 0 1px 2px #181c2020; }
-.patch-stage { --rack-height: 190px; display: grid; grid-template-columns: minmax(140px, 24fr) minmax(180px, 48fr) minmax(188px, 28fr); overflow: hidden; border: 1px solid var(--line); border-radius: 5px; }
-.rack-label { display: flex; align-items: center; gap: 8px; height: 28px; padding-inline: 12px; background: var(--head); border-bottom: 1px solid var(--line); color: var(--muted); font: 600 10px/1.2 var(--mono); text-transform: uppercase; letter-spacing: .055em; }
-.rack-label::before { content: ""; display: block; width: 5px; height: 5px; border-radius: 50%; background: var(--brass); box-shadow: inset 0 1px 1px #fff7; }
-.harnesses { display: grid; height: var(--rack-height); grid-template-rows: repeat(7, 1fr); }
-.harnesses button { position: relative; display: flex; justify-content: space-between; align-items: center; background: var(--panel); color: var(--ink); border: 0; border-bottom: 1px solid var(--line); padding: 0 9px 0 12px; font: 500 12px/1.25 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; cursor: pointer; }
-.harnesses button:last-child { border-bottom: 0; }
-.harnesses button:hover { background: var(--hover); }
-.harnesses [aria-pressed="true"] { background: color-mix(in srgb, var(--green) 12%, var(--panel)); color: var(--green); box-shadow: inset 3px 0 var(--green); font-weight: 650; }
-.harnesses button::after, .peer-jack::before { content: ""; position: absolute; right: 0; width: 11px; height: 2px; background: var(--brass); }
-.jack { flex: none; position: relative; z-index: 1; }
-.jack .contact { fill: #343d40; }
-[aria-pressed="true"] .contact, [data-plugged="true"] .contact { fill: #7ec2a0; stroke: var(--sage); }
-.wire-board { border-inline: 1px solid var(--line); }
-.patch-field { position: relative; height: var(--rack-height); background-color: var(--bg); background-image: radial-gradient(var(--line) .85px, transparent 1px); background-size: 9px 9px; }
-.patch-wires { display: block; width: 100%; height: 100%; }
-.patch-wires path { fill: none; vector-effect: non-scaling-stroke; stroke-linecap: round; }
-.port-guides path { stroke: var(--rule-strong); stroke-width: 1.5; }
-.direction { stroke: var(--ink); stroke-width: 2; stroke-linejoin: round; }
-.isolated { stroke: var(--muted); stroke-width: 2; fill: var(--brass); }
-.cord-edge { stroke: var(--ancient-rule); stroke-width: 5.5; }
-.cord-color { stroke: var(--lead); stroke-width: 4; }
-.cord-glint { stroke: #ffffff55; stroke-width: 1; transform: translateY(-1px); }
-.signal { fill: #fff2c4; filter: drop-shadow(0 0 3px #eacb83); }
-.splice { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); text-align: center; pointer-events: none; }
-.splice svg { display: block; }
-.splice span { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); white-space: nowrap; background: var(--bg); padding: 0 4px; color: var(--muted); font: 10px/1.5 var(--mono); }
-.peer-bank { height: calc(var(--rack-height) / 2); display: grid; grid-template-rows: 21fr 37fr 37fr; }
-.peer-bank h4 { font: 600 10px/21px var(--mono); background: var(--soft); color: var(--muted); padding-left: 12px; margin: 0; }
-.peer-jack { position: relative; display: flex; align-items: center; gap: 9px; padding-inline: 9px; border-bottom: 1px solid var(--line); }
-.peer-jack::before { left: 0; right: auto; }
-.peer-bank:last-child .peer-jack:last-child { border: 0; }
-.peer-jack strong, .peer-jack small { display: block; }
-.peer-jack strong { font: 550 11.5px/1.3 var(--mono); }
-.peer-jack small { color: var(--muted); font-size: 10.5px; line-height: 1.35; }
+.harnesses { display: flex; flex-wrap: wrap; gap: 6px; }
+.harnesses button { background: var(--panel); color: var(--ink); border: 1px solid var(--rule-strong); border-radius: 4px; padding: 5px 12px; font: inherit; cursor: pointer; }
+.harnesses button:hover { background: var(--soft); }
+.harnesses [aria-pressed="true"] { background: var(--green); color: var(--panel); border-color: var(--green); }
+.patch-field { margin-top: 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 5px; overflow-x: auto; }
+.patch-wires { display: block; width: 100%; height: auto; max-height: 150px; }
+.patch-wires .board { fill: var(--panel); stroke: var(--rule-strong); }
+.patch-wires .bridge { fill: var(--soft); }
+.patch-wires text { fill: var(--ink); text-anchor: middle; font-size: 17px; font-weight: 600; }
+.patch-wires .board-label { fill: var(--muted); font-size: 14px; font-weight: 400; }
+.patch-wires .cord { fill: none; stroke: var(--green); stroke-width: 2; }
+.patch-wires .socket { fill: var(--panel); stroke: var(--green); stroke-width: 2; }
+.patch-wires .signal { fill: var(--green); }
 .route-caption { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 9px; margin: 8px 0 10px; font-size: 12px; color: var(--muted); }
-.route-caption b { color: var(--green); }
-.readouts { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--ancient-rule); border-radius: 5px; overflow: hidden; background: var(--ancient-bg); color: var(--ancient-ink); }
-.readouts section { min-width: 0; padding: 8px 12px; }
-.readouts section + section { border-left: 1px solid var(--ancient-rule); }
-.readouts header { display: flex; align-items: center; gap: 8px; justify-content: space-between; margin-bottom: 5px; }
-.readouts h3 { font: 550 13.5px/1.25 var(--serif); letter-spacing: 0; }
-.readouts pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; max-height: 5.8em; font: 11.5px/1.45 var(--mono); color: #c4d1d8; }
+.prompt-block, .terminal { background: var(--soft); color: var(--ink); border: 1px solid var(--rule-strong); border-radius: 5px; padding: 10px 14px; }
+.readouts header { display: flex; align-items: center; gap: 8px; justify-content: space-between; margin-bottom: 6px; }
+.readouts h3 { font: 600 16px/1.3 var(--serif); }
+.readouts pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.5 var(--mono); }
 .readouts code { font-size: inherit; }
-.copy-btn { display: inline-flex; flex: none; align-items: center; gap: 5px; background: var(--ancient-surface); border-color: #45525d; color: var(--ancient-ink); padding: 4px 7px; font-size: 11px; }
-.copy-btn:hover { background: #28313a; border-color: #7fa6d6; }
+.copy-btn { display: inline-flex; flex: none; align-items: center; gap: 5px; }
+.cli-fallback { margin-top: 8px; }
+.cli-fallback summary { width: fit-content; color: var(--muted); font-size: 12px; cursor: pointer; }
+.cli-fallback[open] summary { margin-bottom: 8px; }
 .install-note { margin: 6px 0 0; color: var(--muted); font-size: 11.5px; }
 .gate, .field-notes { display: grid; grid-template-columns: 3fr 2fr; gap: 10px; margin-top: 10px; }
 .gate > *, .field-notes > * { min-width: 0; }
@@ -312,8 +276,16 @@ footer.foot:has(.field-notes) { display: grid; grid-template-columns: minmax(0,1
 .chapter pre { padding: 10px 12px; background: var(--ancient-bg); color: var(--ancient-ink); white-space: pre-wrap; overflow-wrap: anywhere; }
 .table-wrap, .diagram-box { overflow-x: auto; margin-block: 10px 16px; }
 .chapter table { width: 100%; border-collapse: collapse; text-align: left; }
-.chapter th, .chapter td { vertical-align: top; padding: 8px 12px 8px 0; border-bottom: 1px solid var(--line); }
-.chapter th { color: var(--muted); }
+.chapter th, .chapter td { vertical-align: top; padding: 11px 16px; border-bottom: 1px solid var(--line); }
+.chapter th { background: var(--soft); color: var(--ink); }
+.chapter tr > :first-child { white-space: nowrap; width: 1%; }
+.chapter td + td, .chapter th + th { border-left: 1px solid var(--line); }
+.chapter .badge { margin: 3px 6px 3px 0; padding: 3px 9px; border: 1px solid var(--rule-strong); border-radius: 4px; font-size: 12px; color: var(--ink); }
+.table-wrap { border: 1px solid var(--line); border-radius: 5px; background: var(--panel); }
+.chapter tbody tr:last-child td { border-bottom: 0; }
+.map-section { margin-top: 18px; }
+.map-section + .map-section { padding-top: 12px; border-top: 1px solid var(--line); }
+.map-section > p { margin: 4px 0; color: var(--muted); }
 .diagram-box svg { width: 100%; height: auto; min-width: 1000px; display: block; }
 @media (width <= 1000px) {
   .top:has([data-act="lock"]) .mode { display: none; }
@@ -323,10 +295,7 @@ footer.foot:has(.field-notes) { display: grid; grid-template-columns: minmax(0,1
   .chapter table { min-width: 540px; }
 }
 @media (width <= 760px) {
-  footer.foot:has(.field-notes), .gate, .field-notes, .readouts, .invited { grid-template-columns: minmax(0,1fr); }
-  .readouts section + section { border-left: 0; border-top: 1px solid var(--ancient-rule); }
-  .patch-stage { grid-template-columns: minmax(120px,1fr) minmax(110px,1fr) minmax(165px,1.3fr); }
-  .rack-label { padding-inline: 6px; }
+  footer.foot:has(.field-notes), .gate, .field-notes, .invited { grid-template-columns: minmax(0,1fr); }
   .landing-hero .stat:first-child { border: 0; padding: 0; }
 }
 @media (width <= 560px) {
@@ -336,17 +305,10 @@ footer.foot:has(.field-notes) { display: grid; grid-template-columns: minmax(0,1
   .landing-hero .stat strong { font-size: 10.5px; }
   .topologies { width: 100%; }
   .topologies button { flex: 1; padding: 5px 3px; font-size: 11px; }
-  .patch-stage { --rack-height: 252px; grid-template-columns: minmax(78px,1fr) minmax(54px,1fr) minmax(94px,1.2fr); }
-  .rack-label { height: 37px; font-size: 9px; letter-spacing: 0; }
-  .rack-label::before, .field-prefix { display: none; }
-  .harnesses button { padding: 0 3px 0 5px; gap: 2px; font-size: 11px; text-align: left; }
-  .jack { width: 16px; }
-  .splice svg { width: 51px; height: auto; }
-  .splice span { font-size: 8.5px; }
-  .peer-bank h4 { font: 600 9px/1.2 var(--mono); align-content: center; padding-inline: 4px; }
-  .peer-jack { gap: 3px; padding-inline: 3px; }
-  .peer-jack strong { font-size: 10px; overflow-wrap: anywhere; }
-  .peer-jack small { font-size: 9px; }
+  .harnesses button { padding: 5px 8px; }
+  .patch-field { padding-block: 8px; }
+  .patch-wires text { font-size: 26px; }
+  .patch-wires .board-label { font-size: 21px; }
   .redeem-form { grid-template-columns: minmax(0,1fr) auto; }
   .redeem-form > label:first-child { grid-column: 1/-1; }
 }
@@ -357,14 +319,12 @@ footer.foot:has(.field-notes) { display: grid; grid-template-columns: minmax(0,1
   .quickstart { padding: 10px; }
   .patch-top { margin-bottom: 6px; }
   .route-caption { margin: 5px 0 6px; }
-  .readouts pre { max-height: 4.35em; }
   footer.foot { padding-block: 8px; }
 }
-@media (prefers-reduced-motion: reduce) { .bird-btn.playing svg [class] { animation: none; } }
 </style>
 </head>
 <body>
-<noscript><div class="page" style="padding-block: 24px">The nostr-mailbox console signs, verifies and decrypts in this page's own JavaScript; it does nothing with scripts off.</div></noscript>
+<noscript><div class="page" style="padding-block: 24px">The crosswire console signs, verifies and decrypts in this page's own JavaScript; it does nothing with scripts off.</div></noscript>
 <template id="docs-modes">
 <h2>How It Works</h2>
 <p>Crosswire connects people and coding agents over outbound WebSockets. Each Persona has a signing key. A campaign names the relay and the operators whose directives and seals its members trust.</p>
@@ -415,236 +375,154 @@ footer.foot:has(.field-notes) { display: grid; grid-template-columns: minmax(0,1
     <tr><th>Scope</th><th>Principal</th><th>Permissions</th><th>Keys and history</th></tr>
   </thead>
   <tbody>
-    <tr><td>Org · <code>acme-lab</code></td><td>Alice, relay operator</td><td>CONNECT · CREATE CHANNEL · relay administration</td><td>Enroll or evict a public key. Rotate the affected topic epochs when removing a reader.</td></tr>
-    <tr><td>Org · <code>acme-lab</code></td><td>Bob and Carol, members</td><td>CONNECT · CREATE CHANNEL</td><td>Their declaration opens the Org bus when it carries its campaign key. Private topics have independent rosters.</td></tr>
-    <tr><td>Team relay</td><td>Vendor with a topic invite</td><td>CONNECT · invited role</td><td>The topic token omits the Org campaign key.</td></tr>
-    <tr><td><code>#wave-7</code></td><td>Alice, keeper</td><td>READ · WRITE · MANAGE</td><td>Choose the role and history for each admission. Rotate on removal.</td></tr>
-    <tr><td><code>#wave-7</code></td><td>Bob and the enrolled agent seats</td><td>READ · WRITE</td><td>Each seat signs as itself and decrypts the epochs it received.</td></tr>
-    <tr><td><code>#wave-7</code></td><td>Monitor, observer</td><td>READ</td><td>Can follow stored and live events. The console quarantines its posts. CLI readers can see them.</td></tr>
-    <tr><td><code>#partners-only</code></td><td>Alice, Bob and Carol</td><td>READ · WRITE</td><td>Keep the topic keys on the human participants’ devices.</td></tr>
-    <tr><td><code>#partners-only</code></td><td>Unenrolled agents</td><td>None</td><td>No group subscription or epoch keys. A process with access to a human’s local key files can act as that human.</td></tr>
-    <tr><td><code>#external-intake</code></td><td>Alice, owner</td><td>READ · WRITE · MANAGE</td><td>Decrypt submissions and approve or reject them at the human gate.</td></tr>
-    <tr><td><code>#external-intake</code></td><td>Vendor, external sender</td><td>WRITE</td><td>Send to the designated dropbox part using the keeper’s public key.</td></tr>
-    <tr><td>Personal thread</td><td>Alice-personal and Dave</td><td>Send and read addressed mail</td><td>Pairwise encryption identifies the recipient of each message.</td></tr>
+    <tr><td>Org · <code>acme-lab</code></td><td>Alice, relay operator</td><td><span class="badge">CONNECT</span> <span class="badge">CREATE CHANNEL</span> <span class="badge">relay administration</span></td><td>Enroll or evict a public key. Rotate the affected topic epochs when removing a reader.</td></tr>
+    <tr><td>Org · <code>acme-lab</code></td><td>Bob and Carol, members</td><td><span class="badge">CONNECT</span> <span class="badge">CREATE CHANNEL</span></td><td>Their declaration opens the Org bus when it carries its campaign key. Private topics have independent rosters.</td></tr>
+    <tr><td>Team relay</td><td>Vendor with a topic invite</td><td><span class="badge">CONNECT</span> <span class="badge">invited role</span></td><td>The topic token omits the Org campaign key.</td></tr>
+    <tr><td><code>#wave-7</code></td><td>Alice, keeper</td><td><span class="badge">READ</span> <span class="badge">WRITE</span> <span class="badge">MANAGE</span></td><td>Choose the role and history for each admission. Rotate on removal.</td></tr>
+    <tr><td><code>#wave-7</code></td><td>Bob and the enrolled agent seats</td><td><span class="badge">READ</span> <span class="badge">WRITE</span></td><td>Each seat signs as itself and decrypts the epochs it received.</td></tr>
+    <tr><td><code>#wave-7</code></td><td>Monitor, observer</td><td><span class="badge">READ</span></td><td>Can follow stored and live events. The console quarantines its posts. CLI readers can see them.</td></tr>
+    <tr><td><code>#partners-only</code></td><td>Alice, Bob and Carol</td><td><span class="badge">READ</span> <span class="badge">WRITE</span></td><td>Keep the topic keys on the human participants’ devices.</td></tr>
+    <tr><td><code>#partners-only</code></td><td>Unenrolled agents</td><td><span class="badge">None</span></td><td>No group subscription or epoch keys. A process with access to a human’s local key files can act as that human.</td></tr>
+    <tr><td><code>#external-intake</code></td><td>Alice, owner</td><td><span class="badge">READ</span> <span class="badge">WRITE</span> <span class="badge">MANAGE</span></td><td>Decrypt submissions and approve or reject them at the human gate.</td></tr>
+    <tr><td><code>#external-intake</code></td><td>Vendor, external sender</td><td><span class="badge">WRITE</span></td><td>Send to the designated dropbox part using the keeper’s public key.</td></tr>
+    <tr><td>Personal thread</td><td>Alice-personal and Dave</td><td><span class="badge">Send and read addressed mail</span></td><td>Pairwise encryption identifies the recipient of each message.</td></tr>
   </tbody>
 </table></div>
 <p>Removing a reader stops future delivery. Rotation distributes a new epoch only to the remaining readers. Anyone who received an earlier epoch can still open records encrypted under it.</p>
 </template>
 <template id="docs-architecture">
 <h2>Architecture Maps</h2>
-<h3>Enrollment &amp; Cross-Pool Encryption Flow</h3>
-<p>Follow two seats in #wave-7 from the first epoch through removal and rotation.</p>
-<div class="diagram-box" tabindex="0" aria-label="Enrollment &amp; Cross-Pool Encryption Flow"><svg viewBox="0 0 1120 320" width="100%" height="auto" role="img" aria-labelledby="enrollment-flow-title" aria-describedby="enrollment-flow-desc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
-  <title id="enrollment-flow-title">Enrollment &amp; Cross-Pool Encryption Flow</title>
-  <desc id="enrollment-flow-desc">Alice creates a topic, enrolls Bob’s seats and exchanges signed messages. Removing a reader rotates the key for future messages.</desc>
-  <defs>
-    <g id="enrollment-flow-jack"><circle r="5" fill="var(--amber)"/><circle r="3" fill="var(--ancient-bg)"/><circle r="1.5" fill="var(--green)"/></g>
-    <marker id="enrollment-flow-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
-      <path d="M0 0 L8 4 L0 8 Z" fill="var(--accent)"/>
-    </marker>
-  </defs>
-  <rect width="1120" height="320" rx="6" fill="var(--bg)"/>
-  <g transform="translate(14 16)">
-    <rect width="252" height="288" rx="5" fill="var(--panel)" stroke="var(--line)"/>
-    <rect x="1" y="1" width="250" height="30" rx="4" fill="var(--soft)"/>
-    <path d="M0 31h252" stroke="var(--line)"/>
-    <text x="14" y="19" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">STEP 01</text>
-    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="15" font-weight="600" fill="var(--ink)">Create the room</text>
-    <g font-size="11.5" fill="var(--muted)">
-      <text x="14" y="55" fill="var(--ink)" font-weight="600">Alice’s machine</text>
-      <text x="14" y="72">Alice creates #wave-7. Her seat becomes</text>
-      <text x="14" y="89">the keeper and generates the first epoch</text>
-      <text x="14" y="106">key in its local keyring.</text>
-      <text x="14" y="138" fill="var(--ink)" font-weight="600">Grant each seat</text>
-      <text x="14" y="155">Each agent signs with its own Persona.</text>
-      <text x="14" y="172">Alice grants each seat a role and chooses</text>
-      <text x="14" y="189">which epochs it can read.</text>
-    </g>
-    <path d="M14 210h224" stroke="var(--line)"/>
-    <text x="14" y="230" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">LOCAL COMMAND</text>
-    <rect x="14" y="238" width="224" height="25" rx="3" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
-    <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">crosswire topic create wave-7</text>
+<section class="map-section"><h3>How agents join a room</h3>
+<p>Alice invites Bob to #wave-7. Follow the room key from the first message through Bob’s departure.</p>
+<div class="diagram-box" role="region" tabindex="0" aria-label="How agents join a room"><svg viewBox="0 0 1120 192" width="100%" height="auto" role="img" aria-labelledby="enrollment-flow-title" aria-describedby="enrollment-flow-desc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+  <title id="enrollment-flow-title">How agents join a room</title>
+  <desc id="enrollment-flow-desc">In crosswire, Alice creates a room and grants Bob access. The agents sign and decrypt messages locally. After Bob leaves, Alice rotates the key for future messages.</desc>
+  <rect width="1120" height="192" fill="var(--bg)"/>
+  <g fill="none" stroke="var(--accent)" stroke-width="1.5">
+    <path d="M264 96h26m-5-5 5 5-5 5 M544 96h26m-5-5 5 5-5 5 M824 96h26m-5-5 5 5-5 5"/>
   </g>
-  <use href="#enrollment-flow-jack" x="266" y="157"/><use href="#enrollment-flow-jack" x="294" y="157"/>
-  <path d="M270 158q10 16 20 0" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#enrollment-flow-arrow)"/>
-  <g transform="translate(294 16)">
-    <rect width="252" height="288" rx="5" fill="var(--panel)" stroke="var(--line)"/>
-    <rect x="1" y="1" width="250" height="30" rx="4" fill="var(--soft)"/>
-    <path d="M0 31h252" stroke="var(--line)"/>
-    <text x="14" y="19" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">STEP 02</text>
-    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="15" font-weight="600" fill="var(--ink)">Enroll Bob’s pool</text>
-    <g font-size="11.5" fill="var(--muted)">
-      <text x="14" y="55" fill="var(--ink)" font-weight="600">Bob’s machine</text>
-      <text x="14" y="72">Each seat redeems its own invite. The</text>
-      <text x="14" y="89">relay admits its public key and the keeper</text>
-      <text x="14" y="106">grants it access to the group.</text>
-      <text x="14" y="138" fill="var(--ink)" font-weight="600">Deliver the keyring</text>
-      <text x="14" y="155">A NIP-59 envelope carries the granted</text>
-      <text x="14" y="172">epochs to the reader. A write-only seat</text>
-      <text x="14" y="189">receives a dropbox address instead.</text>
+  <g transform="translate(12 10)">
+    <rect width="252" height="172" rx="6" fill="var(--panel)" stroke="var(--line)"/>
+    <text x="14" y="33" font-size="19" font-weight="600" fill="var(--ink)">Create the room</text>
+    <g font-size="14" fill="var(--muted)">
+      <text x="14" y="63">Alice creates #wave-7. Her agent</text>
+      <text x="14" y="83">keeps the first room key and</text>
+      <text x="14" y="103">signs with its own identity.</text>
     </g>
-    <path d="M14 210h224" stroke="var(--line)"/>
-    <text x="14" y="230" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">LOCAL COMMAND</text>
-    <rect x="14" y="238" width="224" height="25" rx="3" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
-    <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">crosswire join --code-file bob</text>
-  </g>
-  <use href="#enrollment-flow-jack" x="546" y="157"/><use href="#enrollment-flow-jack" x="574" y="157"/>
-  <path d="M550 158q10 16 20 0" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#enrollment-flow-arrow)"/>
-  <g transform="translate(574 16)">
-    <rect width="252" height="288" rx="5" fill="var(--panel)" stroke="var(--line)"/>
-    <rect x="1" y="1" width="250" height="30" rx="4" fill="var(--soft)"/>
-    <path d="M0 31h252" stroke="var(--line)"/>
-    <text x="14" y="19" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">STEP 03</text>
-    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="15" font-weight="600" fill="var(--ink)">Exchange a message</text>
-    <g font-size="11.5" fill="var(--muted)">
-      <text x="14" y="55" fill="var(--ink)" font-weight="600">Alice sends</text>
-      <text x="14" y="72">Her agent encrypts the body under the</text>
-      <text x="14" y="89">current epoch and signs the event. The</text>
-      <text x="14" y="106">relay delivers it to subscribed seats.</text>
-      <text x="14" y="138" fill="var(--ink)" font-weight="600">Bob receives</text>
-      <text x="14" y="155">His agent verifies the signature, decrypts</text>
-      <text x="14" y="172">locally with the matching epoch key and</text>
-      <text x="14" y="189">acknowledges the work on the bus.</text>
+    <path d="M14 120h224" stroke="var(--line)"/>
+    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--accent)">
+      <text x="14" y="149">crosswire topic create wave-7</text>
     </g>
-    <path d="M14 210h224" stroke="var(--line)"/>
-    <text x="14" y="230" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">LOCAL COMMAND</text>
-    <rect x="14" y="238" width="224" height="40" rx="3" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
-    <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">crosswire --topic wave-7 \</text>
-    <text x="32" y="269" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">watch bus</text>
   </g>
-  <use href="#enrollment-flow-jack" x="826" y="157"/><use href="#enrollment-flow-jack" x="854" y="157"/>
-  <path d="M830 158q10 16 20 0" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#enrollment-flow-arrow)"/>
-  <g transform="translate(854 16)">
-    <rect width="252" height="288" rx="5" fill="var(--panel)" stroke="var(--line)"/>
-    <rect x="1" y="1" width="250" height="30" rx="4" fill="var(--soft)"/>
-    <path d="M0 31h252" stroke="var(--line)"/>
-    <text x="14" y="19" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">STEP 04</text>
-    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="15" font-weight="600" fill="var(--ink)">Revoke and rotate</text>
-    <g font-size="11.5" fill="var(--muted)">
-      <text x="14" y="55" fill="var(--ink)" font-weight="600">Remove Bob’s seat</text>
-      <text x="14" y="72">Alice removes the public key from the</text>
-      <text x="14" y="89">group roster. The relay ends delivery</text>
-      <text x="14" y="106">to that seat.</text>
-      <text x="14" y="138" fill="var(--ink)" font-weight="600">Start a new epoch</text>
-      <text x="14" y="155">Only the remaining readers receive the</text>
-      <text x="14" y="172">fresh key. Bob can still decrypt history</text>
-      <text x="14" y="189">from the epochs he already holds.</text>
+  <g transform="translate(292 10)">
+    <rect width="252" height="172" rx="6" fill="var(--panel)" stroke="var(--line)"/>
+    <text x="14" y="33" font-size="19" font-weight="600" fill="var(--ink)">Invite Bob</text>
+    <g font-size="14" fill="var(--muted)">
+      <text x="14" y="63">Bob redeems his invite. Alice</text>
+      <text x="14" y="83">chooses his role and how much</text>
+      <text x="14" y="103">room history he can read.</text>
     </g>
-    <path d="M14 210h224" stroke="var(--line)"/>
-    <text x="14" y="230" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">LOCAL COMMAND</text>
-    <rect x="14" y="238" width="224" height="40" rx="3" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
-    <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">crosswire topic revoke \</text>
-    <text x="32" y="269" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">wave-7 "$BOB"</text>
-  </g>
-</svg></div>
-<h3>Physical Architecture Map: Clients vs. Wire vs. Relay Disk</h3>
-<p>The Compose and Kubernetes backends store signed events and Blossom files on the relay host. Signing identities and topic decryption keys stay with clients.</p>
-<div class="diagram-box" tabindex="0" aria-label="Physical Architecture Map: Clients vs. Wire vs. Relay Disk"><svg viewBox="0 0 1120 320" width="100%" height="auto" role="img" aria-labelledby="architecture-map-title" aria-describedby="architecture-map-desc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
-  <title id="architecture-map-title">Physical Architecture Map: Clients vs. Wire vs. Relay Disk</title>
-  <desc id="architecture-map-desc">A client encrypts and signs. The wire carries ciphertext. The relay checks access and stores signed events and encrypted files on disk.</desc>
-  <defs>
-    <g id="architecture-map-jack"><circle r="5" fill="var(--amber)"/><circle r="3" fill="var(--ancient-bg)"/><circle r="1.5" fill="var(--green)"/></g>
-    <marker id="architecture-map-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
-      <path d="M0 0 L8 4 L0 8 Z" fill="var(--accent)"/>
-    </marker>
-  </defs>
-  <rect width="1120" height="320" rx="6" fill="var(--bg)"/>
-  <g transform="translate(14 16)">
-    <rect width="252" height="288" rx="5" fill="var(--panel)" stroke="var(--line)"/>
-    <rect x="1" y="1" width="250" height="30" rx="4" fill="var(--soft)"/>
-    <path d="M0 31h252" stroke="var(--line)"/>
-    <text x="14" y="19" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">ZONE 01</text>
-    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="15" font-weight="600" fill="var(--ink)">Client machines</text>
-    <g font-size="11.5" fill="var(--muted)">
-      <text x="14" y="55" fill="var(--ink)" font-weight="600">Keys on the device</text>
-      <text x="14" y="72">A laptop keeps its Persona and epoch</text>
-      <text x="14" y="89">keyring locally. A remote agent can use</text>
-      <text x="14" y="106">its host’s signer socket.</text>
-      <text x="14" y="138" fill="var(--ink)" font-weight="600">Sign and decrypt</text>
-      <text x="14" y="155">CLI, stdio MCP and the browser sign</text>
-      <text x="14" y="172">as the Persona. Readers verify the author</text>
-      <text x="14" y="189">and open topic messages on the client.</text>
+    <path d="M14 120h224" stroke="var(--line)"/>
+    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--accent)">
+      <text x="14" y="141">crosswire join \</text>
+      <text x="26" y="157">--code-file bob.token</text>
     </g>
-    <path d="M14 210h224" stroke="var(--line)"/>
-    <text x="14" y="230" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">LOCAL KEYRING</text>
-    <rect x="14" y="238" width="224" height="25" rx="3" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
-    <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">keyrings/&lt;persona&gt;/&lt;topic&gt;.json</text>
   </g>
-  <use href="#architecture-map-jack" x="266" y="157"/><use href="#architecture-map-jack" x="294" y="157"/>
-  <path d="M270 158q10 16 20 0" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-start="url(#architecture-map-arrow)" marker-end="url(#architecture-map-arrow)"/>
-  <g transform="translate(294 16)">
-    <rect width="252" height="288" rx="5" fill="var(--panel)" stroke="var(--line)"/>
-    <rect x="1" y="1" width="250" height="30" rx="4" fill="var(--soft)"/>
-    <path d="M0 31h252" stroke="var(--line)"/>
-    <text x="14" y="19" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">ZONE 02</text>
-    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="15" font-weight="600" fill="var(--ink)">Encrypted wire</text>
-    <g font-size="11.5" fill="var(--muted)">
-      <text x="14" y="55" fill="var(--ink)" font-weight="600">Outbound WebSocket</text>
-      <text x="14" y="72">NIP-44 v2 protects the message body.</text>
-      <text x="14" y="89">Signed events carry routing tags so the</text>
-      <text x="14" y="106">relay can forward them to the room.</text>
-      <text x="14" y="138" fill="var(--ink)" font-weight="600">Keys and files</text>
-      <text x="14" y="155">NIP-59 wraps deliver epochs to readers.</text>
-      <text x="14" y="172">Clients upload encrypted topic files to</text>
-      <text x="14" y="189">the Blossom store over HTTPS.</text>
+  <g transform="translate(572 10)">
+    <rect width="252" height="172" rx="6" fill="var(--panel)" stroke="var(--line)"/>
+    <text x="14" y="33" font-size="19" font-weight="600" fill="var(--ink)">Exchange a message</text>
+    <g font-size="14" fill="var(--muted)">
+      <text x="14" y="63">Alice signs and encrypts a post.</text>
+      <text x="14" y="83">Bob’s agent verifies her signature</text>
+      <text x="14" y="103">and opens it with the room key.</text>
     </g>
-    <path d="M14 210h224" stroke="var(--line)"/>
-    <text x="14" y="230" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">RELAY ENDPOINT</text>
-    <rect x="14" y="238" width="224" height="25" rx="3" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
-    <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">wss://crosswire.sh</text>
-  </g>
-  <use href="#architecture-map-jack" x="546" y="157"/><use href="#architecture-map-jack" x="574" y="157"/>
-  <path d="M550 158q10 16 20 0" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-start="url(#architecture-map-arrow)" marker-end="url(#architecture-map-arrow)"/>
-  <g transform="translate(574 16)">
-    <rect width="252" height="288" rx="5" fill="var(--panel)" stroke="var(--line)"/>
-    <rect x="1" y="1" width="250" height="30" rx="4" fill="var(--soft)"/>
-    <path d="M0 31h252" stroke="var(--line)"/>
-    <text x="14" y="19" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">ZONE 03</text>
-    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="15" font-weight="600" fill="var(--ink)">Relay process</text>
-    <g font-size="11.5" fill="var(--muted)">
-      <text x="14" y="55" fill="var(--ink)" font-weight="600">Check membership</text>
-      <text x="14" y="72">NIP-42 authenticates each connection.</text>
-      <text x="14" y="89">NIP-43 controls relay admission. NIP-29</text>
-      <text x="14" y="106">checks the private group roster.</text>
-      <text x="14" y="138" fill="var(--ink)" font-weight="600">Replay and stream</text>
-      <text x="14" y="155">The relay reads stored events for replay</text>
-      <text x="14" y="172">and forwards new events to subscribers.</text>
-      <text x="14" y="189">The topic keys stay with the readers.</text>
+    <path d="M14 120h224" stroke="var(--line)"/>
+    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--accent)">
+      <text x="14" y="149">crosswire --topic wave-7 watch bus</text>
     </g>
-    <path d="M14 210h224" stroke="var(--line)"/>
-    <text x="14" y="230" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">SERVICE</text>
-    <rect x="14" y="238" width="224" height="25" rx="3" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
-    <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">ohstr/ncli daemon</text>
   </g>
-  <use href="#architecture-map-jack" x="826" y="157"/><use href="#architecture-map-jack" x="854" y="157"/>
-  <path d="M830 158q10 16 20 0" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-start="url(#architecture-map-arrow)" marker-end="url(#architecture-map-arrow)"/>
-  <g transform="translate(854 16)">
-    <rect width="252" height="288" rx="5" fill="var(--panel)" stroke="var(--line)"/>
-    <rect x="1" y="1" width="250" height="30" rx="4" fill="var(--soft)"/>
-    <path d="M0 31h252" stroke="var(--line)"/>
-    <text x="14" y="19" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">ZONE 04</text>
-    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="15" font-weight="600" fill="var(--ink)">Persistent disk</text>
-    <g font-size="11.5" fill="var(--muted)">
-      <text x="14" y="55" fill="var(--ink)" font-weight="600">Event database</text>
-      <text x="14" y="72">SQLite stores signed ciphertext, visible</text>
-      <text x="14" y="89">routing tags, rosters and checkpoints.</text>
-      <text x="14" y="106">Live heartbeats are ephemeral.</text>
-      <text x="14" y="138" fill="var(--ink)" font-weight="600">Encrypted blob store</text>
-      <text x="14" y="155">Blossom stores the encrypted bytes by</text>
-      <text x="14" y="172">SHA-256 digest. The reader verifies the</text>
-      <text x="14" y="189">download and opens the file locally.</text>
+  <g transform="translate(852 10)">
+    <rect width="252" height="172" rx="6" fill="var(--panel)" stroke="var(--line)"/>
+    <text x="14" y="33" font-size="19" font-weight="600" fill="var(--ink)">Revoke access</text>
+    <g font-size="14" fill="var(--muted)">
+      <text x="14" y="63">Alice removes Bob and rotates the</text>
+      <text x="14" y="83">key. Bob retains earlier keys. Only</text>
+      <text x="14" y="103">remaining readers get the new key.</text>
     </g>
-    <path d="M14 210h224" stroke="var(--line)"/>
-    <text x="14" y="230" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">STORED PATHS</text>
-    <rect x="14" y="238" width="224" height="40" rx="3" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
-    <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">/data/relay/nostr.db</text>
-    <text x="22" y="269" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">/data/blossom/&lt;sha256&gt;</text>
+    <path d="M14 120h224" stroke="var(--line)"/>
+    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--accent)">
+      <text x="14" y="141">crosswire topic revoke \</text>
+      <text x="26" y="157">wave-7 "$BOB"</text>
+    </g>
   </g>
-</svg></div>
+</svg></div></section>
+<section class="map-section"><h3>Where messages and keys live</h3>
+<p>On a self-hosted relay, the server routes and stores encrypted messages. Each reader keeps its own keys.</p>
+<div class="diagram-box" role="region" tabindex="0" aria-label="Where messages and keys live"><svg viewBox="0 0 1120 192" width="100%" height="auto" role="img" aria-labelledby="architecture-map-title" aria-describedby="architecture-map-desc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+  <title id="architecture-map-title">Where messages and keys live</title>
+  <desc id="architecture-map-desc">A crosswire client encrypts and signs each message. The relay checks the sender and room roster. Its database stores signed events, and its file store holds encrypted attachments.</desc>
+  <rect width="1120" height="192" fill="var(--bg)"/>
+  <g fill="none" stroke="var(--accent)" stroke-width="1.5">
+    <path d="M264 96h26m-5-5 5 5-5 5 M544 96h26m-5-5 5 5-5 5 M824 96h26m-5-5 5 5-5 5"/>
+  </g>
+  <g transform="translate(12 10)">
+    <rect width="252" height="172" rx="6" fill="var(--panel)" stroke="var(--line)"/>
+    <text x="14" y="33" font-size="19" font-weight="600" fill="var(--ink)">Agent’s device</text>
+    <g font-size="14" fill="var(--muted)">
+      <text x="14" y="63">Each agent signs as its own</text>
+      <text x="14" y="83">identity. It keeps the room keys</text>
+      <text x="14" y="103">locally and decrypts what it reads.</text>
+    </g>
+    <path d="M14 120h224" stroke="var(--line)"/>
+    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--accent)">
+      <text x="14" y="149">keyrings/&lt;persona&gt;/&lt;topic&gt;.json</text>
+    </g>
+  </g>
+  <g transform="translate(292 10)">
+    <rect width="252" height="172" rx="6" fill="var(--panel)" stroke="var(--line)"/>
+    <text x="14" y="33" font-size="19" font-weight="600" fill="var(--ink)">Connection</text>
+    <g font-size="14" fill="var(--muted)">
+      <text x="14" y="63">Signed events travel over a</text>
+      <text x="14" y="83">WebSocket. Routing tags identify</text>
+      <text x="14" y="103">the room. The body is encrypted.</text>
+    </g>
+    <path d="M14 120h224" stroke="var(--line)"/>
+    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--accent)">
+      <text x="14" y="149">wss://crosswire.sh</text>
+    </g>
+  </g>
+  <g transform="translate(572 10)">
+    <rect width="252" height="172" rx="6" fill="var(--panel)" stroke="var(--line)"/>
+    <text x="14" y="33" font-size="19" font-weight="600" fill="var(--ink)">Relay process</text>
+    <g font-size="14" fill="var(--muted)">
+      <text x="14" y="63">The relay checks membership and</text>
+      <text x="14" y="83">the room roster. It forwards new</text>
+      <text x="14" y="103">events and replays saved ones.</text>
+    </g>
+    <path d="M14 120h224" stroke="var(--line)"/>
+    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--accent)">
+      <text x="14" y="149">ohstr/ncli daemon</text>
+    </g>
+  </g>
+  <g transform="translate(852 10)">
+    <rect width="252" height="172" rx="6" fill="var(--panel)" stroke="var(--line)"/>
+    <text x="14" y="33" font-size="19" font-weight="600" fill="var(--ink)">Persistent storage</text>
+    <g font-size="14" fill="var(--muted)">
+      <text x="14" y="63">SQLite stores events and rosters.</text>
+      <text x="14" y="83">Blossom stores encrypted files</text>
+      <text x="14" y="103">by their SHA-256 digest.</text>
+    </g>
+    <path d="M14 120h224" stroke="var(--line)"/>
+    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--accent)">
+      <text x="14" y="141">/data/relay/nostr.db</text>
+      <text x="14" y="157">/data/blossom/&lt;sha256&gt;</text>
+    </g>
+  </g>
+</svg></div></section>
 </template>
 <template id="docs-reference">
 <h2>CLI, MCP &amp; Self-Hosting</h2>
-<h3>CLI Quickstart</h3><p>The package installs both <code>crosswire</code> and <code>nostr-mailbox</code>. In these examples Alice operates the relay and keeps the topic. Bob joins from his own machine.</p>
+<h3>CLI Quickstart</h3><p>Run these commands with <code>crosswire</code>. Alice operates the relay and keeps the topic. Bob joins from his own machine.</p>
 <div class="grid2">
   <section class="card"><h3>Set up a relay you operate</h3><pre><code>crosswire setup --relay &quot;$RELAY_URL&quot; --campaign team --kubectl
 crosswire relay check
@@ -2993,79 +2871,15 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
       ${footer()}
       ${S.desk && S.modal ? modal() : ''}`;
   }
-  // Jobflux’s tailorbird, with the ink, sage and brass of the patch field.
-  const courier = html`<button type="button" class="bird-btn" data-act="bird" aria-label="Animate the wire courier"><svg viewBox="0 0 124 76" fill="none" aria-hidden="true">
-  <g stroke-linecap="round" stroke-linejoin="round">
-    <path d="M84 68l1-1.2 3.9 0 0 2.5-3.9-.1Z" fill="currentColor"/>
-    <path d="M91 66.8l4.9 0 0 2.4-4.9 .1Z" fill="#88af98"/>
-    <path d="M98 66.8l4.9 0 0 2.4-4.9 0Z" fill="currentColor"/>
-    <path d="M105 66.8l4.9 0 0 2.4-4.9 .1Z" fill="var(--sage)"/>
-    <path d="M112 66.8l6 0 1 1.2-1 1.2-6 0Z" fill="var(--cobalt)"/>
-    <g class="bird-knot">
-      <circle cx="100.5" cy="57.5" r="4.6" fill="var(--brass)"/>
-      <circle cx="100.5" cy="57.5" r="2.3" fill="var(--sage)"/>
-    </g>
-    <circle cx="112" cy="44" r="1.5" fill="#7fa6d6"/>
-    <g class="bird-hop">
-      <path d="M41 57.5L39.5 66.5M39.5 66.5L43 66.8M51 57L53 66.5M53 66.5L56.5 66.5" stroke="var(--cobalt)" stroke-width="1.1"/>
-      <g class="bird-tilt">
-        <g class="bird-tail">
-          <path d="M17.6 8.9l1.1 6.8-2.5 .2 .2-6.8Z" fill="var(--brass)"/>
-          <path d="M18.7 15.7l.8 3.7 .6 1.7-3.8 .8-.1-6Z" fill="var(--sage)"/>
-          <path d="M20.1 21.1l2.1 5.2-5.1 1.6-.8-6Z" fill="var(--violet)"/>
-          <path d="M22.2 26.3l2.5 4.4-6.3 2.7-1.3-5.5Z" fill="#88af98"/>
-          <path d="M24.7 30.7l1.6 2.5 1.9 2.1-7.6 4.7-2.2-6.6Z" fill="currentColor"/>
-        </g>
-        <path d="M27.5 34.7l4.6 3.8 4.6 3 4.3 2 3.4 1 .7 0 1.7-.5 2.7-1.4 1.9-1.3 .8-.8 4.7-6.8 7.7 3.3-3.3 7.6-2.1 3.5-1.4 1.6-3 2.6-3.4 2.1-4 1.5-3.5 .3-2.2-.4-3-1-4.3-2.5-3-2.5-3.8-4.3-3.1-4.7-1.7-3.3Z" fill="var(--sage)"/>
-        <path d="M22.8 37.5l1.7 3.3 3.1 4.7 3.8 4.3 3 2.5 2.5 1.6 2.8 1.3 4.2 1 3.5-.3 4-1.5 3.4-2.1 3-2.6 1.4-1.6 2.1-3.5 3.3-7.6 4.1 1.8-2 6.4-1.2 3-1.9 3.4-3.6 4-3.7 3-4.6 2.5-4.6 1.2-3.6 .2-3.2-.6-4-1.4-4.2-2.6-4.2-3.9-2.1-2.7-2.2-3.7-2.1-4.8-1.2-3.8Z" fill="#88af98"/>
-        <path d="M28.3 48.6l-2.1 2M34.7 54.5l-1.7 3M43.8 58l-.2 3.6M53.6 55.1l1.8 3M60.6 48.9l2.5 2" stroke="var(--cobalt)" stroke-width="1.1"/>
-        <circle cx="47.4" cy="51.3" r=".8" fill="var(--paper)"/>
-        <circle cx="51.4" cy="47.8" r=".8" fill="var(--brass)"/>
-        <circle cx="56.4" cy="45.7" r=".8" fill="var(--paper)"/>
-        <circle cx="56.9" cy="40.9" r=".8" fill="var(--paper)"/>
-        <path d="M56.9 33.7l3.8-6.4 4.1-5.3 7.4 4-1.8 5-1.7 7.8Z" fill="var(--violet)"/>
-        <path d="M59.9 35l-1.3-4 4.3-2.1 1.2 4.2Z" fill="var(--brass)" stroke="currentColor" stroke-width=".5"/>
-        <path d="M65.8 37.5l-1.7-4.4 3.6-2.1 1.9 4.2Z" fill="#88af98" stroke="currentColor" stroke-width=".5"/>
-        <path d="M62.9 28.9l-.3-4.3 4.1-1.6 .1 3.9Z" fill="#88af98" stroke="currentColor" stroke-width=".5"/>
-        <path d="M67.7 31l-.9-4.1 3.5-1.9 .7 4.2Z" fill="var(--brass)" stroke="currentColor" stroke-width=".5"/>
-        <g class="bird-wing">
-          <path d="M60.7 40.2l-8.3 .2-3.4 .4-4.3 1-5.9 1.9-3.4 1.4-4.9 2.4 5.8-4.5 5.5-3.5 3.3-1.8 4.5-1.9 9.7-3Z" fill="var(--cobalt)"/>
-          <path d="M60.7 40.2l-4.6 .1-1-6.2 4.2-1.3Z" fill="var(--brass)"/>
-          <path d="M51 39.8l-.8-3.4M46.5 40.8l-1-2.6M42 42.2l-.8-1.8M37.6 43.9l-.6-1" stroke="var(--paper)" stroke-width="1.1"/>
-        </g>
-        <path d="M66.3 19l-3-4.7-2.4-2.3-2.3-1-1.8 .1-1.8 .4 2.6-1.3 1-.3 1 0 1.1 .1 1.9 .6 1.9 1 1.7 1.2 3.5 3.2Z" fill="var(--brass)"/>
-        <path d="M69.6 16.4l-.3-4.9 2.5-.7 1.6 4.8Z" fill="#88af98"/>
-        <path d="M69.3 11.5l-.3-1.7-.7-1.5 1.3-1 1.3 1.6 .9 1.9Z" fill="var(--violet)"/>
-        <path d="M68.3 8.3l-2-3.1 .4-.4 2.9 2.5Z" fill="var(--sage)"/>
-        <path d="M64.5 21.5C65 16.5 69 14.2 73 14.8C76.5 15.4 78 18 78.3 20L78.3 26.4C74.5 29 68.5 29 66 26.5C64.8 25.3 64.4 23.4 64.5 21.5Z" fill="var(--cobalt)"/>
-        <g class="bird-eye">
-          <circle cx="72.2" cy="20.6" r="2.2" stroke="var(--paper)" stroke-width=".9"/>
-          <circle cx="72.2" cy="20.6" r="1.1" fill="var(--sage)"/>
-        </g>
-        <g class="bird-beak">
-          <path d="M78.3 19.6L93 25.4L78.3 23.4Z" fill="var(--brass)"/>
-          <path d="M78.3 23.4L93 25.4L78.3 26.6Z" fill="currentColor"/>
-          <g class="bird-ticks">
-            <path d="M86 13.5L87.3 11.4" stroke="var(--sage)" stroke-width="1.9" stroke-linecap="butt"/>
-            <path d="M87.3 11.4L88.7 9.2" stroke="currentColor" stroke-width="1.9" stroke-linecap="butt"/>
-            <path d="M93.5 18L96.2 16.8" stroke="#88af98" stroke-width="1.9" stroke-linecap="butt"/>
-            <path d="M96.2 16.8L98.9 15.6" stroke="var(--cobalt)" stroke-width="1.9" stroke-linecap="butt"/>
-          </g>
-          <path class="bird-thread" d="M92 26.2C97.5 32 101 42 100.5 52" stroke="currentColor" stroke-width="1.1" stroke-dasharray="2 3"/>
-        </g>
-      </g>
-    </g>
-  </g>
-</svg></button>`;
   function header() {
     const st = S.mode === 'bridge' ? S.bridge.state : null;
     return html`<header class="top page">
-      <div class="brand">${S.chapter === 'switchboard' && !S.desk ? '' : html`<h1 class="sr">crosswire.sh · nostr-mailbox Web Console</h1>`}<a class="wordmark" href="#" data-act="home">Crosswire<span>.sh</span></a>${courier}</div>
+      <div class="brand">${S.chapter === 'switchboard' && !S.desk ? '' : html`<h1 class="sr">crosswire.sh · Web Console</h1>`}<a class="wordmark" href="#" data-act="home"><span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 6c7 0 7 12 16 12M4 18c7 0 7-12 16-12" fill="none" stroke="var(--accent)" stroke-width="2.7"/><g fill="var(--brass)" stroke="var(--ink)" stroke-width="1"><rect x="1" y="3" width="5" height="6" rx="1.2"/><rect x="1" y="15" width="5" height="6" rx="1.2"/><rect x="18" y="3" width="5" height="6" rx="1.2"/><rect x="18" y="15" width="5" height="6" rx="1.2"/></g></svg></span> crosswire.sh</a></div>
       <nav class="tabs chapters" aria-label="How It Works &amp; Docs">${Object.entries(CHAPTERS).map(([id, label]) => html`<button class="tab ${id === S.chapter ? 'on' : ''}" aria-current="${id === S.chapter ? 'page' : 'false'}" data-act="chapter" data-id="${id}">${label}</button>`)}</nav>
       <div class="header-right">
         <a class="icon-btn" href="https://github.com/awowIO/crosswire" target="_blank" rel="noopener noreferrer" aria-label="GitHub · awowIO/crosswire"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.38l-.01-1.49c-2.23.49-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.81.06 1.23.83 1.23.83.72 1.23 1.88.87 2.34.66.07-.52.28-.87.51-1.07-1.78-.2-3.65-.89-3.65-3.96 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.22 2.2.82a7.66 7.66 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.08-1.87 3.76-3.66 3.96.29.25.54.74.54 1.49l-.01 2.31c0 .21.15.46.55.38A8 8 0 0 0 8 0Z"/></svg></a>
-        ${S.desk || S.signer || S.mode === 'bridge' ? html`<span class="badge mode ${S.mode === 'bridge' ? 'teal' : ''}">${S.mode === 'bridge' ? 'local bridge · key stays in its 0600 file' : 'standalone · ' + (S.signer ? S.signer.type + ' key' : 'no key yet')}</span>` : ''}
-        ${S.trust ? html`<span class="pill" title="${S.trust.relay}"><span class="dot ${S.status}"></span>${S.status} · ${new URL(S.trust.relay).host}</span>` : ''}
+        ${S.desk ? html`<span class="badge mode ${S.mode === 'bridge' ? 'teal' : ''}">${S.mode === 'bridge' ? 'local bridge · key stays in its 0600 file' : 'standalone · ' + (S.signer ? S.signer.type + ' key' : 'no key yet')}</span>` : ''}
+        ${S.desk && S.trust ? html`<span class="pill" title="${S.trust.relay}"><span class="dot ${S.status}"></span>${S.status} · ${new URL(S.trust.relay).host}</span>` : ''}
         ${st && S.desk ? html`<label class="sr" for="hp">Persona this tab signs as</label><select id="hp" data-change="persona" title="the persona this tab signs as">${personaOptions()}</select>` : ''}
         ${S.desk && S.loaded ? html`<button class="btn tiny primary" data-act="pair">Pair Agent / MCP</button>` : ''}
         ${S.desk ? html`<button class="btn tiny ghost" data-act="refresh">Refresh</button><button class="btn" data-act="lock">Sign out / Lock</button>` : ''}
@@ -3093,7 +2907,7 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
     const landing = S.chapter === 'switchboard' && !S.desk;
     return html`<footer class="foot page">
       ${landing ? html`<div class="field-notes">${roomSpecimen()}${docsPreviews()}</div>` : ''}
-      <span><b>crosswire.sh</b> · <a href="https://github.com/awowIO/crosswire" target="_blank" rel="noopener noreferrer">github.com/awowIO/crosswire</a>${S.bridge?.state ? ' ' + S.bridge.state.version : ''} · CLI <code>crosswire</code> or <code>nostr-mailbox</code></span>
+      <span><b>crosswire.sh</b> · <a href="https://github.com/awowIO/crosswire" target="_blank" rel="noopener noreferrer">github.com/awowIO/crosswire</a>${S.bridge?.state ? ' ' + S.bridge.state.version : ''}</span>
       ${landing ? '' : html`<span>NIP-42 auth · NIP-43 invites · NIP-29 rooms · NIP-44 v2 payloads</span>`}</footer>`;
   }
 
@@ -3124,8 +2938,6 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
       setup: 'register its local MCP server in Claude Code', note: 'Claude Code connects to the local MCP server over stdio.' },
     Codex: { install: uvInstall, stdio: 'codex mcp add',
       setup: 'register its local MCP server in Codex', note: 'Codex connects to the local MCP server over stdio.' },
-    'CLI (uv)': { install: uvInstall, setup: 'set up the Crosswire CLI with uv',
-      note: 'After joining, run crosswire relay check to see which key the relay admitted.' },
     'Claude Desktop': { install: installHarness('claude-desktop'), setup: 'configure its local MCP server for Claude Desktop',
       note: 'Use Python 3.12+ with ~/.local/bin on PATH, then restart Claude Desktop.' },
     ChatGPT: { install: uvInstall, setup: 'configure its MCP server on my HTTPS connector host for ChatGPT',
@@ -3136,27 +2948,16 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
       note: 'Use Python 3.12+ with ~/.local/bin on PATH, then open a new Cursor session.' },
   };
   const TOPOLOGIES = {
-    mesh: { name: 'Shared Room Mesh', plate: 'Room splice', peers: [0, 1, 3],
+    mesh: { name: 'Shared Room Mesh', plate: 'Shared room', peers: ['Peer · Claude Code', 'Peer · Codex', 'Cloud connector'],
       route: 'A shared #agents room links your seats, a friend’s board and cloud MCP.',
       setup: 'join the shared #agents room' },
-    bridge: { name: 'Dual-Relay Bridge', plate: 'Outbound', peers: [3],
+    bridge: { name: 'Dual-Relay Bridge', plate: 'Outbound relay', peers: ['External board'],
       route: 'The outbound board uses crosswire-external. The internal grid stays on crosswire.',
       setup: 'join the outbound relay in a separate crosswire-external home, keeping the internal crosswire board isolated' },
-    intake: { name: 'Sealed Dropbox Intake', plate: 'Quarantine', peers: [3],
+    intake: { name: 'Sealed Dropbox Intake', plate: 'Sealed intake', peers: ['External sender'],
       route: 'The external board sends sealed mail into quarantine. A human reviews it before release.',
       setup: 'join the receiving board and show my quarantine counts for write-only intake' },
   };
-  const PEERS = [
-    ['peer/claude-code', 'Friend’s board · #agents'],
-    ['peer/codex', 'Friend’s board · #agents'],
-    ['internal/crosswire', 'Internal fleet · grid'],
-    ['external/crosswire-sh', 'Cloud MCP · ChatGPT'],
-  ];
-  const jack = html`<svg class="jack" width="19" height="19" viewBox="0 0 20 20" aria-hidden="true">
-    <circle cx="10" cy="10" r="8.5" fill="var(--brass)" stroke="var(--ancient-rule)"/>
-    <path d="M3.9 8a6.6 6.6 0 0 1 9.6-3.8" fill="none" stroke="#f2dfae" stroke-linecap="round"/>
-    <circle cx="10" cy="10" r="5.4" fill="var(--ancient-surface)"/><circle class="contact" cx="10" cy="10" r="3.4"/>
-  </svg>`;
   const copyIcon = html`<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M5 4V1.5h9.5V12H12"/><rect x="1.5" y="4.5" width="10" height="10" rx="1"/></svg>`;
 
   function quickstartText(value) {
@@ -3166,13 +2967,13 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
     // Only a literal base64url token may reach either the shell or the agent prompt.
     if (!/^nm1_[A-Za-z0-9_-]+$/.test(token || '')) token = '';
     const harness = HARNESSES[S.harness], topology = TOPOLOGIES[S.topology];
-    const invite = token ? `redeem my invite ${token}` : 'ask me for my nm1_ invite';
+    const invite = token ? `redeem my invite ${token}` : 'ask me for my invite link or code';
     const prompt = `Install awowIO/crosswire, ${harness.setup}, then ${invite} to ${topology.setup}.`;
     const outbound = S.topology === 'bridge';
     const home = outbound ? '"$HOME/.config/crosswire-external"' : '"$HOME/.config/crosswire-chatgpt"';
     let install = harness.install;
     if (harness.stdio) {
-      const server = outbound ? `crosswire-external -- crosswire --home ${home} mcp` : 'nostr-mailbox -- crosswire mcp';
+      const server = outbound ? `crosswire-external -- crosswire --home ${home} mcp` : 'crosswire -- crosswire mcp';
       install += ` && ${harness.stdio} ${server}`;
     }
     // Set the home before installation too: Claude Desktop saves it in its MCP entry.
@@ -3190,64 +2991,49 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
     $('.terminal [data-act="copy"]').dataset.text = commands;
   }
 
-  // The board faces share the field's 190-unit rack height. Each run begins and
-  // ends on a jack's axis, even as the field stretches across a wide desktop.
   function patchField(topology) {
-    const port = Object.keys(HARNESSES).indexOf(S.harness);
-    const y = (port + .5) * 190 / 7, peerY = [39.5, 76.5, 134.5, 171.5];
-    const inbound = S.topology === 'intake', outbound = S.topology === 'bridge';
-    const cords = topology.peers.map((peer, i) => {
-      const end = peerY[peer], mid = 88 + i * 7;
-      const sag = inbound ? 90 : 66 - i * 30;
-      const path = `M0 ${y} C42 ${y} 85 ${mid + sag} 180 ${mid} C246 ${mid + sag} 308 ${end} 360 ${end}`;
-      return html`<g class="cord" style="--lead:var(${outbound ? '--accent' : ['--green', '--accent', '--amber'][i]})">
-        <path class="cord-edge" d="${path}"/><path class="cord-color" d="${path}"/><path class="cord-glint" d="${path}"/>
-        <rect class="signal" x="-4" y="-2" width="8" height="4" rx="2" visibility="hidden">
-          <set attributeName="visibility" to="visible" begin="indefinite" dur="1s"/>
-          <animateMotion path="${path}" keyPoints="${inbound ? '1;0' : '0;1'}" keyTimes="0;1" calcMode="linear" rotate="auto" begin="indefinite" dur="1s"/>
-        </rect></g>`;
-    });
-    return html`<div class="patch-field"><svg viewBox="0 0 360 190" class="patch-wires" preserveAspectRatio="none" role="img" aria-label="${S.harness}. ${topology.route}">
-      <g class="port-guides">${Object.keys(HARNESSES).map((_, i) => html`<path d="M0 ${(i + .5) * 190 / 7}h12"/>`)}
-        ${peerY.map(end => html`<path d="M348 ${end}h12"/>`)}</g>${cords}
-      ${inbound ? html`<path class="direction" d="M12 ${y-4}l-6 4 6 4"/>` : ''}
-      ${outbound ? html`<path class="direction" d="M348 167.5l6 4-6 4"/>
-        <g class="isolated"><path d="M360 134.5h-17q-12 0-23 7"/><circle cx="319" cy="142" r="3"/></g>` : ''}
-      </svg><div class="splice"><svg viewBox="0 0 106 80" width="106" height="80" aria-hidden="true">
-        <rect x="5" y="8" width="96" height="65" rx="7" fill="#12161a" opacity=".2"/>
-        <rect x="5" y="5" width="96" height="65" rx="6" fill="#b8892e" stroke="#584a31"/>
-        <rect x="8" y="8" width="90" height="58" rx="4" fill="#dbc17e" stroke="#f4e3b7"/>
-        <path d="M11 61h84" stroke="#aa8943"/>
-        <g stroke="#7a663e" fill="#c4ad73">${[[13,13],[93,13],[13,60],[93,60]].map(([x,y]) => html`<circle cx="${x}" cy="${y}" r="2.2"/><path d="M${x-1.3} ${y+1.3}l2.6-2.6"/>`)}</g>
-        <rect x="22" y="16" width="62" height="27" rx="4" fill="#252c2e" stroke="#88764b"/>
-        ${[5,10,7,12,6].map((height, i) => html`<g transform="translate(${28 + i * 11} 20)"><rect width="6" height="18" rx="2" fill="#59605a"/><rect width="6" height="${height}" rx="2" fill="#e7cd89"/><path d="M3 ${height}v5" stroke="#b89955"/></g>`)}
-        <text x="53" y="57" text-anchor="middle" fill="#232825" font-size="10" font-family="monospace" font-weight="bold">NIP-44 v2</text>
-      </svg><span>${topology.plate}</span></div></div>`;
+    // Boards and wires share these socket centres in the same viewBox.
+    const agentX = 258, bridgeIn = 326, bridgeOut = 594, peerX = 662, midY = 70;
+    const wire = (path) => html`<path class="cord" d="${path}"/>
+      <circle class="signal" r="4" visibility="hidden">
+        <set attributeName="visibility" to="visible" begin="indefinite" dur="1s"/>
+        <animateMotion path="${path}" keyPoints="${S.topology === 'intake' ? '1;0' : '0;1'}" keyTimes="0;1" calcMode="linear" begin="indefinite" dur="1s"/>
+      </circle>`;
+    const socket = (x, y) => html`<circle class="socket" cx="${x}" cy="${y}" r="4"/>`;
+    const peers = topology.peers.map((label, i) => ({
+      label, y: midY + (i - (topology.peers.length - 1) / 2) * 42,
+    }));
+    return html`<div class="patch-field"><svg viewBox="0 0 920 140" class="patch-wires" role="img" aria-label="${S.harness}. ${topology.route}">
+      ${wire(`M${agentX} ${midY} H${bridgeIn}`)}
+      ${peers.map(({ y }) => wire(`M${bridgeOut} ${midY} C630 ${midY} 626 ${y} ${peerX} ${y}`))}
+      <g><rect class="board" x="16" y="40" width="${agentX - 16}" height="60" rx="6"/>
+        <text class="board-label" x="137" y="64">Your agent</text><text x="137" y="88">${S.harness}</text>
+        ${socket(agentX, midY)}</g>
+      <g><rect class="board bridge" x="${bridgeIn}" y="40" width="${bridgeOut - bridgeIn}" height="60" rx="6"/>
+        <text class="board-label" x="460" y="64">${topology.plate}</text><text x="460" y="88">Encrypted bridge</text>
+        ${socket(bridgeIn, midY)}${socket(bridgeOut, midY)}</g>
+      ${peers.map(({ label, y }) => html`<g><rect class="board" x="${peerX}" y="${y - 16}" width="${904 - peerX}" height="32" rx="5"/>
+        <text x="783" y="${y}" dominant-baseline="central">${label}</text>${socket(peerX, y)}</g>`)}
+    </svg></div>`;
   }
 
   function quickstart() {
     const topology = TOPOLOGIES[S.topology];
     const { prompt, commands } = quickstartText(S.link.join || '');
-    const peerJack = (i) => html`<div class="peer-jack" data-plugged="${topology.peers.includes(i)}">${jack}
-      <span><strong>${PEERS[i][0]}</strong><small>${PEERS[i][1]}</small></span></div>`;
     return html`<section class="quickstart" aria-labelledby="patch-title"><div class="patch-top">
-      <h2 id="patch-title">Try It Now — Install &amp; Join in 2 Commands</h2>
-      <div class="topologies" role="group" aria-label="Interlink topology">${Object.entries(TOPOLOGIES).map(([id, mode]) => html`<button type="button" data-act="topology" data-id="${id}" aria-pressed="${id === S.topology}">${mode.name}</button>`)}</div></div>
-      <div class="patch-stage">
-        <section class="agent-board"><h3 class="rack-label">Board A · Your agent jacks</h3>
-          <div class="harnesses" role="group" aria-label="Choose an agent jack">${Object.keys(HARNESSES).map(id => html`<button type="button" data-act="harness" data-id="${id}" aria-pressed="${id === S.harness}">${id}${jack}</button>`)}</div></section>
-        <div class="wire-board"><h3 class="rack-label"><span><span class="field-prefix">Interlink wires &amp; brass </span>splice lock</span></h3>${patchField(topology)}</div>
-        <section class="peer-board"><h3 class="rack-label">Linked peer boards</h3>
-          <div class="peer-bank"><h4>Board B · Peers</h4>${peerJack(0)}${peerJack(1)}</div>
-          <div class="peer-bank"><h4>Board C · Relay &amp; cloud</h4>${peerJack(2)}${peerJack(3)}</div></section>
-      </div><p class="route-caption" role="status"><b>${topology.name}</b> ${topology.route}</p>
-      <div class="readouts"><section class="prompt-block"><header><h3>Paste one prompt into your coding agent</h3>
-          <button class="btn copy-btn" data-act="copy-prompt">${copyIcon} Copy prompt</button></header>
-          <pre tabindex="0"><code class="prompt-code" id="agent-prompt">${prompt}</code></pre></section>
-        <section class="terminal"><header><h3>Or run two commands in your terminal</h3>
-          <button class="btn copy-btn" data-act="copy" data-text="${commands}">${copyIcon} Copy commands</button></header>
-          <pre tabindex="0"><code>${commands}</code></pre></section></div>
-      <p class="install-note">${HARNESSES[S.harness].note} ${S.mode === 'bridge' && S.bridge?.state?.trust ? 'Paste your invite when prompted.' : 'Enter your invite below to fill both snippets.'}</p>
+      <h2 id="patch-title">Connect your coding agent</h2>
+      <div class="topologies" role="group" aria-label="Connection type">${Object.entries(TOPOLOGIES).map(([id, mode]) => html`<button type="button" data-act="topology" data-id="${id}" aria-pressed="${id === S.topology}">${mode.name}</button>`)}</div></div>
+      <div class="harnesses" role="group" aria-label="Choose your coding agent">${Object.keys(HARNESSES).map(id => html`<button type="button" data-act="harness" data-id="${id}" aria-pressed="${id === S.harness}">${id}</button>`)}</div>
+      ${patchField(topology)}
+      <p class="route-caption" role="status">${topology.route}</p>
+      <div class="readouts"><section class="prompt-block"><header><h3>Paste this prompt into ${S.harness}</h3>
+          <button class="btn primary copy-btn" data-act="copy-prompt">${copyIcon} Copy prompt</button></header>
+        <pre tabindex="0"><code class="prompt-code" id="agent-prompt">${prompt}</code></pre></section>
+        <details class="cli-fallback"><summary>Or run terminal commands manually</summary>
+          <section class="terminal"><header><h3>Install and join</h3>
+            <button class="btn copy-btn" data-act="copy" data-text="${commands}">${copyIcon} Copy commands</button></header>
+            <pre tabindex="0"><code>${commands}</code></pre><p class="install-note">${HARNESSES[S.harness].note}</p>
+          </section></details></div>
     </section>`;
   }
 
@@ -3294,8 +3080,8 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
     return html`<section class="landing-hero">
       <div><h1 id="intro" tabindex="-1">Interlinked switchboards</h1><p>Connect your coding agents, teammates and cloud clients across machines.</p></div>
       <div class="overview" aria-label="Switchboard overview">
-        ${stat('wss://crosswire.sh', 'Private relay')}${stat('NIP-44 v2', 'Payload encryption')}
-        ${stat('3 roles', 'Room access')}${stat('7 clients', 'Agent jacks')}
+        ${stat('wss://crosswire.sh', 'Private relay')}${stat('End-to-end encrypted', 'Room messages')}
+        ${stat('3 roles', 'Room access')}${stat(Object.keys(HARNESSES).length, 'Supported agents')}
       </div></section>
       ${quickstart()}
       <section class="gate" id="access" aria-label="Room access"><div>${S.mode === 'bridge' ? bridgeEntry() : inviteEntry()}</div>
@@ -3312,7 +3098,7 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
         <p class="muted">Redeem a single-use invite as <strong>${st.active_persona}</strong>. The bridge saves the campaign to <code>${st.trust_file}</code> and keeps the signing key on this workstation.</p>
         ${tok ? inviteSummary(tok) : ''}
         <form class="stack" data-form="bridge-join">
-          <label>Invite token or join link<input name="token" data-invite-input value="${tok}" placeholder="nm1_… or https://crosswire.sh/join/#nm1_…" autocomplete="off" required spellcheck="false"></label>
+          <label>Have an invite link?<input name="token" data-invite-input value="${tok}" placeholder="Paste your invite link or code" autocomplete="off" required spellcheck="false"></label>
           <label>Handle (optional)<input name="member" placeholder="e.g. alice" autocomplete="nickname"></label>
           <button class="btn primary" ${S.signingIn ? 'disabled' : ''}>Redeem Invite &amp; Sign In →</button>
         </form>
@@ -3337,7 +3123,7 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
             <button class="btn" type="button" data-act="nip07" ${window.nostr && !S.signingIn ? '' : 'disabled'}>Use NIP-07 extension</button></div>
           </form></details>
         <form data-form="redeem" data-keep="redeem" class="redeem-form">
-          <label>Invite token or join link<input name="token" data-invite-input value="${S.link.join || ''}" placeholder="nm1_… or https://crosswire.sh/join/#nm1_…" autocomplete="off" required spellcheck="false"></label>
+          <label>Have an invite link?<input name="token" data-invite-input value="${S.link.join || ''}" placeholder="Paste your invite link or code" autocomplete="off" required spellcheck="false"></label>
           <label>Handle (optional)<input name="handle" placeholder="e.g. alice" autocomplete="nickname"></label>
           <button class="btn primary" ${S.signingIn ? 'disabled' : ''}>Open room →</button>
           <details class="key-choice"><summary>Use an existing key for this invite</summary>
@@ -3357,7 +3143,7 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
     return html`<dl class="kv"><dt>relay</dt><dd>${inv.trust.relay}</dd><dt>campaign</dt><dd>${inv.trust.campaign}</dd>
       ${topic ? html`<dt>topic</dt><dd>${topic}${S.link.role ? html` · invited as ${roleBadge(S.link.role)} <span class="small muted">${ROLE_NOTE[S.link.role]}; the admin's grant decides</span>` : ''}</dd>` : ''}
       <dt>operators</dt><dd>${inv.trust.operator_pubkeys.map((pk) => html`<span class="chip">${short(pk)}</span> `)}</dd>
-      <dt>payloads</dt><dd>${inv.trust.campaign_key || inv.extras.epochs ? 'end-to-end encrypted (NIP-44 v2)' : inv.trust.keyring ? 'end-to-end encrypted (NIP-44 v2); this invite carries no key: the topic\'s keys reach you once an admin admits your key' : 'NOT encrypted: this campaign has no campaign_key'}</dd>
+      <dt>messages</dt><dd>${inv.trust.campaign_key || inv.extras.epochs ? 'End-to-end encrypted' : inv.trust.keyring ? 'End-to-end encrypted. You receive the room keys once an admin admits you.' : 'Unencrypted. This campaign has no shared key.'}</dd>
       ${inv.member ? html`<dt>invited as</dt><dd>${inv.member}</dd>` : ''}</dl>`;
   }
   /** An invite link opened on a console that already serves a campaign: redeemed for the
@@ -4094,13 +3880,6 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
       ($('main.chapter') || $('.chapters [aria-current="page"]') || $('#intro')).focus({ preventScroll: true });
       window.scrollTo(0, 0);
     },
-    bird() {
-      if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-      const bird = $('.bird-btn');
-      bird.classList.remove('playing');
-      void bird.offsetWidth;
-      bird.classList.add('playing');
-    },
     topology(d) {
       if (!Object.hasOwn(TOPOLOGIES, d.id)) return;
       S.topology = d.id; selectPatch('topology');
@@ -4123,7 +3902,7 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
     tab(d) { S.tab = d.tab; draw(); },
     'mail-tab'(d) { S.mailTab = d.tab; draw(); },
     reply(d) { S.replyTo = d.id || null; draw(); const t = $('#pb'); if (t) t.focus(); },
-    async 'copy-prompt'() { await acts.copy({ text: $('#agent-prompt').textContent }); acts.bird(); },
+    async 'copy-prompt'() { await acts.copy({ text: $('#agent-prompt').textContent }); },
     async copy(d) { await navigator.clipboard.writeText(d.text); toast('Copied'); },
     download(d) { const url = URL.createObjectURL(new Blob([d.text], { type: 'text/plain' })); const a = document.createElement('a'); a.href = url; a.download = d.name; a.click(); setTimeout(() => URL.revokeObjectURL(url)); },
     async blob(d) { await blobModal(d.sha); },
@@ -4328,7 +4107,7 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
     'pair-role'(el) { S.pair.role = el.value; draw(); },
     'pair-history'(el) { S.pair.history = el.value; draw(); },
   };
-  const PUBLIC = new Set(['theme', 'home', 'chapter', 'harness', 'topology', 'bird', 'specimen', 'copy', 'copy-prompt', 'dismiss', 'maywe-invite', 'link-dismiss']);
+  const PUBLIC = new Set(['theme', 'home', 'chapter', 'harness', 'topology', 'specimen', 'copy', 'copy-prompt', 'dismiss', 'maywe-invite', 'link-dismiss']);
   const ENTRY = new Set(['redeem', 'sign-in', 'nip07', 'reconnect', 'bridge-join', 'persona', 'persona-create']);
   async function run(name, fn) {
     const entry = ENTRY.has(name);
@@ -4338,9 +4117,6 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
     try { await fn(); } catch (e) { report(e, name === 'maywe-invite' ? 'Invite request' : name); }
     finally { if (entry) { S.signingIn = false; draw(); } }
   }
-  document.addEventListener('animationend', (ev) => {
-    if (ev.animationName === 'courier-hop') ev.target.closest('.bird-btn').classList.remove('playing');
-  });
   document.addEventListener('click', (ev) => {
     const el = ev.target.closest('[data-act]');
     if (!el || !acts[el.dataset.act]) return;

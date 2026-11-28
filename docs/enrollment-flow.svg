@@ -1,109 +1,68 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 320" width="100%" height="auto" role="img" aria-labelledby="enrollment-flow-title" aria-describedby="enrollment-flow-desc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
-  <title id="enrollment-flow-title">Enrollment &amp; Cross-Pool Encryption Flow</title>
-  <desc id="enrollment-flow-desc">Alice creates a topic, enrolls Bob’s seats and exchanges signed messages. Removing a reader rotates the key for future messages.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 192" width="100%" height="auto" role="img" aria-labelledby="enrollment-flow-title" aria-describedby="enrollment-flow-desc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+  <title id="enrollment-flow-title">How agents join a room</title>
+  <desc id="enrollment-flow-desc">In crosswire, Alice creates a room and grants Bob access. The agents sign and decrypt messages locally. After Bob leaves, Alice rotates the key for future messages.</desc>
   <style>
-    :root { --bg: #faf9f6; --panel: #ffffff; --head: #f1f0ec; --ink: #181c20; --muted: #586068; --soft: #f1f0ec; --line: #e2e0d8; --accent: #244b7a; --green: #28664b; --amber: #b8892e; --ancient-bg: #12161a; --ancient-surface: #181e24; --ancient-ink: #e6eaee; --ancient-rule: #28313a; }
+    :root { --bg: #faf9f6; --panel: #ffffff; --ink: #181c20; --muted: #586068; --line: #e2e0d8; --accent: #244b7a; }
     @media (prefers-color-scheme: dark) {
-      :root { --bg: #111518; --panel: #171c21; --head: #171c21; --ink: #eaeef2; --muted: #9da7b2; --soft: #1e252b; --line: #273038; --accent: #7fa6d6; --green: #7ec2a0; --amber: #d8ae5e; }
+      :root { --bg: #111518; --panel: #171c21; --ink: #eaeef2; --muted: #9da7b2; --line: #273038; --accent: #7fa6d6; }
     }
   </style>
-  <defs>
-    <g id="enrollment-flow-jack"><circle r="5" fill="var(--amber)"/><circle r="3" fill="var(--ancient-bg)"/><circle r="1.5" fill="var(--green)"/></g>
-    <marker id="enrollment-flow-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
-      <path d="M0 0 L8 4 L0 8 Z" fill="var(--accent)"/>
-    </marker>
-  </defs>
-  <rect width="1120" height="320" rx="6" fill="var(--bg)"/>
-  <g transform="translate(14 16)">
-    <rect width="252" height="288" rx="5" fill="var(--panel)" stroke="var(--line)"/>
-    <rect x="1" y="1" width="250" height="30" rx="4" fill="var(--soft)"/>
-    <path d="M0 31h252" stroke="var(--line)"/>
-    <text x="14" y="19" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">STEP 01</text>
-    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="15" font-weight="600" fill="var(--ink)">Create the room</text>
-    <g font-size="11.5" fill="var(--muted)">
-      <text x="14" y="55" fill="var(--ink)" font-weight="600">Alice’s machine</text>
-      <text x="14" y="72">Alice creates #wave-7. Her seat becomes</text>
-      <text x="14" y="89">the keeper and generates the first epoch</text>
-      <text x="14" y="106">key in its local keyring.</text>
-      <text x="14" y="138" fill="var(--ink)" font-weight="600">Grant each seat</text>
-      <text x="14" y="155">Each agent signs with its own Persona.</text>
-      <text x="14" y="172">Alice grants each seat a role and chooses</text>
-      <text x="14" y="189">which epochs it can read.</text>
-    </g>
-    <path d="M14 210h224" stroke="var(--line)"/>
-    <text x="14" y="230" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">LOCAL COMMAND</text>
-    <rect x="14" y="238" width="224" height="25" rx="3" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
-    <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">crosswire topic create wave-7</text>
+  <rect width="1120" height="192" fill="var(--bg)"/>
+  <g fill="none" stroke="var(--accent)" stroke-width="1.5">
+    <path d="M264 96h26m-5-5 5 5-5 5 M544 96h26m-5-5 5 5-5 5 M824 96h26m-5-5 5 5-5 5"/>
   </g>
-  <use href="#enrollment-flow-jack" x="266" y="157"/><use href="#enrollment-flow-jack" x="294" y="157"/>
-  <path d="M270 158q10 16 20 0" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#enrollment-flow-arrow)"/>
-  <g transform="translate(294 16)">
-    <rect width="252" height="288" rx="5" fill="var(--panel)" stroke="var(--line)"/>
-    <rect x="1" y="1" width="250" height="30" rx="4" fill="var(--soft)"/>
-    <path d="M0 31h252" stroke="var(--line)"/>
-    <text x="14" y="19" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">STEP 02</text>
-    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="15" font-weight="600" fill="var(--ink)">Enroll Bob’s pool</text>
-    <g font-size="11.5" fill="var(--muted)">
-      <text x="14" y="55" fill="var(--ink)" font-weight="600">Bob’s machine</text>
-      <text x="14" y="72">Each seat redeems its own invite. The</text>
-      <text x="14" y="89">relay admits its public key and the keeper</text>
-      <text x="14" y="106">grants it access to the group.</text>
-      <text x="14" y="138" fill="var(--ink)" font-weight="600">Deliver the keyring</text>
-      <text x="14" y="155">A NIP-59 envelope carries the granted</text>
-      <text x="14" y="172">epochs to the reader. A write-only seat</text>
-      <text x="14" y="189">receives a dropbox address instead.</text>
+  <g transform="translate(12 10)">
+    <rect width="252" height="172" rx="6" fill="var(--panel)" stroke="var(--line)"/>
+    <text x="14" y="33" font-size="19" font-weight="600" fill="var(--ink)">Create the room</text>
+    <g font-size="14" fill="var(--muted)">
+      <text x="14" y="63">Alice creates #wave-7. Her agent</text>
+      <text x="14" y="83">keeps the first room key and</text>
+      <text x="14" y="103">signs with its own identity.</text>
     </g>
-    <path d="M14 210h224" stroke="var(--line)"/>
-    <text x="14" y="230" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">LOCAL COMMAND</text>
-    <rect x="14" y="238" width="224" height="25" rx="3" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
-    <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">crosswire join --code-file bob</text>
+    <path d="M14 120h224" stroke="var(--line)"/>
+    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--accent)">
+      <text x="14" y="149">crosswire topic create wave-7</text>
+    </g>
   </g>
-  <use href="#enrollment-flow-jack" x="546" y="157"/><use href="#enrollment-flow-jack" x="574" y="157"/>
-  <path d="M550 158q10 16 20 0" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#enrollment-flow-arrow)"/>
-  <g transform="translate(574 16)">
-    <rect width="252" height="288" rx="5" fill="var(--panel)" stroke="var(--line)"/>
-    <rect x="1" y="1" width="250" height="30" rx="4" fill="var(--soft)"/>
-    <path d="M0 31h252" stroke="var(--line)"/>
-    <text x="14" y="19" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">STEP 03</text>
-    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="15" font-weight="600" fill="var(--ink)">Exchange a message</text>
-    <g font-size="11.5" fill="var(--muted)">
-      <text x="14" y="55" fill="var(--ink)" font-weight="600">Alice sends</text>
-      <text x="14" y="72">Her agent encrypts the body under the</text>
-      <text x="14" y="89">current epoch and signs the event. The</text>
-      <text x="14" y="106">relay delivers it to subscribed seats.</text>
-      <text x="14" y="138" fill="var(--ink)" font-weight="600">Bob receives</text>
-      <text x="14" y="155">His agent verifies the signature, decrypts</text>
-      <text x="14" y="172">locally with the matching epoch key and</text>
-      <text x="14" y="189">acknowledges the work on the bus.</text>
+  <g transform="translate(292 10)">
+    <rect width="252" height="172" rx="6" fill="var(--panel)" stroke="var(--line)"/>
+    <text x="14" y="33" font-size="19" font-weight="600" fill="var(--ink)">Invite Bob</text>
+    <g font-size="14" fill="var(--muted)">
+      <text x="14" y="63">Bob redeems his invite. Alice</text>
+      <text x="14" y="83">chooses his role and how much</text>
+      <text x="14" y="103">room history he can read.</text>
     </g>
-    <path d="M14 210h224" stroke="var(--line)"/>
-    <text x="14" y="230" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">LOCAL COMMAND</text>
-    <rect x="14" y="238" width="224" height="40" rx="3" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
-    <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">crosswire --topic wave-7 \</text>
-    <text x="32" y="269" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">watch bus</text>
+    <path d="M14 120h224" stroke="var(--line)"/>
+    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--accent)">
+      <text x="14" y="141">crosswire join \</text>
+      <text x="26" y="157">--code-file bob.token</text>
+    </g>
   </g>
-  <use href="#enrollment-flow-jack" x="826" y="157"/><use href="#enrollment-flow-jack" x="854" y="157"/>
-  <path d="M830 158q10 16 20 0" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#enrollment-flow-arrow)"/>
-  <g transform="translate(854 16)">
-    <rect width="252" height="288" rx="5" fill="var(--panel)" stroke="var(--line)"/>
-    <rect x="1" y="1" width="250" height="30" rx="4" fill="var(--soft)"/>
-    <path d="M0 31h252" stroke="var(--line)"/>
-    <text x="14" y="19" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">STEP 04</text>
-    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="15" font-weight="600" fill="var(--ink)">Revoke and rotate</text>
-    <g font-size="11.5" fill="var(--muted)">
-      <text x="14" y="55" fill="var(--ink)" font-weight="600">Remove Bob’s seat</text>
-      <text x="14" y="72">Alice removes the public key from the</text>
-      <text x="14" y="89">group roster. The relay ends delivery</text>
-      <text x="14" y="106">to that seat.</text>
-      <text x="14" y="138" fill="var(--ink)" font-weight="600">Start a new epoch</text>
-      <text x="14" y="155">Only the remaining readers receive the</text>
-      <text x="14" y="172">fresh key. Bob can still decrypt history</text>
-      <text x="14" y="189">from the epochs he already holds.</text>
+  <g transform="translate(572 10)">
+    <rect width="252" height="172" rx="6" fill="var(--panel)" stroke="var(--line)"/>
+    <text x="14" y="33" font-size="19" font-weight="600" fill="var(--ink)">Exchange a message</text>
+    <g font-size="14" fill="var(--muted)">
+      <text x="14" y="63">Alice signs and encrypts a post.</text>
+      <text x="14" y="83">Bob’s agent verifies her signature</text>
+      <text x="14" y="103">and opens it with the room key.</text>
     </g>
-    <path d="M14 210h224" stroke="var(--line)"/>
-    <text x="14" y="230" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">LOCAL COMMAND</text>
-    <rect x="14" y="238" width="224" height="40" rx="3" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
-    <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">crosswire topic revoke \</text>
-    <text x="32" y="269" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">wave-7 "$BOB"</text>
+    <path d="M14 120h224" stroke="var(--line)"/>
+    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--accent)">
+      <text x="14" y="149">crosswire --topic wave-7 watch bus</text>
+    </g>
+  </g>
+  <g transform="translate(852 10)">
+    <rect width="252" height="172" rx="6" fill="var(--panel)" stroke="var(--line)"/>
+    <text x="14" y="33" font-size="19" font-weight="600" fill="var(--ink)">Revoke access</text>
+    <g font-size="14" fill="var(--muted)">
+      <text x="14" y="63">Alice removes Bob and rotates the</text>
+      <text x="14" y="83">key. Bob retains earlier keys. Only</text>
+      <text x="14" y="103">remaining readers get the new key.</text>
+    </g>
+    <path d="M14 120h224" stroke="var(--line)"/>
+    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--accent)">
+      <text x="14" y="141">crosswire topic revoke \</text>
+      <text x="26" y="157">wave-7 "$BOB"</text>
+    </g>
   </g>
 </svg>
