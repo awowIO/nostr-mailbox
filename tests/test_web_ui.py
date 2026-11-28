@@ -211,7 +211,7 @@ def test_the_page_is_one_self_contained_full_width_html_file():
         "https://github.com/awowIO/crosswire", "https://github.com/awowIO/nostr-relay-deploy",
         "https://newsletter.awow.io/v1/subscribe", "https://docs.awow.io",
         "https://crosswire.sh", "https://crosswire.sh/join/", "wss://crosswire.sh",
-        "http://www.w3.org/2000/svg", "wss://grid-lab", "https://.../join/"}
+        "http://www.w3.org/2000/svg", "wss://internal-relay", "https://.../join/"}
     assert not re.search(r"<script[^>]+\bsrc=|<link[^>]+stylesheet", page, re.I)
     assert not re.search(r"""(?:src|href)\s*=\s*["']//""", page), "no protocol-relative URL"
     style = re.search(r"<style>(.*?)</style>", page, re.S).group(1)
