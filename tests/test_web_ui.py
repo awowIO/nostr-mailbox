@@ -201,9 +201,17 @@ def test_the_page_is_one_self_contained_full_width_html_file():
     for needed in ('<meta charset="utf-8">',
                    '<meta name="viewport" content="width=device-width, initial-scale=1">',
                    "<title>nostr-mailbox · Web Console</title>", "<body>", "</html>",
-                   '<meta name="nm-bridge" content="">'):
+                   '<meta name="nm-bridge" content="">',
+                   'href="https://github.com/awowIO/crosswire"',
+                   'href="https://maywe.email"',
+                   'https://newsletter.awow.io/v1/subscribe'):
         assert needed in page, needed
-    assert re.findall(r"https?://|wss?://[a-z0-9]", page, re.I) == [], "no external URL"
+    # The only absolute URLs: the repository, MayWe (its site, its subscribe endpoint and
+    # the two origins its publishable keys belong to), and crosswire.sh's own addresses.
+    assert set(re.findall(r"(?:https?|wss?)://[a-z0-9./_-]+", page, re.I)) == {
+        "https://github.com/awowIO/crosswire", "https://maywe.email",
+        "https://newsletter.awow.io/v1/subscribe", "https://docs.awow.io",
+        "https://crosswire.sh", "https://crosswire.sh/join/", "wss://crosswire.sh"}
     assert not re.search(r"<script[^>]+\bsrc=|<link[^>]+stylesheet", page, re.I)
     assert not re.search(r"""(?:src|href)\s*=\s*["']//""", page), "no protocol-relative URL"
     style = re.search(r"<style>(.*?)</style>", page, re.S).group(1)
@@ -235,6 +243,43 @@ def test_the_page_is_one_self_contained_full_width_html_file():
     assert not re.search(r"""\son(?:click|load|error|submit|change|input|mouse\w*|key\w*)=["']""",
                          page, re.I), "no inline handlers: the bridge's CSP admits two scripts"
     assert "javascript:" not in page.lower()
+
+
+def test_the_page_links_its_repository_and_asks_for_invites_on_maywe():
+    """The header and the footer link the repository, the footer MayWe. Onboarding is two
+    columns: 01 for those already invited (a key, then an nm1_ token or join link), 02 a
+    waitlist request to MayWe's public subscribe with the publishable key of the origin
+    it runs on, a honeypot, an optional use case in `details`, and a confirmation banner.
+
+    What this cannot show: that MayWe takes the request. No test here posts to MayWe,
+    as each request mails a real confirmation; the field names are read off its
+    subscribe route (newsletter app/routes/subscribe.py)."""
+    page = PAGE.read_text()
+    repo = ('<a class="btn tiny ghost" href="https://github.com/awowIO/crosswire" '
+            'target="_blank" rel="noopener noreferrer"')
+    header = re.search(r'<header class="top page">.*?</header>', page, re.S).group(0)
+    assert repo in header and "GitHub · awowIO/crosswire ↗</a>" in header
+    footer = re.search(r'<footer class="foot page">.*?</footer>', page, re.S).group(0)
+    assert '<a href="https://github.com/awowIO/crosswire"' in footer
+    assert '<a href="https://maywe.email"' in footer
+    assert "01 · Already invited" in page and "02 · Request an invite" in page
+    assert page.count('placeholder="nm1_… or https://crosswire.sh/join/#nm1_…"') == 2
+    card = re.search(r"function mayweInviteCard\(\) \{.*?\n  \}\n", page, re.S).group(0)
+    for needed in ('<form data-form="maywe-invite"', 'name="email" type="email" required',
+                   'name="note" maxlength="500"', 'name="website" tabindex="-1"',
+                   'role="status"', "Request Invite →"):
+        assert needed in card, needed
+    keys = re.search(r"const MAYWE_KEYS = Object\.freeze\(\{(.*?)\}\);", page, re.S).group(1)
+    assert re.findall(r"'([^']+)': '([^']+)'", keys) == [
+        ("https://crosswire.sh", "pk_G-LEI15eUfTnYhGyV2hMHvRsxMsJwkM4r-wgj3jS2jI"),
+        ("https://docs.awow.io", "pk_6ZNZP0jBeKTpu22jfUQfQ6Dhcu6faq7iSzeEJsMMy78")]
+    send = re.search(r"async 'maywe-invite'\(f, el\) \{.*?\n    \},\n", page, re.S).group(0)
+    for needed in ("new URLSearchParams({ key, email, source: 'crosswire:invite-request', "
+                   "website: f.website || '' })",
+                   "body.set('details', JSON.stringify({ use_case: note }))",
+                   "fetch(MAYWE_SUBSCRIBE_URL, { method: 'POST', body })",
+                   "S.mayweSent = email"):
+        assert needed in send, needed
 
 
 @needs_node
@@ -841,6 +886,37 @@ def test_the_bridge_mints_an_invite_the_browser_engine_redeems(node, workstation
     assert joined["joined"] == "info: welcome" and _pub(NEWCOMER_SK) in relay.members
 
 
+@needs_node
+def test_a_member_mints_an_invite_in_the_browser_that_the_cli_reads_and_a_newcomer_redeems(
+        node, tmp_path):
+    """Standalone, any admitted member mints a campaign invite in the tab: one NIP-43
+    request (kind 28935) on its own socket, wrapped in the very nm1_ token and /join/
+    link the CLI writes for that campaign and code. A newcomer's engine redeems it once.
+    A relay with memberClaims off answers with nothing, and the tab says why."""
+    key = os.urandom(32).hex()
+    with LoopbackRelay(member_claims=True) as claims:
+        claims.add_member(_pub(FRIEND_SK))
+        trust = {"schema": "cf.transport/1", "relay": claims.url, "campaign": "camp",
+                 "operator_pubkeys": [_npub(_pub(PEER_SK))], "campaign_key": key}
+        got = _page_engine(tmp_path, MINT_IN_TAB, {
+            "trust": trust, "secret": FRIEND_SK.hex(), "member": "roland", "timeout_s": WAIT})
+        code = got["invite"]["code"]
+        assert got["invite"]["issued_by"] == claims.pubkey and "28935" in got["invite"]["via"]
+        declared = Trust.from_mapping(trust)
+        assert got["token"] == cli._encode_invite_token(declared, code, member="roland")
+        assert got["join_url"] == cli._join_url(declared, got["token"])
+        assert cli._decode_invite_token(got["token"])[:3] == (code, trust, "roland")
+        joined = node({"scenario": "session", "secret": NEWCOMER_SK.hex(), "trust": trust,
+                       "timeout_s": WAIT, "join": code, "topics": []})
+        assert joined["joined"] == "info: welcome" and _pub(NEWCOMER_SK) in claims.members
+    with LoopbackRelay() as no_claims:
+        no_claims.add_member(_pub(FRIEND_SK))
+        refused = _page_engine(tmp_path, MINT_IN_TAB, {
+            "trust": {**trust, "relay": no_claims.url}, "secret": FRIEND_SK.hex(),
+            "member": None, "timeout_s": WAIT})
+        assert "memberClaims is off" in refused["error"]
+
+
 def test_the_bridge_joins_a_fresh_workstation_from_a_token(tmp_path, relay):
     """A workstation with no campaign joins from the page: the key is created 0600, the
     nostr.toml written, the invite redeemed, and the bridge starts serving that campaign.
@@ -910,6 +986,43 @@ READ_LINKS = """(NM, input) => input.map((frag) => {
         if (!link.join) return link;
         return { ...link, campaign: NM.decodeInviteToken(link.join).trust.campaign }; }
   catch (e) { return { error: e.message }; } })"""
+
+
+MINT_IN_TAB = """async (NM, c) => {
+  const trust = NM.makeTrust(c.trust);
+  const relay = new NM.RelayClient(trust.relay, new NM.KeySigner(NM.unhex(c.secret)),
+                                   { authUrl: trust.relay, timeoutS: c.timeout_s });
+  await relay.connect();
+  try { const invite = await relay.requestInvite();
+        const token = NM.encodeInviteToken(trust, invite.code, c.member);
+        return { invite, token, join_url: NM.joinUrl(trust, token) }; }
+  catch (e) { if (!(e instanceof NM.NMError)) throw e; return { error: e.message }; } }"""
+
+READ_INPUT = """(NM, input) => input.map((typed) => {
+  try { return NM.readInviteInput(typed); } catch (e) { return { error: e.message }; } })"""
+
+
+@needs_node
+def test_the_invite_box_takes_a_bare_token_or_a_join_link(tmp_path, workstation):
+    """The console's invite box (the `use-token` and `bridge-join` actions) takes a bare
+    nm1_ token or a full join link, and reads from a link the same token the CLI's
+    `join <link>` does, with the link's topic, role and ticket. A link with no token, or
+    a token that does not decode, is refused there and then."""
+    token = cli._encode_invite_token(Trust.load(workstation.home / "nostr.toml"),
+                                     "bearer-code", member="roland")
+    links = [f"https://crosswire.sh/join/#{token}",
+             f"https://crosswire.sh/join/#{token}&topic=retry&role=read-only&ticket=t-1",
+             f"http://127.0.0.1:7890/#join={token}&topic=retry"]
+    got = _page_engine(tmp_path, READ_INPUT, [
+        token, f"  {token}\n", *links, "https://crosswire.sh/join/", "nm1_bm90LWpzb24",
+        "#invite=relay-code"])
+    assert got[:5] == [
+        {"join": token}, {"join": token}, {"join": token},
+        {"join": token, "topic": "retry", "role": "read-only", "ticket": "t-1"},
+        {"join": token, "topic": "retry"}]
+    assert [cli._token_from_link(link) for link in links] == [token] * 3
+    assert "nm1_" in got[5]["error"] and "invalid nm1_ invite token" in got[6]["error"]
+    assert "nm1_" in got[7]["error"]
 
 
 @needs_node

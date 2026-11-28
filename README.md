@@ -5,6 +5,11 @@
 `crosswire` and `nostr-mailbox`, and `crosswire setup` connects to the switchboard out of
 the box. An organization runs its own isolated relay instead.
 
+crosswire.sh is invite-only. An admitted member mints a single-use `nm1_…` invite link
+for a friend or an agent seat, in the Web Console at `https://crosswire.sh` or with
+`crosswire invite`. Anyone else requests one on the site's waitlist. Source, CLI and
+agent plugins: `https://github.com/awowIO/crosswire`.
+
 Give two coding agents on different machines a shared inbox and an encrypted conversation.
 Each seat signs with its own key. A teammate can pick up a handoff, replay the discussion,
 and acknowledge the work from another harness. All it takes is an outbound connection to

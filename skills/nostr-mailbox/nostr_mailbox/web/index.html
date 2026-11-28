@@ -255,7 +255,7 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
     PROMOTION: 8890, MESSAGE: 8891, KEYRING: 8892,
     PUT_USER: 9000, REMOVE_USER: 9001, DELETE_EVENT: 9005, CREATE_GROUP: 9007,
     JOIN_REQUEST: 9021,
-    AUTH: 22242, BLOSSOM_AUTH: 24242, HEARTBEAT: 28880, INVITE_CLAIM: 28934,
+    AUTH: 22242, BLOSSOM_AUTH: 24242, HEARTBEAT: 28880, INVITE_CLAIM: 28934, INVITE_REQUEST: 28935,
     GOAL_HEAD: 38880, CONDITION_HEAD: 38881, ROUTE_HEAD: 38882, CHECKPOINT_HEAD: 38883,
     EPOCH_KEYS: 8892,
   });
@@ -1012,6 +1012,19 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
       this._send(['EVENT', claim]);
       return this._awaitOk(claim.id, 'the invite claim');
     }
+    /** relay.RelayClient.request_invite: one `REQ {"kinds": [28935], "limit": 1}`, which a
+        relay with `memberClaims` answers for any member with one relay-signed event that
+        carries exactly one `["claim", <code>]`. One REQ and never paged, as each one mints
+        a code. How many uses the code has and how long it lives is the relay's policy;
+        the event does not say. */
+    async requestInvite() {
+      const events = await this.query({ kinds: [KIND.INVITE_REQUEST], limit: 1 });
+      if (!events.length) throw new NMError(`${this.url} answered the NIP-43 invite request (kind ${KIND.INVITE_REQUEST}) with nothing: it does not mint invites over the WebSocket for this key (memberClaims is off, or it does not implement NIP-43 invite requests). An operator mints one through the relay's admin CLI instead (nostr-mailbox invite --kubectl, --compose or --exec)`);
+      if (events.length !== 1) throw new NMError(`${this.url} answered one invite request with ${events.length} events`, 'protocol');
+      const codes = tagValues(events[0], 'claim');
+      if (codes.length !== 1 || !codes[0]) throw new NMError(`${this.url} sent a kind ${KIND.INVITE_REQUEST} event without exactly one claim tag`, 'protocol');
+      return { code: codes[0], issued_by: events[0].pubkey, created_at: events[0].created_at, via: `websocket (NIP-43 kind ${KIND.INVITE_REQUEST})` };
+    }
   }
   function verifyShapeCopy(raw) {
     return { id: raw.id, pubkey: raw.pubkey, created_at: raw.created_at, kind: raw.kind, tags: raw.tags, content: raw.content, sig: raw.sig };
@@ -1071,6 +1084,37 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
     for (const k of Object.keys(bundle)) if (!['schema', 'relay', 'campaign', 'operator_pubkeys', 'lead_pubkeys', 'reviewer_pubkeys', 'group', 'blossom', 'relay_auth_url', 'allow_cleartext', 'campaign_key', 'keyring'].includes(k)) { extras[k] = bundle[k]; delete bundle[k]; }
     if (bundle.schema !== TRUST_SCHEMA) throw new NMError(`nm1_ invite token: schema must be ${TRUST_SCHEMA}`);
     return { code, member: typeof member === 'string' && member ? member : null, bundle, extras, trust: makeTrust(bundle) };
+  }
+  /** cli._encode_invite_token over cli._mapping: the keys a nostr.toml declares (rosters
+      as sorted npubs, unset keys left out), the relay's invite `code` and the member's
+      name, as sorted compact JSON in unpadded base64url. The same bytes the CLI writes
+      for the same campaign, code and ASCII name. A bearer secret. */
+  function encodeInviteToken(trust, code, member) {
+    if (typeof code !== 'string' || !code) throw new NMError('an nm1_ invite token needs the relay\'s invite code');
+    const bundle = { schema: TRUST_SCHEMA, relay: trust.relay, campaign: trust.campaign, operator_pubkeys: trust.operator_pubkeys.map(npub) };
+    for (const roster of ['lead_pubkeys', 'reviewer_pubkeys']) if (trust[roster].length) bundle[roster] = trust[roster].map(npub);
+    for (const k of ['group', 'blossom', 'relay_auth_url', 'campaign_key', 'keyring']) if (trust[k]) bundle[k] = trust[k];
+    if (trust.allow_cleartext) bundle.allow_cleartext = true;
+    bundle.code = code;
+    if (member) bundle.member = member;
+    return 'nm1_' + b64url(utf8(sortedJson(bundle)));
+  }
+  /** cli._join_url: the relay's public origin (wss→https, ws→http) and /join/, with the
+      token in the fragment, which a browser never sends. */
+  function joinUrl(trust, token) {
+    const at = new URL(trust.relay_auth_url || trust.relay);
+    return `${at.protocol === 'wss:' ? 'https' : 'http'}://${at.host}/join/#${token}`;
+  }
+  /** What the console's invite box takes: a bare `nm1_…` token, or a join link that
+      carries one in its fragment (`https://crosswire.sh/join/#nm1_…`, `…/#join=nm1_…&topic=…`),
+      read by parseLink, so a link's topic, role and ticket come along. The token, not
+      the link's host, names the relay joined, and it must decode. */
+  function readInviteInput(input) {
+    const raw = String(input || '').trim(), hash = raw.indexOf('#');
+    const link = parseLink(hash < 0 ? raw : raw.slice(hash + 1));
+    if (!link.join) throw new NMError('paste an nm1_… invite token, or a join link that carries one after its # (…/join/#nm1_…)');
+    decodeInviteToken(link.join);
+    return link;
   }
   /** What an invite link carries in its fragment: `#nm1_…&topic=…&role=…&ticket=…` (the
       token first, as `/join/#nm1_…` links have it), `#join=nm1_…&…`, `#invite=<code>`,
@@ -2044,7 +2088,7 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
     calcPaddedLen, pad, unpad, conversationKey, campaignConversationKey, nip44Encrypt, nip44Decrypt, nip44EncryptBytes, nip44DecryptBytes,
     serializeEvent, eventId, verifyEvent, signWithSecret, tagValues, firstTag, wireBytes, matches, order, supersedes,
     KeySigner, Nip07Signer, BridgeSigner, bridgeHeaders, acceptSigned, RelayClient,
-    makeTrust, decodeInviteToken, parseLink, trustToml, contentKey, pyDumps, sortedJson,
+    makeTrust, decodeInviteToken, encodeInviteToken, joinUrl, readInviteInput, parseLink, trustToml, contentKey, pyDumps, sortedJson,
     rootScope, topicScope, isMember, route, address, scopeTags, keyTag, encodeRecord, decodeRecord, buildView, triage,
     renderHandoff, conditionHandoff, conditionAfter, resolveDirectives, renderOperatorMd, isoStamp,
     giftWrap, unwrapGift, keyringContent, parseKeyring,
@@ -2077,8 +2121,18 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
     keyrings: [], scopes: new Map(), views: new Map(), access: new Map(), primary: null,
     mailbox: null, profiles: new Map(), selected: null, tab: 'bus', busTopic: 'bus', kindFilter: '',
     replyTo: null, errors: [], toasts: [], modal: null, live: [], refreshing: false, dirty: false,
-    claim: null, rejected: [], invites: { topics: {} }, gen: 0,
+    claim: null, rejected: [], invites: { topics: {} }, mayweSent: null, gen: 0,
   };
+  /** The crosswire.sh invite waitlist runs on MayWe (maywe.email). Its public
+      /v1/subscribe takes a publishable key only from the one origin the key was issued
+      for, so the form is drawn on those origins alone; anywhere else (a workstation's
+      `nostr-mailbox ui`, an organization's own relay) it could only be refused. */
+  const MAYWE_SUBSCRIBE_URL = 'https://newsletter.awow.io/v1/subscribe';
+  const MAYWE_KEYS = Object.freeze({
+    'https://crosswire.sh': 'pk_G-LEI15eUfTnYhGyV2hMHvRsxMsJwkM4r-wgj3jS2jI',
+    'https://docs.awow.io': 'pk_6ZNZP0jBeKTpu22jfUQfQ6Dhcu6faq7iSzeEJsMMy78',
+  });
+  const mayweKey = () => MAYWE_KEYS[location.origin] || null;
   function report(err, context) {
     console.error(context || 'nostr-mailbox console', err);
     S.errors.push({ id: NM.hex(NM.randomBytes(4)), text: `${context ? context + ': ' : ''}${err && err.message ? err.message : err}` });
@@ -2367,6 +2421,7 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
     return html`<header class="top page">
       <div class="brand"><h1 class="sr">crosswire.sh · nostr-mailbox Web Console</h1><a class="wordmark" href="#" data-act="home"><span class="mark" aria-hidden="true">⨉</span> crosswire.sh</a><span class="tagline">encrypted agent-to-agent switchboard</span></div>
       <div class="header-right">
+        <a class="btn tiny ghost" href="https://github.com/awowIO/crosswire" target="_blank" rel="noopener noreferrer" title="Source code, CLI & agent plugins on GitHub">GitHub · awowIO/crosswire ↗</a>
         <span class="badge mode ${S.mode === 'bridge' ? 'teal' : ''}">${S.mode === 'bridge' ? 'local bridge · key stays in its 0600 file' : 'standalone · ' + (S.signer ? S.signer.type + ' key' : 'no key yet')}</span>
         ${S.trust ? html`<span class="pill" title="${S.trust.relay}"><span class="dot ${S.status}"></span>${S.status} · ${new URL(S.trust.relay).host}</span>` : ''}
         ${S.trust && S.status !== 'ready' && S.status !== 'connecting' ? html`<button class="btn tiny" data-act="reconnect">Reconnect</button>` : ''}
@@ -2390,12 +2445,37 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
       ${stat(S.seen || 0, 'seats seen')}
       ${scope && scope.current ? stat(`E${scope.current}`, `NIP-44 v2 · ${scope.kind === 'topic' ? '#' + scope.group : scope.name}`) : stat('—', 'cleartext: no epoch key', 'warning')}
       ${stat(held, 'held at the human gate', held ? 'warning' : '')}
-      ${S.mode === 'bridge' ? stat('/mcp', 'MCP server live · magic URL · OAuth 2.1', 'good') : stat('off', 'MCP: the relay page serves none')}
+      ${S.mode === 'bridge' ? stat('/mcp', 'MCP server live · magic URL · OAuth 2.1', 'good') : stat('NIP-43', 'self-service member invites')}
     </section>`;
   }
   function footer() {
-    return html`<footer class="foot page"><span><b>crosswire.sh</b> · nostr-mailbox${S.mode === 'bridge' ? ' ' + S.bridge.state.version : ''} · CLI <code>crosswire</code> or <code>nostr-mailbox</code></span>
+    return html`<footer class="foot page"><span><b>crosswire.sh</b> · <a href="https://github.com/awowIO/crosswire" target="_blank" rel="noopener noreferrer">github.com/awowIO/crosswire ↗</a>${S.mode === 'bridge' ? ' ' + S.bridge.state.version : ''} · CLI <code>crosswire</code> or <code>nostr-mailbox</code> · Waitlist via <a href="https://maywe.email" target="_blank" rel="noopener noreferrer">maywe.email</a></span>
       <span>NIP-42 auth · NIP-43 invites · NIP-29 rooms · NIP-44 v2 payloads · every id and Schnorr signature verified in this tab</span></footer>`;
+  }
+
+  function mayweInviteCard() {
+    const repo = html`<p class="small muted" style="margin-top:8px">Open source: <a href="https://github.com/awowIO/crosswire" target="_blank" rel="noopener noreferrer">github.com/awowIO/crosswire ↗</a>. An organization runs its own relay from <code>awowIO/nostr-relay-deploy</code>.</p>`;
+    if (!mayweKey()) {
+      return html`<section class="card" data-keep="maywe">
+        <div class="meta"><span class="badge teal">02 · Request an invite</span></div>
+        <h2 style="margin-top:6px">No invite yet?</h2>
+        <p class="muted">Ask a member of this relay for a single-use <code>nm1_</code> link, minted in their console or with <code>crosswire invite</code>. For the public switchboard, request one on <strong>https://crosswire.sh</strong>, where the waitlist form runs on MayWe (maywe.email).</p>
+        ${repo}</section>`;
+    }
+    return html`<section class="card" data-keep="maywe">
+      <div class="meta"><span class="badge teal">02 · Request an invite</span><span class="badge">MayWe · maywe.email</span></div>
+      <h2 style="margin-top:6px">Join the crosswire.sh invite waitlist</h2>
+      <p class="muted"><strong>crosswire.sh</strong> is invite-only. Admitted members mint single-use <code>nm1_</code> invite links for friends and agent seats. Leave your email: <strong>MayWe</strong> (<a href="https://maywe.email" target="_blank" rel="noopener noreferrer">maywe.email</a>) sends a one-click confirmation, and your <code>nm1_</code> admission link follows by mail.</p>
+      ${S.mayweSent ? html`<div class="banner info" role="status"><span class="grow">✓ Request received for <strong>${S.mayweSent}</strong>. MayWe sent a confirmation link to that inbox; once you confirm it, you are on the crosswire.sh invite list.</span></div>` : html`
+      <form data-form="maywe-invite" class="stack">
+        <div class="row">
+          <div><label for="mw-email">Email address</label><input id="mw-email" name="email" type="email" required maxlength="255" placeholder="you@domain.com" autocomplete="email"></div>
+          <div><label for="mw-note">Agents / use case (optional)</label><input id="mw-note" name="note" maxlength="500" placeholder="e.g. Claude Code + ChatGPT across 2 machines"></div>
+          <input type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
+          <div class="fit"><button class="btn primary" type="submit">Request Invite →</button></div>
+        </div>
+      </form>`}
+      ${repo}</section>`;
   }
 
   // -------------------------------------------------------------- onboarding
@@ -2405,13 +2485,14 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
       const st = S.bridge.state;
       if (!st.trust) {
         const tok = S.link.join || '';
-        cards.push(html`<section class="card hero" data-keep="join"><h2>${S.link.topic ? 'Join the campaign & open the topic' : 'Join a campaign from this workstation'}</h2>
-          <p class="muted">No campaign at <code>${st.trust_file}</code> yet. ${tok ? 'The invite from your link is filled in below; check what it joins, then claim it.' : html`Paste the <code>nm1_…</code> token you were sent.`} Persona <strong>${st.active_persona}</strong> joins: its key is created (mode 0600) if it has none, <code>nostr.toml</code> is written, and the single-use invite is redeemed (NIP-43). The key never enters this page.</p>
+        cards.push(html`<div class="grid2"><section class="card hero" data-keep="join"><div class="meta"><span class="badge sage">01 · Already invited</span><span class="badge">NIP-43 single-use nm1_</span></div>
+          <h2 style="margin-top:6px">${S.link.topic ? 'Join the campaign & open the topic' : 'Open your invite link or paste your nm1_ code'}</h2>
+          <p class="muted">No campaign at <code>${st.trust_file}</code> yet. ${tok ? 'The invite from your link is filled in below; check what it joins, then claim it.' : html`Paste the <code>nm1_…</code> token or the join link you were sent.`} Persona <strong>${st.active_persona}</strong> joins: its key is created (mode 0600) if it has none, <code>nostr.toml</code> is written, and the single-use invite is redeemed (NIP-43). The key never enters this page.</p>
           ${tok ? inviteSummary(tok) : ''}
-          <div class="row"><div><label for="jt">Invite token</label><input id="jt" name="token" value="${tok}" placeholder="nm1_…" autocomplete="off" spellcheck="false"></div>
+          <div class="row"><div><label for="jt">Invite token or join link</label><input id="jt" name="token" value="${tok}" placeholder="nm1_… or https://crosswire.sh/join/#nm1_…" autocomplete="off" spellcheck="false"></div>
           <div><label for="jm">Your name (announced on the bus)</label><input id="jm" name="member" placeholder="e.g. roland"></div>
           <div class="fit"><button class="btn primary" data-act="bridge-join">${S.link.topic ? 'Claim Invite & Open Topic' : 'Claim Invite & Join'}</button></div></div>
-          <p class="small muted">An operator sets up a campaign with <code>crosswire setup</code> (the same CLI as <code>nostr-mailbox</code>), which declares the public crosswire.sh switchboard, or with <code>nostr-mailbox setup --relay wss://… --campaign … --kubectl</code> for an organization's own relay, and then reloads this page.</p></section>`);
+          <p class="small muted">An operator sets up a campaign with <code>crosswire setup</code> (the same CLI as <code>nostr-mailbox</code>), which declares the public crosswire.sh switchboard, or with <code>nostr-mailbox setup --relay wss://… --campaign … --kubectl</code> for an organization's own relay, and then reloads this page.</p></section>${mayweInviteCard()}</div>`);
       } else if (!st.identity) {
         cards.push(html`<section class="card hero"><h2>Persona ${st.active_persona} has no key</h2><p>Create it here (mode 0600), switch to another persona below, or run <code>nostr-mailbox init --name ${st.active_persona}</code> and reload.</p>
           <div class="actions"><button class="btn primary" data-act="persona-create" data-name="${st.active_persona}">Create persona ${st.active_persona}</button></div></section>`);
@@ -2420,27 +2501,34 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
       if (st.trust && st.identity && !S.link.join) cards.unshift(html`<section class="card"><p class="muted">${S.status === 'connecting' ? 'Connecting to ' + new URL(st.trust.relay).host + ' as persona ' + st.active_persona + '…' : html`Not connected to the relay as persona <strong>${st.active_persona}</strong>. The error above says why; Reconnect is in the header. A persona that is not a member yet joins from an <code>nm1_…</code> invite link.`}</p></section>`);
       return cards;
     }
+    const leftCards = [];
     if (!S.signer) {
-      cards.push(html`<section class="card hero" data-keep="key"><h2>Your key</h2>
-        <p class="muted">Every person and every agent seat signs with a key of its own. Create one here, import an <code>nsec1…</code>, or let a NIP-07 extension hold it. A key held in this tab signs in pure JavaScript, which is not constant-time; an operator key belongs in an extension, or behind <code>nostr-mailbox ui</code> on its own machine.</p>
+      leftCards.push(html`<section class="card hero" data-keep="key"><div class="meta"><span class="badge sage">01 · Already invited</span><span class="badge">client-side secp256k1</span></div>
+        <h2 style="margin-top:6px">Step 1 · Create or connect your key</h2>
+        <p class="muted">Every person and every agent seat signs with a key of its own. Create one here in 1 click, import an <code>nsec1…</code>, or use a NIP-07 browser extension. Then paste your <code>nm1_…</code> invite code to unlock the switchboard.</p>
         <div class="row"><div><label for="kh">Handle (kind 0 profile)</label><input id="kh" name="handle" placeholder="e.g. roland" autocomplete="nickname"></div>
         <div><label for="kn">Import nsec (optional)</label><input id="kn" name="nsec" placeholder="nsec1…" type="password" autocomplete="off"></div></div>
         <label class="radio" style="margin-top:12px"><input type="checkbox" name="remember"> Remember this key on this device (localStorage). Unchecked, it lives only as long as this tab.</label>
         <div class="actions"><button class="btn primary" data-act="key-create">Create keypair (1 click)</button><button class="btn" data-act="key-import">Import nsec</button>
         ${window.nostr ? html`<button class="btn" data-act="key-nip07">Use NIP-07 extension</button>` : html`<span class="small muted">no NIP-07 extension found in this browser</span>`}</div></section>`);
     }
-    if (S.link.join) cards.push(claimCard());
-    else if (S.signer && !S.trust) {
-      const guess = location.protocol === 'https:' ? `wss://${location.host}` : '';
-      cards.push(html`<section class="card" data-keep="manual"><h2>Connect to a relay</h2>
-        <p class="muted">Paste an <code>nm1_…</code> invite token, or name the campaign by hand.</p>
-        <div class="row"><div><label for="mt">Invite token</label><input id="mt" name="token" placeholder="nm1_…" autocomplete="off" spellcheck="false"></div><div class="fit"><button class="btn primary" data-act="use-token">Open invite</button></div></div>
-        <div class="grid2" style="margin-top:14px">
+    if (S.link.join) leftCards.push(claimCard());
+    else if (!S.trust) {
+      const guess = location.protocol === 'https:' ? `wss://${location.host}` : 'wss://crosswire.sh';
+      leftCards.push(html`<section class="card" data-keep="manual"><div class="meta">${S.signer ? html`<span class="badge sage">01 · Already invited</span>` : ''}<span class="badge">nm1_ token or link</span></div>
+        <h2 style="margin-top:6px">${S.signer ? 'Redeem your nm1_ invite or connect to a relay' : 'Step 2 · Paste your nm1_ invite token or link'}</h2>
+        <p class="muted">Have an invite link or <code>nm1_…</code> token from a member? Paste it below to join the switchboard and pair your coding agents.</p>
+        <div class="row"><div><label for="mt">Invite token or join link</label><input id="mt" name="token" placeholder="nm1_… or https://crosswire.sh/join/#nm1_…" autocomplete="off" spellcheck="false"></div><div class="fit"><button class="btn primary" data-act="use-token">Open invite</button></div></div>
+        ${S.signer ? html`<details class="more"><summary>Already an enrolled relay member? Connect directly (NIP-42)</summary>
+        <div class="grid2" style="margin-top:10px">
           <div><label for="mr">Relay</label><input id="mr" name="relay" value="${guess}" placeholder="wss://…"></div>
-          <div><label for="mc">Campaign</label><input id="mc" name="campaign" placeholder="my-campaign"></div>
+          <div><label for="mc">Campaign</label><input id="mc" name="campaign" value="crosswire" placeholder="crosswire"></div>
           <div><label for="mo">Operator npub</label><input id="mo" name="operator" placeholder="npub1…"></div>
           <div><label for="mk">campaign_key (64 hex, optional)</label><input id="mk" name="campaign_key" type="password" autocomplete="off"></div>
-        </div><div class="actions"><button class="btn" data-act="manual-connect">Connect (NIP-42)</button></div></section>`);
+        </div><div class="actions"><button class="btn" data-act="manual-connect">Connect (NIP-42)</button></div></details>` : ''}</section>`);
+    }
+    if (leftCards.length) {
+      cards.push(html`<div class="grid2"><div class="stack">${leftCards}</div><div>${mayweInviteCard()}</div></div>`);
     }
     if (!cards.length) cards.push(html`<section class="card"><p class="muted">Working…</p></section>`);
     return cards;
@@ -2744,18 +2832,33 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
     if (presenters.size > 1) return { terms, badge: html`<span class="badge plum" title="approve one by hand with the role you choose">ticket contested by ${presenters.size} keys</span>` };
     return { terms, admit: true, badge: html`<span class="badge sage">invited${terms.member ? ' as ' + terms.member : ''} · ${terms.role}</span>` };
   }
+  /** A campaign invite minted in this tab, as `crosswire invite` mints one over the socket
+      (cli.cmd_relay_invite): a NIP-43 code the relay mints for any member when its
+      memberClaims is on, in this campaign's nm1_ token. A topic invite also needs a NIP-29
+      group code and the topic's key-ring registry, which only the CLI and the bridge
+      keep, so this tab mints none. Unlike the CLI, the tab does not check the code's
+      signer against the relay's NIP-11 key; the event's signature is verified. */
+  async function mintStandaloneInvite(member) {
+    const invite = await S.relay.requestInvite();
+    const token = NM.encodeInviteToken(S.trust, invite.code, member);
+    return { topic: null, member, token, via: invite.via, join_url: NM.joinUrl(S.trust, token),
+      web_link: `${S.trust.blossom_origin}/#join=${token}`,
+      one_liner: `uvx --from git+https://github.com/awowIO/crosswire crosswire join ${token}`,
+      note: 'A bearer invite: whoever holds the token joins once, and how long the code lives is the relay\'s policy. Both links keep it in the URL fragment, which a browser never sends to a server.' };
+  }
   function inviteCard(scope) {
-    if (S.mode !== 'bridge' || !S.bridge.state.capabilities.invite) return '';
+    const canMint = S.mode === 'bridge' ? !!(S.bridge.state && S.bridge.state.capabilities.invite) : !scope;
+    if (!canMint) return '';
     const minted = S.minted && S.minted.topic === (scope ? scope.group : null) ? S.minted : null;
     return html`<form class="card" data-keep="invite" data-form="invite" data-topic="${scope ? scope.group : ''}"><h3>Mint a single-use invite${scope ? ' into this topic' : ''}</h3>
-      <p class="small muted">Runs the relay's admin through <code>admin.json</code>. ${scope ? 'The link opens the newcomer\'s console on this topic; their join request (kind 9021) presents the ticket, and "Admit as invited" grants exactly the role and history chosen here.' : ''}</p>
-      <div class="row"><div><label>Friend's name</label><input name="member" placeholder="roland"></div>
+      <p class="small muted">${S.mode === 'bridge' ? html`Runs the relay's admin through <code>admin.json</code>. ${scope ? 'The link opens the newcomer\'s console on this topic; their join request (kind 9021) presents the ticket, and "Admit as invited" grants exactly the role and history chosen here.' : ''}` : html`Asks the relay for a NIP-43 member invite over this tab's WebSocket (kind 28935), which a relay with <code>memberClaims</code> mints for any member.`}</p>
+      <div class="row"><div><label>Friend or agent name</label><input name="member" placeholder="roland"></div>
       ${scope ? html`<div><label>Role</label><select name="role">${NM.ROLES.map((r) => html`<option value="${r}">${r} — ${ROLE_NOTE[r]}</option>`)}</select></div>
       <div><label>History</label><select name="history"><option value="full_history">full history</option><option value="forward_only">forward-only from now</option></select></div>` : ''}
-      <div class="fit"><button class="btn">Mint invite</button></div></div>
+      <div class="fit"><button class="btn primary">Mint invite</button></div></div>
       ${minted ? html`<div class="stack" style="margin-top:10px"><div class="small">1-click browser join link (bearer, single use${minted.role ? ', ' + minted.role : ''}):</div><pre class="doc">${minted.join_url}</pre>
         <div class="small">Invite token:</div><pre class="doc">${minted.token}</pre>
-        <div class="actions"><button class="btn tiny primary" data-act="copy" data-text="${minted.join_url}" type="button">Copy join link</button><button class="btn tiny" data-act="copy" data-text="${minted.token}" type="button">Copy nm1_ token</button><button class="btn tiny" data-act="copy" data-text="${minted.one_liner}" type="button">Copy CLI one-liner</button><button class="btn tiny ghost" data-act="copy" data-text="${minted.web_link}" type="button">Copy relay-origin link</button><span class="small muted">expires ${NM.isoStamp(minted.expires_at)}</span></div>
+        <div class="actions"><button class="btn tiny primary" data-act="copy" data-text="${minted.join_url}" type="button">Copy join link</button><button class="btn tiny" data-act="copy" data-text="${minted.token}" type="button">Copy nm1_ token</button><button class="btn tiny" data-act="copy" data-text="${minted.one_liner}" type="button">Copy CLI one-liner</button><button class="btn tiny ghost" data-act="copy" data-text="${minted.web_link}" type="button">Copy relay-origin link</button><span class="small muted">${minted.expires_at ? 'expires ' + NM.isoStamp(minted.expires_at) : 'lifetime: the relay\'s policy'}</span></div>
         <p class="small muted">${minted.note}</p></div>` : ''}</form>`;
   }
 
@@ -2949,8 +3052,8 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
     const p = S.pair, scope = p.room === null ? null : S.scopes.get(p.room) || null, rooms = pairRooms();
     const topic = scope && scope.kind === 'topic' ? scope.group : null, st = S.mode === 'bridge' ? S.bridge.state : null;
     const cmd = pairCmd(scope, p.exported), setup = clientSetup(p.client, cmd, topic, p.info), m = p.minted;
-    const canMint = !!(st && st.capabilities.invite) && (!topic || scope.admins.has(S.me));
-    const why = !st ? 'A join link is minted by a console that holds the relay\'s admin reach: nostr-mailbox ui on the operator\'s machine.'
+    const canMint = st ? st.capabilities.invite && (!topic || scope.admins.has(S.me)) : !topic;
+    const why = !st ? html`This tab mints campaign invites only: one into a topic also needs a NIP-29 group code and the topic's key-ring registry, which <code>crosswire topic invite</code> and <code>nostr-mailbox ui</code> keep.`
       : !st.capabilities.invite ? html`Minting needs this home's relay admin reach, <code>${st.admin.path}</code>, which <code>nostr-mailbox setup --relay … --kubectl</code> (or <code>--compose</code>, <code>--exec</code>) writes.`
         : html`Only the room's admins (${[...scope.admins].map(who).join(', ')}) mint invites into it.`;
     const row = (label, sub, value, copy, extra) => html`<tr><th scope="row">${label}<span class="secondary">${sub}</span></th>
@@ -3145,8 +3248,10 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
     async 'pair-mint'() {
       const p = S.pair, scope = p.room === null ? null : S.scopes.get(p.room), topic = scope && scope.kind === 'topic' ? scope.group : null;
       const box = $('[data-keep="pair"] [name=member]'), member = box && box.value.trim() ? box.value.trim() : null;
-      p.minted = topic ? await api(`/api/topics/${topic}/invite`, { member, role: p.role, history: p.history }) : await api('/api/invite', { member });
-      if (topic) S.invites = await api('/api/invites');
+      if (S.mode === 'bridge') {
+        p.minted = topic ? await api(`/api/topics/${topic}/invite`, { member, role: p.role, history: p.history }) : await api('/api/invite', { member });
+        if (topic) S.invites = await api('/api/invites');
+      } else p.minted = await mintStandaloneInvite(member);
       toast(topic ? `Minted a single-use join link into ${topic} as ${p.role}` : 'Minted a single-use campaign join link'); draw();
     },
     'show-rejected'() {
@@ -3159,7 +3264,7 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
     async 'key-create'() { const f = form($('[data-keep="key"]')); S.store.remember = f.remember === 'on'; const sk = NM.generateSecret(); S.store.nsec = NM.nsec(sk); S.store.signer = 'browser'; await useKey(new NM.KeySigner(sk), f.handle); toast('Keypair created'); },
     async 'key-import'() { const f = form($('[data-keep="key"]')); S.store.remember = f.remember === 'on'; const sk = NM.bech32Decode('nsec', f.nsec.trim()); S.store.nsec = NM.nsec(sk); S.store.signer = 'browser'; await useKey(new NM.KeySigner(sk), f.handle); toast('Key imported'); },
     async 'key-nip07'() { const f = form($('[data-keep="key"]')); S.store.remember = f.remember === 'on'; delete S.store.nsec; S.store.signer = 'nip07'; await useKey(new NM.Nip07Signer(window.nostr), f.handle); },
-    'use-token'() { const t = $('[data-keep="manual"] [name=token]').value.trim(); NM.decodeInviteToken(t); S.link.join = t; sessionStorage.setItem(LINK, JSON.stringify(S.link)); draw(); },
+    'use-token'() { S.link = NM.readInviteInput($('[data-keep="manual"] [name=token]').value); sessionStorage.setItem(LINK, JSON.stringify(S.link)); draw(); },
     async 'persona-create'(d) {
       const box = $('[data-keep="persona-new"] [name=new_persona]');
       const name = d.name || (box ? box.value : '').trim();
@@ -3181,8 +3286,9 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
     },
     async 'bridge-join'() {
       const f = form($('[data-keep="join"]'));
-      const member = (f.member || '').trim() || null;
-      const got = await api('/api/join', { token: (f.token || S.link.join || '').trim(), member });
+      const member = (f.member || '').trim() || null, typed = (f.token || '').trim();
+      if (typed && typed !== S.link.join) { S.link = NM.readInviteInput(typed); sessionStorage.setItem(LINK, JSON.stringify(S.link)); }
+      const got = await api('/api/join', { token: S.link.join || '', member });
       forgetLink('join'); toast(`Joined ${got.campaign} as persona ${got.persona}`);
       S.bridge.state = await api('/api/state'); S.signer = new NM.BridgeSigner('', S.bridge.token, S.bridge.persona); S.trust = NM.makeTrust(S.bridge.state.trust);
       await connect();
@@ -3294,8 +3400,34 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
     async grant(f) { await grant(f.member.trim(), f.mode, f.role || 'read-write'); },
     async invite(f, el) {
       const topic = el.dataset.topic || null, member = f.member.trim() || null;
-      S.minted = topic ? await api(`/api/topics/${topic}/invite`, { member, role: f.role, history: f.history }) : await api('/api/invite', { member });
-      if (topic) S.invites = await api('/api/invites');
+      if (S.mode === 'bridge') {
+        S.minted = topic ? await api(`/api/topics/${topic}/invite`, { member, role: f.role, history: f.history }) : await api('/api/invite', { member });
+        if (topic) S.invites = await api('/api/invites');
+      } else S.minted = await mintStandaloneInvite(member);
+      draw();
+    },
+    /** MayWe's public subscribe (newsletter app/routes/subscribe.py): form fields `key`,
+        `email`, `source`, `details` (a JSON object) and the `website` honeypot; it answers
+        {ok, status}, with ok false only for a paused list. */
+    async 'maywe-invite'(f, el) {
+      const key = mayweKey();
+      if (!key) throw new NM.NMError(`the crosswire.sh waitlist takes requests on https://crosswire.sh, not on ${location.origin}`);
+      const email = (f.email || '').trim(), note = (f.note || '').trim();
+      if (!email) throw new NM.NMError('enter your email address first');
+      const body = new URLSearchParams({ key, email, source: 'crosswire:invite-request', website: f.website || '' });
+      if (note) body.set('details', JSON.stringify({ use_case: note }));
+      const res = await fetch(MAYWE_SUBSCRIBE_URL, { method: 'POST', body });
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); } catch (e) { if (!(e instanceof SyntaxError)) throw e; throw new NM.NMError(`MayWe answered HTTP ${res.status} with a body that is not JSON: ${text.slice(0, 200)}`); }
+      if (!res.ok) {
+        const why = Array.isArray(data.detail) ? data.detail.map((d) => d.msg).join('; ') : data.detail;
+        throw new NM.NMError(`MayWe refused the invite request (HTTP ${res.status}): ${why || text.slice(0, 200)}`);
+      }
+      if (data.ok !== true) throw new NM.NMError(`MayWe did not take the invite request (status ${data.status}): the crosswire.sh waitlist is not accepting requests right now`);
+      S.mayweSent = email;
+      el.reset();
+      toast('Invite request sent: confirm it from your inbox');
       draw();
     },
     async 'new-topic'(f) {
