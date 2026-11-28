@@ -149,7 +149,7 @@ from .mcp_http import (
 )
 from .mcp_oauth import OAUTH_FILE, WELL_KNOWN_SERVER
 from .profile import EpochKeys, ProfileError, Trust, slug
-from .relay import INVITE_CLAIM_KIND, INVITE_TTL, NCLI_CONFIG, RelayAdmin, RelayError
+from .relay import INVITE_CLAIM_KIND, INVITE_TTL, NCLI_CONFIG, RelayAdmin, RelayError, fetch_info
 
 DEFAULT_PORT = 7890
 DEFAULT_HOST = "127.0.0.1"
@@ -566,7 +566,7 @@ def _invite_token(trust: Trust, code: str, member: str | None, topic: str | None
 
 
 def _one_liner(token: str) -> str:
-    return f"uvx --from git+https://github.com/awowIO/nostr-mailbox nostr-mailbox join {token}"
+    return f"uvx --from git+https://github.com/awowIO/crosswire nostr-mailbox join {token}"
 
 
 # ================================================================ the console
@@ -806,6 +806,12 @@ class Console:
                            for t in topics if TOPIC_ID.fullmatch(t)}}
 
     # ---- the API
+    def relay_info(self) -> dict:
+        """NIP-11 from this persona's configured relay, including private-network relays."""
+        trust = self.need_trust()
+        return fetch_info(trust.relay, timeout_s=self.timeout_s,
+                          allow_cleartext=trust.allow_cleartext).to_dict()
+
     def state(self) -> dict:
         ident, trust = self.identity(), self.trust()
         held, unreadable = self.exports() if ident else ({}, {})
@@ -1294,6 +1300,8 @@ class _Handler(BaseHTTPRequestHandler):
         topic = _TOPIC_BLOB.fullmatch(where)
         if path == "/api/state":
             self._serve(lambda c: self._json(200, c.state()), write=False)
+        elif path == "/api/relay-info":
+            self._serve(lambda c: self._json(200, c.relay_info()), write=False)
         elif path == "/api/topics":
             self._serve(lambda c: self._json(200, c.topics()), write=False)
         elif path == "/api/invites":

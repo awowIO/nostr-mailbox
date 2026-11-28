@@ -679,7 +679,7 @@ def _auto_install_harnesses() -> list[str]:
     import shutil
     import subprocess
     installed = []
-    repo = "awowIO/nostr-mailbox"
+    repo = "awowIO/crosswire"
     if shutil.which("claude"):
         subprocess.run(["claude", "plugin", "marketplace", "add", repo],
                        capture_output=True, text=True, check=False, timeout=45)
@@ -907,7 +907,7 @@ def cmd_relay_invite(args) -> dict:
         token = _encode_invite_token(trust, invite["code"], member=member)
         return {**invite, **({"member": member} if member else {}), "token": token,
                 "join_url": _join_url(trust, token),
-                "one_liner": f"uvx --from git+https://github.com/awowIO/nostr-mailbox "
+                "one_liner": f"uvx --from git+https://github.com/awowIO/crosswire "
                              f"nostr-mailbox join {token}"}
 
     return _hand_out(args, lambda: _mint_relay_invite(args), wrap)

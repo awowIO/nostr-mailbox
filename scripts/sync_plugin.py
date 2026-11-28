@@ -227,7 +227,7 @@ def copy_package(target: Path, dry_run: bool) -> None:
     copy_files(target, ROOT, package_files(), dry_run)
 
 
-GITHUB_REPO = "awowIO/nostr-mailbox"
+GITHUB_REPO = "awowIO/crosswire"
 
 
 def link_commands(bin_dir: Path, dry_run: bool) -> list[Path]:

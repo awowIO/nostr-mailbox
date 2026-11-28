@@ -195,10 +195,317 @@ footer.foot b { font-weight: 600; color: var(--ink); }
 .links td .small { display: block; margin-top: 3px; }
 details.more { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 10px; }
 details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent); }
+
+.chapters { margin: 0; background: var(--panel); column-gap: clamp(14px, 2.5vw, 40px); }
+.landing, .chapter { padding-block: clamp(22px, 3vw, 48px); }
+.front-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: clamp(24px, 5vw, 80px); }
+.quickstart > h2 { font: 600 13px var(--mono); color: var(--accent); }
+.quickstart .intro { font-size: clamp(28px, 3.2vw, 52px); line-height: 1.08; letter-spacing: -.045em; font-weight: 600; margin: 14px 0; text-wrap: balance; }
+.quickstart p { font-size: 14px; }
+.harnesses { display: flex; gap: 6px; flex-wrap: wrap; margin: 22px 0 10px; }
+.harnesses .btn { border-radius: 999px; }
+.harnesses [aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--panel); }
+.terminal { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); overflow: hidden; }
+.terminal header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--line); padding: 8px 14px; background: var(--head); font: 12px var(--mono); }
+.terminal pre, .chapter pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 14px; margin: 0; line-height: 1.65; }
+.gate { padding: clamp(16px, 2vw, 28px); }
+.gate form { padding-top: 10px; }
+.gate label { font-size: 12px; } .gate input { margin-top: 4px; font-size: 13px; }
+.returning { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.returning summary { cursor: pointer; color: var(--accent); font-weight: 550; }
+.backup { padding-top: 14px; } .backup .banner { align-items: center; }
+.chapter { font-size: 14px; }
+.chapter h2 { font-size: clamp(23px, 2.3vw, 36px); line-height: 1.2; margin-bottom: 12px; }
+.chapter h3 { font-size: 18px; margin: 24px 0 10px; }
+.chapter .card h3 { margin: 0 0 8px; font-size: 15px; }
+.chapter .grid2 .card { margin: 0; }
+.chapter pre { background: var(--soft); border-radius: 4px; }
+.table-wrap, .diagram-box { overflow-x: auto; margin-block: 12px 24px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+.chapter table { width: 100%; border-collapse: collapse; text-align: left; }
+.chapter th, .chapter td { vertical-align: top; padding: 11px 14px; border-bottom: 1px solid var(--line); }
+.chapter th { background: var(--head); font-size: 12px; }
+.chapter tr:last-child td { border-bottom: 0; }
+.diagram-box svg { width: 100%; height: auto; min-width: 900px; display: block; }
+@media (width <= 850px) {
+  .front-grid { grid-template-columns: minmax(0, 1fr); }
+  .chapters { flex-wrap: nowrap; overflow-x: auto; }
+  .chapter table { min-width: 540px; }
+}
 </style>
 </head>
 <body>
 <noscript><div class="page" style="padding-block: 24px">The nostr-mailbox console signs, verifies and decrypts in this page's own JavaScript; it does nothing with scripts off.</div></noscript>
+<template id="docs-modes">
+<h2>How It Works</h2>
+<p>Crosswire connects people and coding agents over outbound WebSockets. Each Persona has a signing key. A campaign names the relay and the operators whose directives and seals its members trust.</p>
+<div class="table-wrap"><table>
+  <thead>
+    <tr><th>Layer</th><th>What happens on the switchboard</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Channels and threads</td><td>A private NIP-29 topic has a roster and an epoch keyring. Personal mail is sealed to the reader.</td></tr>
+    <tr><td>Live agent wire</td><td>Agents post to <code>bus</code> and subscribe over WebSockets. The relay stores signed records for replay. Each seat acknowledges the messages it handles.</td></tr>
+    <tr><td>Intake and dropboxes</td><td>The shared <code>inbox</code> holds pointers. A personal dropbox receives sealed messages and files under the owner’s grants and human approval rules.</td></tr>
+    <tr><td>Relay, roster and keys</td><td>Relay membership admits a key to the service. Group membership controls delivery. A reader needs the matching epoch key to open encrypted history.</td></tr>
+  </tbody>
+</table></div>
+<h3>Two Modes on One Relay</h3>
+<p>A person can use separate work and personal keys on one machine. Each agent seat can also enroll with its own key, so a recipient can verify who wrote each message.</p>
+<div class="table-wrap"><table>
+  <thead>
+    <tr><th>Mode</th><th>Example</th><th>Who gets access</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Persona-First</td><td><code>@alice-personal ↔ @dave</code></td><td>Two enrolled Personas exchange pairwise mail. Each can also create private topics and invite collaborators.</td></tr>
+    <tr><td>Single campaign topic</td><td><code>#wave-7</code></td><td>An Org can invite an external seat into one topic. A scoped invite carries the topic declaration and the epochs its role permits.</td></tr>
+    <tr><td>Org Workspaces</td><td><code>acme-lab</code> with Alice, Bob and Carol</td><td>An Org declaration identifies a campaign, operators and optionally a shared campaign key. Team members can work across private topics with different rosters.</td></tr>
+  </tbody>
+</table></div>
+</template>
+<template id="docs-permissions">
+<h2>ACLs &amp; Encryption</h2>
+<p>Three gates control access. The relay checks the signing key against its membership list. Private groups have their own rosters. Readers decrypt topic records locally with the epochs they hold.</p>
+<h3>3-Gate ACL Primitives</h3>
+<div class="table-wrap"><table>
+  <thead>
+    <tr><th>Primitive</th><th>On the wire</th><th>What it grants</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>CONNECT</code></td><td>NIP-42 AUTH and NIP-43 admission</td><td>Sign a challenge for this connection. Redeem a single-use invite or return with an enrolled key. The console verifies a protected read before showing any rooms.</td></tr>
+    <tr><td><code>CREATE CHANNEL</code></td><td>NIP-29 group creation (9007)</td><td>An enrolled seat creates a private topic, becomes its keeper and generates the first topic key.</td></tr>
+    <tr><td><code>READ</code></td><td>Group subscription and NIP-59 key delivery</td><td>Replay the granted epochs and follow new messages. Full history grants every held epoch. Forward-only admission rotates the key first.</td></tr>
+    <tr><td><code>WRITE</code></td><td>Signed events and sealed mail</td><td>Read-write seats post encrypted records. The console holds observer posts for review. Write-only senders deliver sealed mail to the keeper and receive no epoch keys.</td></tr>
+    <tr><td><code>MANAGE</code></td><td>NIP-29 roster changes (9000 and 9001)</td><td>The keeper admits or removes topic members and rotates keys. Campaign roles separately authorize claims decisions, Route Board updates, directives and seals.</td></tr>
+    <tr><td><code>POOL &lt;user&gt;/agents</code></td><td>Independent seat public keys</td><td>Enroll and grant each seat. A person-signed certificate can identify a mail sender. Topic access requires a grant to that seat.</td></tr>
+  </tbody>
+</table></div>
+<h3>Concrete Permission Matrix</h3>
+<div class="table-wrap"><table>
+  <thead>
+    <tr><th>Scope</th><th>Principal</th><th>Permissions</th><th>Keys and history</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Org · <code>acme-lab</code></td><td>Alice, relay operator</td><td>CONNECT · CREATE CHANNEL · relay administration</td><td>Enroll or evict a public key. Rotate the affected topic epochs when removing a reader.</td></tr>
+    <tr><td>Org · <code>acme-lab</code></td><td>Bob and Carol, members</td><td>CONNECT · CREATE CHANNEL</td><td>Their declaration opens the Org bus when it carries its campaign key. Private topics have independent rosters.</td></tr>
+    <tr><td>Team relay</td><td>Vendor with a topic invite</td><td>CONNECT · invited role</td><td>The topic token omits the Org campaign key.</td></tr>
+    <tr><td><code>#wave-7</code></td><td>Alice, keeper</td><td>READ · WRITE · MANAGE</td><td>Choose the role and history for each admission. Rotate on removal.</td></tr>
+    <tr><td><code>#wave-7</code></td><td>Bob and the enrolled agent seats</td><td>READ · WRITE</td><td>Each seat signs as itself and decrypts the epochs it received.</td></tr>
+    <tr><td><code>#wave-7</code></td><td>Monitor, observer</td><td>READ</td><td>Can follow stored and live events. The console quarantines its posts. CLI readers can see them.</td></tr>
+    <tr><td><code>#partners-only</code></td><td>Alice, Bob and Carol</td><td>READ · WRITE</td><td>Keep the topic keys on the human participants’ devices.</td></tr>
+    <tr><td><code>#partners-only</code></td><td>Unenrolled agents</td><td>None</td><td>No group subscription or epoch keys. A process with access to a human’s local key files can act as that human.</td></tr>
+    <tr><td><code>#external-intake</code></td><td>Alice, owner</td><td>READ · WRITE · MANAGE</td><td>Decrypt submissions and approve or reject them at the human gate.</td></tr>
+    <tr><td><code>#external-intake</code></td><td>Vendor, external sender</td><td>WRITE</td><td>Send to the designated dropbox part using the keeper’s public key.</td></tr>
+    <tr><td>Personal thread</td><td>Alice-personal and Dave</td><td>Send and read addressed mail</td><td>Pairwise encryption identifies the recipient of each message.</td></tr>
+  </tbody>
+</table></div>
+<p>Removing a reader stops future delivery. Rotation distributes a new epoch only to the remaining readers. Anyone who received an earlier epoch can still open records encrypted under it.</p>
+</template>
+<template id="docs-architecture">
+<h2>Architecture Maps</h2>
+<h3>Enrollment &amp; Cross-Pool Encryption Flow</h3>
+<p>Follow two seats in #wave-7 from the first epoch through removal and rotation.</p>
+<div class="diagram-box" tabindex="0" aria-label="Enrollment &amp; Cross-Pool Encryption Flow"><svg viewBox="0 0 1200 310" role="img" aria-labelledby="map-title-0">
+      <title id="map-title-0">Enrollment &amp; Cross-Pool Encryption Flow</title>
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 1.5 L 8.5 5 L 0 8.5 z" fill="var(--muted)"/>
+        </marker>
+      </defs>
+
+      <!-- Step 1 -->
+      <rect x="12" y="16" width="268" height="278" rx="8" fill="var(--panel)" stroke="var(--line)" stroke-width="1.5"/>
+      <rect x="12" y="16" width="268" height="38" rx="8" fill="var(--head)"/>
+      <text x="28" y="40" font-size="13" font-weight="700" fill="var(--ink)">1. Create the private channel</text>
+
+      <text x="28" y="76" font-size="12" font-weight="600" fill="var(--ink)">Command:</text>
+      <rect x="28" y="84" width="236" height="28" rx="4" fill="var(--ink)"/>
+      <text x="38" y="102" font-size="11.5" fill="var(--panel)" font-family="monospace">crosswire topic create wave-7</text>
+
+      <text x="28" y="136" font-size="12" font-weight="600" fill="var(--ink)">What happens:</text>
+      <text x="28" y="156" font-size="12" fill="var(--muted)">• Generates key <tspan font-family="monospace" font-weight="600">K_wave7</tspan> in</text>
+      <text x="38" y="174" font-size="11.5" fill="var(--ink)" font-family="monospace">keyrings/&lt;seat&gt;/wave-7.json</text>
+      <text x="28" y="198" font-size="12" fill="var(--muted)">• Alice's agents (<tspan font-family="monospace">alice-seat-1..4</tspan>)</text>
+      <text x="38" y="216" font-size="12" fill="var(--muted)">receive keys through per-seat grants.</text>
+      <text x="28" y="242" font-size="12" fill="var(--muted)">• Relay ACL for <tspan font-family="monospace">#wave-7</tspan>:</text>
+      <text x="38" y="260" font-size="11.5" fill="var(--ink)" font-family="monospace">[alice, alice-seat-1..4]</text>
+
+      <path d="M282 155 L312 155" stroke="var(--muted)" stroke-width="2" marker-end="url(#arrow)"/>
+
+      <!-- Step 2 -->
+      <rect x="316" y="16" width="268" height="278" rx="8" fill="var(--panel)" stroke="var(--line)" stroke-width="1.5"/>
+      <rect x="316" y="16" width="268" height="38" rx="8" fill="var(--head)"/>
+      <text x="332" y="40" font-size="13" font-weight="700" fill="var(--ink)">2. Invite Bob + Bob's Pool</text>
+
+      <text x="332" y="76" font-size="12" font-weight="600" fill="var(--ink)">Command:</text>
+      <rect x="332" y="84" width="236" height="28" rx="4" fill="var(--ink)"/>
+      <text x="342" y="102" font-size="11.5" fill="var(--panel)" font-family="monospace">crosswire join</text>
+
+      <text x="332" y="136" font-size="12" font-weight="600" fill="var(--ink)">What happens:</text>
+      <text x="332" y="156" font-size="12" fill="var(--muted)">• Each of Bob’s seats redeems its own</text>
+      <text x="342" y="174" font-size="12" fill="var(--muted)">invite for the granted role and epochs</text>
+      <text x="342" y="192" font-size="12" fill="var(--muted)">in <tspan font-family="monospace">#wave-7</tspan>.</text>
+      <text x="332" y="218" font-size="12" fill="var(--muted)">• Sealed envelope (<tspan font-family="monospace">NIP-59</tspan>) delivers</text>
+      <text x="342" y="236" font-size="12" fill="var(--muted)"><tspan font-family="monospace" font-weight="600">K_wave7</tspan> to Bob's machine:</text>
+      <text x="342" y="256" font-size="11.5" fill="var(--ink)" font-family="monospace">keyrings/&lt;seat&gt;/wave-7.json</text>
+
+      <path d="M586 155 L616 155" stroke="var(--muted)" stroke-width="2" marker-end="url(#arrow)"/>
+
+      <!-- Step 3 -->
+      <rect x="620" y="16" width="268" height="278" rx="8" fill="var(--panel)" stroke="var(--line)" stroke-width="1.5"/>
+      <rect x="620" y="16" width="268" height="38" rx="8" fill="var(--head)"/>
+      <text x="636" y="40" font-size="13" font-weight="700" fill="var(--ink)">3. Cross-Pool Encrypted Bus</text>
+
+      <text x="636" y="76" font-size="12" font-weight="600" fill="var(--ink)">On send (<tspan font-family="monospace">alice-seat-2</tspan>):</text>
+      <text x="636" y="96" font-size="12" fill="var(--muted)">• Signs with <tspan font-family="monospace">alice-seat-2</tspan> key</text>
+      <text x="636" y="114" font-size="12" fill="var(--muted)">• Encrypts body with <tspan font-family="monospace" font-weight="600">K_wave7</tspan></text>
+
+      <text x="636" y="144" font-size="12" font-weight="600" fill="var(--ink)">On relay (<tspan font-family="monospace">crosswire.sh</tspan>):</text>
+      <text x="636" y="164" font-size="12" fill="var(--muted)">• Verifies WRITE ACL; stores</text>
+      <text x="646" y="182" font-size="12" fill="var(--muted)">ciphertext; fans out to READ list.</text>
+
+      <text x="636" y="212" font-size="12" font-weight="600" fill="var(--ink)">On receive (both pools):</text>
+      <text x="636" y="232" font-size="12" fill="var(--muted)">• <tspan font-family="monospace">alice-seat-1..4</tspan> &amp; <tspan font-family="monospace">bob-seat-1..4</tspan></text>
+      <text x="646" y="250" font-size="12" fill="var(--muted)">decrypt locally with <tspan font-family="monospace" font-weight="600">K_wave7</tspan>.</text>
+
+      <path d="M890 155 L920 155" stroke="var(--muted)" stroke-width="2" marker-end="url(#arrow)"/>
+
+      <!-- Step 4 -->
+      <rect x="924" y="16" width="264" height="278" rx="8" fill="var(--panel)" stroke="var(--line)" stroke-width="1.5"/>
+      <rect x="924" y="16" width="264" height="38" rx="8" fill="var(--head)"/>
+      <text x="940" y="40" font-size="13" font-weight="700" fill="var(--ink)">4. Evict &amp; Rotate Key</text>
+
+      <text x="940" y="76" font-size="12" font-weight="600" fill="var(--ink)">Command:</text>
+      <rect x="940" y="84" width="232" height="28" rx="4" fill="var(--ink)"/>
+      <text x="950" y="102" font-size="11.5" fill="var(--panel)" font-family="monospace">topic revoke wave-7 &lt;npub&gt;</text>
+
+      <text x="940" y="136" font-size="12" font-weight="600" fill="var(--ink)">What happens:</text>
+      <text x="940" y="156" font-size="12" fill="var(--muted)">1. Relay removes key from <tspan font-family="monospace">#wave-7</tspan></text>
+      <text x="950" y="174" font-size="12" fill="var(--muted)">ACL (<tspan font-family="monospace">kind 9001</tspan>) and blocks</text>
+      <text x="950" y="192" font-size="12" fill="var(--muted)">all future reads and writes.</text>
+      <text x="940" y="218" font-size="12" fill="var(--muted)">2. Client rotates room key to</text>
+      <text x="950" y="236" font-size="12" fill="var(--muted)"><tspan font-family="monospace" font-weight="600">K_wave7_v2</tspan> and seals it only to</text>
+      <text x="950" y="254" font-size="12" fill="var(--muted)">remaining active members.</text>
+    </svg></div>
+<h3>Physical Architecture Map: Clients vs. Wire vs. Relay Disk</h3>
+<p>The Compose and Kubernetes backends store signed events and Blossom files on the relay host. Signing identities and topic decryption keys stay with clients.</p>
+<div class="diagram-box" tabindex="0" aria-label="Physical Architecture Map: Clients vs. Wire vs. Relay Disk"><svg viewBox="0 0 1200 420" role="img" aria-labelledby="map-title-1">
+      <title id="map-title-1">Physical Architecture Map: Clients vs. Wire vs. Relay Disk</title>
+      <defs>
+        <marker id="biArr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 1.5 L 8.5 5 L 0 8.5 z" fill="var(--muted)"/>
+        </marker>
+      </defs>
+
+      <!-- Column Headers -->
+      <text x="16" y="24" font-size="11.5" font-weight="700" fill="var(--muted)" letter-spacing="0.06em">CLIENT MACHINES (KEYS &amp; PLAINTEXT)</text>
+      <text x="462" y="24" font-size="11.5" font-weight="700" fill="var(--muted)" letter-spacing="0.06em">ENCRYPTED WIRE</text>
+      <text x="650" y="24" font-size="11.5" font-weight="700" fill="var(--muted)" letter-spacing="0.06em">RELAY SERVER POD (ENCRYPTED TOPIC)</text>
+
+      <!-- Left Box 1: Developer Laptops -->
+      <rect x="16" y="38" width="400" height="175" rx="8" fill="var(--panel)" stroke="var(--line)" stroke-width="1.5"/>
+      <rect x="16" y="38" width="400" height="32" rx="8" fill="var(--head)"/>
+      <text x="30" y="59" font-size="13" font-weight="700" fill="var(--ink)">Developer Laptops (Alice / Bob)</text>
+
+      <text x="30" y="90" font-size="12" font-weight="600" fill="var(--ink)">Local Files (~/.config/nostr-mailbox/):</text>
+      <text x="30" y="110" font-size="12" fill="var(--muted)" font-family="monospace">• identities/&lt;persona&gt;.json (0600 key)</text>
+      <text x="30" y="128" font-size="12" fill="var(--muted)" font-family="monospace">• orgs/&lt;org&gt;/nostr.toml (joined campaigns)</text>
+      <text x="30" y="146" font-size="12" fill="var(--muted)" font-family="monospace">• keyrings/&lt;persona&gt;/&lt;topic&gt;.json (epochs)</text>
+
+      <text x="30" y="174" font-size="12" font-weight="600" fill="var(--ink)">Local Processes:</text>
+      <text x="30" y="194" font-size="12" fill="var(--muted)">• <tspan font-family="monospace">nostr-mailbox mcp</tspan> / <tspan font-family="monospace">ui</tspan> + local worktree agents</text>
+
+      <!-- Left Box 2: Remote Agent Containers & Browser-Only Users -->
+      <rect x="16" y="230" width="400" height="170" rx="8" fill="var(--panel)" stroke="var(--line)" stroke-width="1.5"/>
+      <rect x="16" y="230" width="400" height="32" rx="8" fill="var(--head)"/>
+      <text x="30" y="251" font-size="13" font-weight="700" fill="var(--ink)">Remote Agent Pools &amp; Browser-Only Users</text>
+
+      <text x="30" y="282" font-size="12" font-weight="600" fill="var(--ink)">Cloud / GPU Agent Containers (ML, Security, CI):</text>
+      <text x="30" y="302" font-size="12" fill="var(--muted)">• Join via 1 token (<tspan font-family="monospace">crosswire join</tspan>)</text>
+      <text x="30" y="320" font-size="12" fill="var(--muted)">• Optional host signer socket (<tspan font-family="monospace">/run/.../seat.sock</tspan>)</text>
+
+      <text x="30" y="352" font-size="12" font-weight="600" fill="var(--ink)">Browser-Only Users (Carol / Non-CLI Contacts):</text>
+      <text x="30" y="372" font-size="12" fill="var(--muted)">• Open <tspan font-family="monospace">/join/#nm1_…</tspan> in Safari/Chrome</text>
+      <text x="30" y="390" font-size="12" fill="var(--muted)">• Key &amp; decryption stay in browser sandbox (zero install)</text>
+
+      <!-- Center Wire Arrows -->
+      <path d="M422 125 L642 125" stroke="var(--muted)" stroke-width="2" marker-start="url(#biArr)" marker-end="url(#biArr)"/>
+      <rect x="442" y="92" width="180" height="24" rx="4" fill="var(--panel)" stroke="var(--line)"/>
+      <text x="532" y="108" text-anchor="middle" font-size="11" font-weight="600" fill="var(--ink)" font-family="monospace">wss:// (NIP-44 Ciphertext)</text>
+
+      <path d="M422 315 L642 315" stroke="var(--muted)" stroke-width="2" marker-start="url(#biArr)" marker-end="url(#biArr)"/>
+      <rect x="442" y="282" width="180" height="24" rx="4" fill="var(--panel)" stroke="var(--line)"/>
+      <text x="532" y="298" text-anchor="middle" font-size="11" font-weight="600" fill="var(--ink)" font-family="monospace">NIP-59 Sealed Keyrings</text>
+
+      <!-- Right Box: Relay Server Pod -->
+      <rect x="648" y="38" width="536" height="362" rx="8" fill="var(--head)" stroke="var(--muted)" stroke-width="1.5"/>
+      <text x="670" y="66" font-size="14" font-weight="700" fill="var(--ink)">Relay Pod: pod/nostr-relay-0</text>
+
+      <!-- Sub-box A: In-Memory Daemon -->
+      <rect x="670" y="82" width="492" height="124" rx="6" fill="var(--soft)" stroke="var(--muted)"/>
+      <text x="686" y="104" font-size="12" font-weight="700" fill="var(--ink)">A. In-Memory Auth &amp; ACL Router (ohstr/ncli daemon)</text>
+      <text x="686" y="128" font-size="12" fill="var(--muted)">1. <tspan font-weight="600" fill="var(--ink)">Connection Gate (NIP-42/43):</tspan> Verifies pubkey signature &amp; allowlist.</text>
+      <text x="686" y="150" font-size="12" fill="var(--muted)">2. <tspan font-weight="600" fill="var(--ink)">Channel Gate (NIP-29):</tspan> Checks the private group roster.</text>
+      <text x="686" y="172" font-size="12" fill="var(--muted)">3. <tspan font-weight="600" fill="var(--ink)">Live Pub/Sub Fan-Out:</tspan> Pushes new encrypted events to subscribed seats.</text>
+
+      <!-- Sub-box B: Persistent SSD -->
+      <rect x="670" y="220" width="492" height="162" rx="6" fill="var(--soft)" stroke="var(--muted)"/>
+      <text x="686" y="242" font-size="12" font-weight="700" fill="var(--ink)">B. Persistent SSD Volume (PVC: data-nostr-relay-0)</text>
+      <text x="686" y="268" font-size="12" fill="var(--ink)" font-family="monospace">• /data/relay/nostr.db (SQLite WAL)</text>
+      <text x="702" y="288" font-size="12" fill="var(--muted)">Stores channel ACL rosters, full encrypted channel scrollback, and</text>
+      <text x="702" y="306" font-size="12" fill="var(--muted)">replaceable checkpoints and routes. Heartbeats are ephemeral.</text>
+      <text x="686" y="336" font-size="12" fill="var(--ink)" font-family="monospace">• /data/blossom/&lt;sha256&gt; (Encrypted Blob Store)</text>
+      <text x="702" y="356" font-size="12" fill="var(--muted)">Stores encrypted topic files addressed by their content digest.</text>
+    </svg></div>
+</template>
+<template id="docs-reference">
+<h2>CLI, MCP &amp; Self-Hosting</h2>
+<h3>CLI Quickstart</h3><p>The package installs both <code>crosswire</code> and <code>nostr-mailbox</code>. In these examples Alice operates the relay and keeps the topic. Bob joins from his own machine.</p>
+<div class="grid2">
+  <section class="card"><h3>Set up a relay you operate</h3><pre><code>crosswire setup --relay &quot;$RELAY_URL&quot; --campaign team --kubectl
+crosswire relay check
+crosswire ui --open</code></pre></section>
+  <section class="card"><h3>Create a channel and invite a reader</h3><pre><code>crosswire topic create wave-7
+crosswire topic invite wave-7 --admin --for bob --role read-write --history all --code-file bob.token</code></pre></section>
+  <section class="card"><h3>Join and coordinate</h3><pre><code>crosswire join --code-file bob.token
+crosswire --topic wave-7 post bus &quot;Taking retry.py&quot; --kind handoff
+crosswire --topic wave-7 watch bus --wait-seconds 25
+crosswire --topic wave-7 ack bus EVENT_ID --result-ref PR-41</code></pre></section>
+  <section class="card"><h3>Record evidence and rotate a room key</h3><pre><code>crosswire condition open ac-3 --goal &quot;Idempotent retries&quot; --statement &quot;No duplicate on lost OK&quot; --next-action &quot;Reproduce&quot;
+crosswire handoff materialize --condition ac-3 --out HANDOFF.md
+crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
+</div>
+<h3>Six MCP tools</h3><p>Start <code>crosswire mcp</code> for stdio. Tools take an optional <code>persona</code>. The HTTP connector exposes the same operations.</p><div class="table-wrap"><table>
+  <thead>
+    <tr><th>Tool</th><th>Inputs</th><th>Operation</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>mailbox_list</code></td><td>persona?</td><td>List local Personas, Orgs and channels. Identify the channel that bus refers to.</td></tr>
+    <tr><td><code>mailbox_invite</code></td><td>target, scope?, role?, history?, recipient?</td><td>Mint an Org or topic invite. Use code_file to keep its bearer out of tool output.</td></tr>
+    <tr><td><code>mailbox_join</code></td><td>token_or_url, as_member?</td><td>Redeem a link under the selected Persona and save its declaration.</td></tr>
+    <tr><td><code>mailbox_post</code></td><td>channel, body, kind?, subject?, files?</td><td>Publish a signed record with optional encrypted attachments.</td></tr>
+    <tr><td><code>mailbox_watch</code></td><td>channel, wait_seconds?, history?, ack_id?, result_ref?</td><td>Watch unsettled messages, read history, or acknowledge work for this seat.</td></tr>
+    <tr><td><code>mailbox_board</code></td><td>action, channel?, params?</td><td>Manage routes, conditions, claims, decisions, checkpoints and handoffs.</td></tr>
+  </tbody>
+</table></div>
+<h3>Self-hosting targets</h3>
+<p>In <a href="https://github.com/awowIO/nostr-relay-deploy">awowIO/nostr-relay-deploy</a>, copy <code>relay.toml.example</code> to <code>relay.local.toml</code> and configure your hostname, storage and admin settings. Run <code>python3 scripts/hydrate.py --target all</code> to render the targets under <code>.build/</code>.</p>
+<div class="table-wrap"><table>
+  <thead>
+    <tr><th>Target</th><th>Runtime and storage</th><th>Operator entry point</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Cloudflare Workers</td><td>WebSocket Worker, SQLite Durable Object, R2 blobs and the browser console.</td><td>Use the deployment repository’s cf_ncli_shim.py with --exec.</td></tr>
+    <tr><td>Docker Compose</td><td>Caddy terminates TLS. The ncli daemon writes events and blobs on a volume.</td><td>Pass --compose with the generated compose.yaml.</td></tr>
+    <tr><td>Kubernetes</td><td>StatefulSet, PVC, Service, ingress and NetworkPolicy.</td><td>Use --kubectl with the appropriate context and namespace.</td></tr>
+    <tr><td>GitHub Pages</td><td>Static onboarding and NIP-05 discovery. A separate relay backend serves WebSockets and stores events.</td><td>Point the site at the deployed backend.</td></tr>
+  </tbody>
+</table></div>
+<h3>Multi-Agent Campaign Blueprints</h3>
+<div class="grid2">
+<section class="card"><h3>Distributed experiments</h3><p>Give each worker an invite to <code>#exp-campaign</code>. Before starting a run, record the hypothesis and its falsification criterion with <code>crosswire route put</code>. Upload metrics with <code>crosswire --topic exp-campaign blob put --encrypt metrics.json</code> and submit their digest with a claim. A reviewer rules on the evidence.</p></section>
+<section class="card"><h3>Parallel verification and review</h3><p>Workers in <code>#verify-campaign</code> reserve separate review routes. Container seats can use a host-side signer socket. A verifier replays the submitted artifact, records its decision and materializes the four-field handoff for the next seat.</p></section>
+</div>
+</template>
 <div id="app"></div>
 <div id="toasts" class="toasts" aria-live="polite"></div>
 <script id="nm-engine">
@@ -1045,7 +1352,7 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
   }
   /** profile.Trust, as the page needs it. Accepts what `nostr.toml`, an nm1_ bundle or
       `/api/state` carries; npubs become hex. */
-  function makeTrust(raw) {
+  function makeTrust(raw, { discover = false } = {}) {
     if (!raw || typeof raw !== 'object') throw new NMError('a transport declaration is an object');
     const rosters = {};
     for (const name of ['operator_pubkeys', 'lead_pubkeys', 'reviewer_pubkeys']) {
@@ -1053,7 +1360,7 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
       if (!Array.isArray(list)) throw new NMError(`${name} must be a list of npub or hex strings`);
       rosters[name] = [...new Set(list.map(pubkeyHex))].sort();
     }
-    if (!rosters.operator_pubkeys.length) throw new NMError('operator_pubkeys is empty: a campaign with no operator key has nobody who can direct or seal it');
+    if (!discover && !rosters.operator_pubkeys.length) throw new NMError('operator_pubkeys is empty: a campaign with no operator key has nobody who can direct or seal it');
     const ck = raw.campaign_key ? String(raw.campaign_key).toLowerCase() : null;
     if (ck !== null && !HEX64.test(ck)) throw new NMError('campaign_key must be 64 lowercase hex characters');
     if (raw.group != null && !TOPIC_ID.test(raw.group) && !/^[A-Za-z0-9_-]{1,64}$/.test(raw.group)) throw new NMError(`group ${raw.group} must match [A-Za-z0-9_-]{1,64}`);
@@ -2000,8 +2307,8 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
       }
       return { epoch: n, recipients: [...members].sort(), wraps };
     }
-    async requestAccess(topic, reason, code, ticket) {
-      const tags = [['h', topic], ...(code ? [['code', code]] : []), ...(ticket ? [['ticket', ticket]] : [])];
+    async requestAccess(topic, reason, code, ticket, proof = null) {
+      const tags = [['h', topic], ...(code ? [['code', code]] : []), ...(ticket ? [['ticket', ticket]] : []), ...(proof ? [['proof', proof]] : [])];
       const ev = await this.relay.sign(KIND.JOIN_REQUEST, tags, reason || '');
       await this.relay.publish(ev);
       return ev.id;
@@ -2116,12 +2423,12 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
 
   // --------------------------------------------------------------------- state
   const S = {
-    mode: 'standalone', bridge: null, store: {}, link: {},
+    mode: 'standalone', bridge: null, store: {}, link: {}, chapter: 'switchboard', harness: 'Claude Code', signingIn: false,
     signer: null, trust: null, relay: null, desk: null, me: null, status: 'idle',
     keyrings: [], scopes: new Map(), views: new Map(), access: new Map(), primary: null,
     mailbox: null, profiles: new Map(), selected: null, tab: 'bus', busTopic: 'bus', kindFilter: '',
     replyTo: null, errors: [], toasts: [], modal: null, live: [], refreshing: false, dirty: false,
-    claim: null, rejected: [], invites: { topics: {} }, mayweSent: null, gen: 0,
+    rejected: [], invites: { topics: {} }, mayweSent: null, gen: 0,
   };
   /** The crosswire.sh invite waitlist runs on MayWe (maywe.email). Its public
       /v1/subscribe takes a publishable key only from the one origin the key was issued
@@ -2262,28 +2569,101 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
       if (st.identity && st.trust) {
         S.signer = new NM.BridgeSigner('', token, S.bridge.persona);
         S.trust = NM.makeTrust(st.trust);
-        await connect();
       }
     } else {
       S.store = readStore();
       if (S.store.nsec) S.signer = new NM.KeySigner(NM.bech32Decode('nsec', S.store.nsec));
       else if (S.store.signer === 'nip07' && window.nostr) S.signer = new NM.Nip07Signer(window.nostr);
-      if (S.signer) S.me = await S.signer.getPublicKey();
-      if (S.signer && S.store.trust && !S.link.join) { S.trust = NM.makeTrust(S.store.trust); await connect(); }
+      if (S.signer?.type === 'browser') S.me = await S.signer.getPublicKey();
+      if (S.signer && S.store.trust) S.trust = NM.makeTrust(S.store.trust);
     }
     draw();
   }
 
-  async function connect() {
-    S.live = []; S.liveSignature = null; S.loaded = false;
-    if (S.relay) S.relay.close();
-    S.relay = new NM.RelayClient(S.trust.relay, S.signer, { authUrl: S.trust.relay_auth_url || S.trust.relay, onState: (st, err) => { S.status = st; if (err && st === 'failed') report(err, 'the relay connection failed'); draw(); } });
-    await S.relay.connect();
-    S.me = S.relay.pubkey;
-    S.desk = new NM.Desk(S.trust, S.signer, S.relay);
-    await refresh();
+  // The desk belongs to one authenticated socket. Keep its membership probe live:
+  // the relay ends that subscription on eviction, even when no room is selected.
+  function disconnect() {
+    const relay = S.relay;
+    S.gen++;
+    Object.assign(S, { relay: null, desk: null, loaded: false, status: 'idle', live: [],
+      liveSignature: null, keyrings: [], views: new Map(), scopes: new Map(), access: new Map(),
+      mailbox: null, profiles: new Map(), selected: null, modal: null, pair: null,
+      minted: null, invites: { topics: {} }, rejected: [], errors: [], toasts: [], replyTo: null, dirty: false });
+    if (relay) relay.close();
   }
 
+  async function privateRelay() {
+    if (S.mode === 'bridge') return (await api('/api/relay-info')).advertises_private;
+    const url = new URL(S.trust.relay);
+    url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
+    const response = await fetch(url, { headers: { Accept: 'application/nostr+json' },
+      credentials: 'omit', redirect: 'error', cache: 'no-store',
+      signal: AbortSignal.timeout(NM.C.DEFAULT_WAIT_S * 1000) });
+    if (!response.ok) throw new NM.NMError(`Relay information request failed (HTTP ${response.status})`);
+    const { limitation } = await response.json();
+    return limitation?.auth_required === true && limitation?.membership_required === true;
+  }
+
+  async function connect(invite = null, member = '') {
+    disconnect();
+    const relay = new NM.RelayClient(S.trust.relay, S.signer, { authUrl: S.trust.relay_auth_url || S.trust.relay,
+      onState(state, err) {
+        if (S.relay === relay && (state === 'closed' || state === 'failed')) lost(err);
+      } });
+    function lost(err) {
+      if (S.relay !== relay) return;
+      disconnect();
+      report(err, 'Session locked');
+    }
+    S.relay = relay; S.status = 'connecting'; draw();
+    try {
+      if (!await privateRelay()) throw new NM.NMError('The relay must advertise both auth_required and membership_required in NIP-11.');
+      if (S.relay !== relay) return;
+      await relay.connect();
+      if (invite) {
+        const receipt = relay.pubkey + '.' + NM.hex(NM.sha256(NM.utf8(S.link.join)));
+        if (S.store.redeemed !== receipt) {
+          await relay.join(invite.code);
+          S.store.redeemed = receipt;
+        }
+        // Preserve this identity and the original link if group admission or a later
+        // read fails. The receipt skips only the spent claim, never the membership probe.
+        if (S.store.trust?.relay !== invite.trust.relay || S.store.trust?.campaign !== invite.trust.campaign) {
+          S.store.tokenRings = []; S.store.requested = [];
+        }
+        S.store.trust = invite.bundle;
+        S.store.pubkey = relay.pubkey;
+        saveStore();
+      }
+      await relay.subscribeLive({ kinds: [NM.KIND.HEARTBEAT] }, () => {}, lost);
+      if (S.relay !== relay) return;
+      S.me = relay.pubkey;
+      if (S.mode === 'standalone') { S.store.pubkey = S.me; saveStore(); }
+      S.status = 'ready';
+      S.desk = new NM.Desk(S.trust, S.signer, relay);
+    } catch (e) {
+      if (S.relay === relay) disconnect();
+      throw e;
+    }
+    draw();
+    try {
+      if (S.mode === 'standalone' && S.store.trust && (S.signer.type === 'browser' || S.signer.ext?.nip44)) {
+        const key = declarationKey(S.me, S.trust);
+        const sealed = await S.signer.nip44Encrypt(S.me, JSON.stringify(S.store.trust));
+        localStorage.setItem(key, sealed);
+      }
+      if (invite && S.relay === relay) {
+        await finishInvite(invite, member);
+        if (S.relay !== relay) return;
+        delete S.store.redeemed;
+        saveStore(); forgetLink('join');
+      }
+    } finally {
+      if (S.relay === relay) await refresh();
+    }
+  }
+
+  const declarationKey = (pk, t) => 'nm.declaration.' + JSON.stringify([pk, t.relay, t.campaign]);
   // ----------------------------------------------------------------- loading
   function tokenRings() {
     return (S.store.tokenRings || []).map((r) => ({ topic: r.topic, name: r.name || r.topic, epochs: Object.entries(r.epochs).map(([n, key]) => ({ n: Number(n), key })), current: r.current, granter: r.owner, created_at: r.at, mode: 'token' }));
@@ -2292,6 +2672,7 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
       persona the console has since switched away from is dropped, whatever it found:
       its connection was closed on purpose. */
   async function refresh() {
+    if (!S.desk) return;
     if (S.refreshing) { S.dirty = true; return; }
     S.refreshing = true;
     try {
@@ -2309,8 +2690,12 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
   async function load(gen) {
     const desk = S.desk, trust = S.trust, stale = () => gen !== S.gen;
     const { keyrings, rejected } = await desk.inbox();
-    if (S.mode === 'bridge') S.invites = await api('/api/invites');
     if (stale()) return;
+    if (S.mode === 'bridge') {
+      const invites = await api('/api/invites');
+      if (stale()) return;
+      S.invites = invites;
+    }
     S.keyrings = [...keyrings, ...tokenRings()];
     S.rejected = rejected;
     const created = await S.relay.queryAll({ kinds: [NM.KIND.CREATE_GROUP], authors: [S.me] });
@@ -2318,7 +2703,7 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
     if (trust.keyring) ids.add(trust.keyring);
     if (S.link.topic && NM.TOPIC_ID.test(S.link.topic)) ids.add(S.link.topic);
     const scopes = new Map(), views = new Map(), access = new Map(), authors = new Set();
-    if (!trust.keyring) {
+    if (!trust.keyring && trust.operator_pubkeys.length) {
       const root = NM.rootScope(trust);
       const evs = await desk.scopeEvents(root);
       scopes.set('', root); views.set('', NM.buildView(root, evs));
@@ -2393,9 +2778,11 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
       if (el.type === 'radio') { if (el.checked) kept[keyOf(el)] = el.value; }
       else kept[keyOf(el)] = el.type === 'checkbox' ? el.checked : el.value;
     }
+    const returningOpen = $('.returning')?.open;
     const active = document.activeElement;
     const focus = active && active.name && active.closest('[data-keep]') ? keyOf(active) : null;
     $('#app').innerHTML = out(page());
+    if (returningOpen && $('.returning')) $('.returning').open = true;
     for (const el of document.querySelectorAll('[data-keep] [name]')) {
       const k = keyOf(el);
       if (el.type === 'file' || !(k in kept)) continue;
@@ -2410,9 +2797,11 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
   function page() {
     return html`${header()}
       <div class="page errors">${S.errors.map((e) => html`<div class="banner" role="alert"><span class="grow">${e.text}</span><button class="btn tiny ghost" data-act="dismiss" data-id="${e.id}">dismiss</button></div>`)}</div>
-      ${S.desk && S.loaded ? html`${overview()}<div class="shell page">${sidebar()}<main id="main">${mainPanel()}</main></div>` : html`<div class="page" style="padding-block: 24px 48px">${onboarding()}</div>`}
+      ${S.desk && S.store.needsBackup ? html`<div class="page backup"><div class="banner info"><span class="grow"><b>Save your browser key before signing out.</b> Download the secret key file and keep it private.</span><button class="btn primary" data-act="backup-key">Back up your nsec1… key</button></div></div>` : ''}
+      ${S.chapter !== 'switchboard' ? html`<main class="page chapter">${new Raw($('#docs-' + S.chapter).innerHTML)}</main>` :
+        S.desk && S.loaded ? html`${overview()}<div class="shell page">${sidebar()}<main id="main">${mainPanel()}</main></div>` : html`<main class="page landing">${S.desk ? html`<p role="status">Loading workspace…</p><button class="btn" data-act="refresh">Retry loading</button>` : onboarding()}</main>`}
       ${footer()}
-      ${S.modal ? modal() : ''}`;
+      ${S.desk && S.modal ? modal() : ''}`;
   }
   /** The wordmark, then what this tab is connected as: its relay, the persona it signs
       as, pairing, and the theme. */
@@ -2424,12 +2813,12 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
         <a class="btn tiny ghost" href="https://github.com/awowIO/crosswire" target="_blank" rel="noopener noreferrer" title="Source code, CLI & agent plugins on GitHub">GitHub · awowIO/crosswire ↗</a>
         <span class="badge mode ${S.mode === 'bridge' ? 'teal' : ''}">${S.mode === 'bridge' ? 'local bridge · key stays in its 0600 file' : 'standalone · ' + (S.signer ? S.signer.type + ' key' : 'no key yet')}</span>
         ${S.trust ? html`<span class="pill" title="${S.trust.relay}"><span class="dot ${S.status}"></span>${S.status} · ${new URL(S.trust.relay).host}</span>` : ''}
-        ${S.trust && S.status !== 'ready' && S.status !== 'connecting' ? html`<button class="btn tiny" data-act="reconnect">Reconnect</button>` : ''}
-        ${st ? html`<label class="sr" for="hp">Persona this tab signs as</label><select id="hp" data-change="persona" title="the persona this tab signs as">${personaOptions()}</select>` : ''}
+        ${st && S.desk ? html`<label class="sr" for="hp">Persona this tab signs as</label><select id="hp" data-change="persona" title="the persona this tab signs as">${personaOptions()}</select>` : ''}
         ${S.desk && S.loaded ? html`<button class="btn tiny primary" data-act="pair">Pair Agent / MCP</button>` : ''}
-        ${S.desk ? html`<button class="btn tiny ghost" data-act="refresh">Refresh</button>` : ''}
+        ${S.desk ? html`<button class="btn tiny ghost" data-act="refresh">Refresh</button><button class="btn" data-act="lock">Sign out / Lock</button>` : ''}
         <button id="theme" class="btn ghost" data-act="theme" title="Switch to the ${themeNow() === 'dark' ? 'light' : 'dark'} theme" aria-label="Switch color theme">◐</button>
-      </div></header>`;
+      </div></header>
+      <nav class="tabs chapters page" aria-label="How It Works &amp; Docs">${Object.entries(CHAPTERS).map(([id, label]) => html`<button class="tab ${id === S.chapter ? 'on' : ''}" aria-current="${id === S.chapter ? 'page' : 'false'}" data-act="chapter" data-id="${id}">${label}</button>`)}</nav>`;
   }
   /** One tabular counter per fact this tab read: rooms, personas, seats, the selected
       room's epoch, what waits at the gate, and whether an MCP server is live here. */
@@ -2449,43 +2838,69 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
     </section>`;
   }
   function footer() {
-    return html`<footer class="foot page"><span><b>crosswire.sh</b> · <a href="https://github.com/awowIO/crosswire" target="_blank" rel="noopener noreferrer">github.com/awowIO/crosswire ↗</a>${S.mode === 'bridge' ? ' ' + S.bridge.state.version : ''} · CLI <code>crosswire</code> or <code>nostr-mailbox</code> · Waitlist via <a href="https://maywe.email" target="_blank" rel="noopener noreferrer">maywe.email</a></span>
+    return html`<footer class="foot page"><span><b>crosswire.sh</b> · <a href="https://github.com/awowIO/crosswire" target="_blank" rel="noopener noreferrer">github.com/awowIO/crosswire ↗</a>${S.bridge?.state ? ' ' + S.bridge.state.version : ''} · CLI <code>crosswire</code> or <code>nostr-mailbox</code> · Waitlist via <a href="https://maywe.email" target="_blank" rel="noopener noreferrer">maywe.email</a></span>
       <span>NIP-42 auth · NIP-43 invites · NIP-29 rooms · NIP-44 v2 payloads · every id and Schnorr signature verified in this tab</span></footer>`;
   }
 
   function mayweInviteCard() {
-    const repo = html`<p class="small muted" style="margin-top:8px">Open source: <a href="https://github.com/awowIO/crosswire" target="_blank" rel="noopener noreferrer">github.com/awowIO/crosswire ↗</a>. An organization runs its own relay from <code>awowIO/nostr-relay-deploy</code>.</p>`;
     if (!mayweKey()) {
       return html`<section class="card" data-keep="maywe">
-        <div class="meta"><span class="badge teal">02 · Request an invite</span></div>
+        <div class="meta"><span class="badge teal">02 · Request an Invite</span></div>
         <h2 style="margin-top:6px">No invite yet?</h2>
         <p class="muted">Ask a member of this relay for a single-use <code>nm1_</code> link, minted in their console or with <code>crosswire invite</code>. For the public switchboard, request one on <strong>https://crosswire.sh</strong>, where the waitlist form runs on MayWe (maywe.email).</p>
-        ${repo}</section>`;
+        </section>`;
     }
     return html`<section class="card" data-keep="maywe">
-      <div class="meta"><span class="badge teal">02 · Request an invite</span><span class="badge">MayWe · maywe.email</span></div>
-      <h2 style="margin-top:6px">Join the crosswire.sh invite waitlist</h2>
-      <p class="muted"><strong>crosswire.sh</strong> is invite-only. Admitted members mint single-use <code>nm1_</code> invite links for friends and agent seats. Leave your email: <strong>MayWe</strong> (<a href="https://maywe.email" target="_blank" rel="noopener noreferrer">maywe.email</a>) sends a one-click confirmation, and your <code>nm1_</code> admission link follows by mail.</p>
+      <h2>02 · Request an Invite</h2>
+      <p class="muted">Join the waitlist. MayWe sends a confirmation link to your email.</p>
       ${S.mayweSent ? html`<div class="banner info" role="status"><span class="grow">✓ Request received for <strong>${S.mayweSent}</strong>. MayWe sent a confirmation link to that inbox; once you confirm it, you are on the crosswire.sh invite list.</span></div>` : html`
       <form data-form="maywe-invite" class="stack">
         <div class="row">
           <div><label for="mw-email">Email address</label><input id="mw-email" name="email" type="email" required maxlength="255" placeholder="you@domain.com" autocomplete="email"></div>
           <div><label for="mw-note">Agents / use case (optional)</label><input id="mw-note" name="note" maxlength="500" placeholder="e.g. Claude Code + ChatGPT across 2 machines"></div>
-          <input type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
+          <input type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" hidden>
           <div class="fit"><button class="btn primary" type="submit">Request Invite →</button></div>
         </div>
       </form>`}
-      ${repo}</section>`;
+      </section>`;
   }
 
   // -------------------------------------------------------------- onboarding
+  const CHAPTERS = {
+    switchboard: 'Switchboard', modes: 'How It Works', permissions: 'ACLs & Encryption',
+    architecture: 'Architecture Maps', reference: 'CLI, MCP & Self-Hosting',
+  };
+  const repo = 'https://github.com/awowIO/crosswire';
+  const uvInstall = 'uv tool install git+' + repo;
+  const installHarness = (name) => `git clone ${repo} && python3 crosswire/scripts/sync_plugin.py --install --harness ${name}`;
+  const HARNESSES = {
+    'Claude Code': [uvInstall + ' && claude mcp add nostr-mailbox -- crosswire mcp', 'Claude Code starts the local MCP server over stdio.'],
+    Codex: [uvInstall + ' && codex mcp add nostr-mailbox -- crosswire mcp', 'Codex starts the local MCP server over stdio.'],
+    'CLI (uv)': [uvInstall, 'After joining, run crosswire relay check to see which key the relay admitted.'],
+    'Claude Desktop': [installHarness('claude-desktop'), 'Run from a terminal with Python 3.12+ and ~/.local/bin on PATH. Restart Claude Desktop to load its MCP configuration.'],
+    ChatGPT: [uvInstall, 'Run on your HTTPS connector host. Proxy its loopback MCP endpoint through TLS and use the public /mcp URL with OAuth in ChatGPT.',
+      'export NOSTR_MAILBOX_HOME="$HOME/.config/crosswire-chatgpt" && crosswire join && crosswire mcp --http 127.0.0.1:7891'],
+    Antigravity: [installHarness('antigravity'), 'Use Python 3.12+ and ~/.local/bin on PATH. Restart Antigravity to load the nostr-mailbox skill.'],
+    Cursor: [installHarness('cursor'), 'Use Python 3.12+ and ~/.local/bin on PATH. Open a new Cursor session to load the skill.'],
+  };
+  function quickstart() {
+    const [install, note, join = 'crosswire join'] = HARNESSES[S.harness];
+    const commands = install + '\n' + join;
+    return html`<section class="quickstart"><h2>Try It Now</h2>
+      <p class="intro">An invite-only message bus for people and coding agents.</p>
+      <p>Connect two machines to the same encrypted room. Post from your terminal, read from your agent, and acknowledge the handoff.</p>
+      <div class="harnesses" role="group" aria-label="Choose a harness">${Object.keys(HARNESSES).map((id) => html`<button class="btn" aria-pressed="${id === S.harness}" data-act="harness" data-id="${id}">${id}</button>`)}</div>
+      <div class="terminal"><header><span>${S.harness} · terminal</span><button class="btn tiny" data-act="copy" data-text="${commands}">Copy commands</button></header><pre><code>${commands}</code></pre></div>
+      <p>Paste the invite link at the <code>crosswire join</code> prompt.</p><p class="muted">${note}</p>
+    </section>`;
+  }
   function onboarding() {
-    const cards = [];
     if (S.mode === 'bridge') {
-      const st = S.bridge.state;
+      const cards = [quickstart()], st = S.bridge.state;
+      if (!st) return cards;
       if (!st.trust) {
         const tok = S.link.join || '';
-        cards.push(html`<div class="grid2"><section class="card hero" data-keep="join"><div class="meta"><span class="badge sage">01 · Already invited</span><span class="badge">NIP-43 single-use nm1_</span></div>
+        cards.push(html`<div class="grid2"><section class="card hero" data-keep="join"><div class="meta"><span class="badge sage">01 · Sign In or Redeem Invite</span><span class="badge">NIP-43 single-use nm1_</span></div>
           <h2 style="margin-top:6px">${S.link.topic ? 'Join the campaign & open the topic' : 'Open your invite link or paste your nm1_ code'}</h2>
           <p class="muted">No campaign at <code>${st.trust_file}</code> yet. ${tok ? 'The invite from your link is filled in below; check what it joins, then claim it.' : html`Paste the <code>nm1_…</code> token or the join link you were sent.`} Persona <strong>${st.active_persona}</strong> joins: its key is created (mode 0600) if it has none, <code>nostr.toml</code> is written, and the single-use invite is redeemed (NIP-43). The key never enters this page.</p>
           ${tok ? inviteSummary(tok) : ''}
@@ -2498,40 +2913,33 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
           <div class="actions"><button class="btn primary" data-act="persona-create" data-name="${st.active_persona}">Create persona ${st.active_persona}</button></div></section>`);
       } else if (S.link.join && S.status !== 'connecting') cards.push(bridgeInviteCard());
       cards.push(personaCard());
-      if (st.trust && st.identity && !S.link.join) cards.unshift(html`<section class="card"><p class="muted">${S.status === 'connecting' ? 'Connecting to ' + new URL(st.trust.relay).host + ' as persona ' + st.active_persona + '…' : html`Not connected to the relay as persona <strong>${st.active_persona}</strong>. The error above says why; Reconnect is in the header. A persona that is not a member yet joins from an <code>nm1_…</code> invite link.`}</p></section>`);
+      if (st.trust && st.identity) cards.push(html`<section class="card"><h2>01 · Sign In or Redeem Invite</h2><p>Use the workstation key for ${st.active_persona} on ${st.trust.relay}.</p><button class="btn primary" data-act="reconnect" ${S.signingIn ? 'disabled' : ''}>Sign in as ${st.active_persona}</button></section>`);
       return cards;
     }
-    const leftCards = [];
-    if (!S.signer) {
-      leftCards.push(html`<section class="card hero" data-keep="key"><div class="meta"><span class="badge sage">01 · Already invited</span><span class="badge">client-side secp256k1</span></div>
-        <h2 style="margin-top:6px">Step 1 · Create or connect your key</h2>
-        <p class="muted">Every person and every agent seat signs with a key of its own. Create one here in 1 click, import an <code>nsec1…</code>, or use a NIP-07 browser extension. Then paste your <code>nm1_…</code> invite code to unlock the switchboard.</p>
-        <div class="row"><div><label for="kh">Handle (kind 0 profile)</label><input id="kh" name="handle" placeholder="e.g. roland" autocomplete="nickname"></div>
-        <div><label for="kn">Import nsec (optional)</label><input id="kn" name="nsec" placeholder="nsec1…" type="password" autocomplete="off"></div></div>
-        <label class="radio" style="margin-top:12px"><input type="checkbox" name="remember"> Remember this key on this device (localStorage). Unchecked, it lives only as long as this tab.</label>
-        <div class="actions"><button class="btn primary" data-act="key-create">Create keypair (1 click)</button><button class="btn" data-act="key-import">Import nsec</button>
-        ${window.nostr ? html`<button class="btn" data-act="key-nip07">Use NIP-07 extension</button>` : html`<span class="small muted">no NIP-07 extension found in this browser</span>`}</div></section>`);
-    }
-    if (S.link.join) leftCards.push(claimCard());
-    else if (!S.trust) {
-      const guess = location.protocol === 'https:' ? `wss://${location.host}` : 'wss://crosswire.sh';
-      leftCards.push(html`<section class="card" data-keep="manual"><div class="meta">${S.signer ? html`<span class="badge sage">01 · Already invited</span>` : ''}<span class="badge">nm1_ token or link</span></div>
-        <h2 style="margin-top:6px">${S.signer ? 'Redeem your nm1_ invite or connect to a relay' : 'Step 2 · Paste your nm1_ invite token or link'}</h2>
-        <p class="muted">Have an invite link or <code>nm1_…</code> token from a member? Paste it below to join the switchboard and pair your coding agents.</p>
-        <div class="row"><div><label for="mt">Invite token or join link</label><input id="mt" name="token" placeholder="nm1_… or https://crosswire.sh/join/#nm1_…" autocomplete="off" spellcheck="false"></div><div class="fit"><button class="btn primary" data-act="use-token">Open invite</button></div></div>
-        ${S.signer ? html`<details class="more"><summary>Already an enrolled relay member? Connect directly (NIP-42)</summary>
-        <div class="grid2" style="margin-top:10px">
-          <div><label for="mr">Relay</label><input id="mr" name="relay" value="${guess}" placeholder="wss://…"></div>
-          <div><label for="mc">Campaign</label><input id="mc" name="campaign" value="crosswire" placeholder="crosswire"></div>
-          <div><label for="mo">Operator npub</label><input id="mo" name="operator" placeholder="npub1…"></div>
-          <div><label for="mk">campaign_key (64 hex, optional)</label><input id="mk" name="campaign_key" type="password" autocomplete="off"></div>
-        </div><div class="actions"><button class="btn" data-act="manual-connect">Connect (NIP-42)</button></div></details>` : ''}</section>`);
-    }
-    if (leftCards.length) {
-      cards.push(html`<div class="grid2"><div class="stack">${leftCards}</div><div>${mayweInviteCard()}</div></div>`);
-    }
-    if (!cards.length) cards.push(html`<section class="card"><p class="muted">Working…</p></section>`);
-    return cards;
+    const saved = S.store.trust || {};
+    return html`<div class="front-grid"><div>${quickstart()}</div><div class="stack">
+      <section class="card gate"><h2>01 · Sign In or Redeem Invite</h2>
+        <form data-form="redeem" data-keep="redeem" class="stack">
+          <label>Invite token or join link<input name="token" value="${S.link.join || ''}" placeholder="nm1_… or https://crosswire.sh/join/#nm1_…" autocomplete="off" required spellcheck="false"></label>
+          <label>Handle (optional)<input name="handle" placeholder="e.g. alice" autocomplete="nickname"></label>
+          <p class="muted">${S.signer ? 'This invite will use the key already in this tab.' : 'Your browser creates a signing key when you redeem the invite.'}</p>
+          <details><summary>Use an existing key for this invite</summary>
+            <label>Secret key<input name="invite_nsec" type="password" placeholder="nsec1…" autocomplete="off" spellcheck="false"></label>
+            ${window.nostr ? html`<label class="radio"><input name="extension" type="checkbox">Use my NIP-07 extension</label>` : ''}
+          </details>
+          <button class="btn primary" ${S.signingIn ? 'disabled' : ''}>Redeem Invite &amp; Sign In in 1 Click</button>
+        </form>
+        <details class="returning" ${S.signer ? 'open' : ''}><summary>Returning member? Sign in with your key</summary>
+          <form data-form="sign-in" data-keep="returning" class="stack">
+            <label>Secret key<input name="nsec" type="password" placeholder="nsec1…" autocomplete="off" spellcheck="false"></label>
+            <div class="row"><label>Relay<input name="relay" value="${saved.relay || 'wss://crosswire.sh'}" required></label>
+            <label>Campaign<input name="campaign" value="${saved.campaign || 'crosswire'}" required></label></div>
+            <label>Original invite for campaign keys (optional on a new device)<input name="declaration" autocomplete="off" spellcheck="false"></label>
+            <div class="actions"><button class="btn primary" ${S.signingIn ? 'disabled' : ''}>Sign in${S.signer ? ' with saved key' : ' with nsec'}</button>
+            <button class="btn" type="button" data-act="nip07" ${window.nostr && !S.signingIn ? '' : 'disabled'}>Use NIP-07 extension</button></div>
+          </form></details>
+        ${S.signingIn ? html`<p role="status">Checking relay authentication and membership…</p>` : ''}
+      </section>${mayweInviteCard()}</div></div>`;
   }
   /** What an invite joins, decoded in this tab before anything is redeemed. */
   function inviteSummary(token) {
@@ -2578,21 +2986,6 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
     return html`<div class="stack small"><div><label for="pp">Persona</label><select id="pp" name="persona" data-change="persona">${personaOptions()}</select></div>
       <div class="row" data-keep="persona-new"><div><label for="pn">New persona</label><input id="pn" name="new_persona" placeholder="e.g. alice-work" autocomplete="off" spellcheck="false"></div><div class="fit"><button class="btn tiny" data-act="persona-create">+ New persona</button></div></div></div>`;
   }
-  function claimCard() {
-    let inv;
-    try { inv = NM.decodeInviteToken(S.link.join); } catch (e) { return html`<section class="banner">This invite link does not decode: ${e.message}</section>`; }
-    const topic = inv.extras.topic || inv.extras.keyring || S.link.topic || null;
-    const steps = S.claim ? S.claim.steps : [];
-    return html`<section class="card hero" data-keep="claim"><h2>${topic ? 'Claim Invite & Open Topic' : 'Claim Invite'}</h2>
-      ${inviteSummary(S.link.join)}
-      ${topic ? html`<p class="small muted">${inv.extras.epochs ? `Epochs ${Object.keys(inv.extras.epochs).join(', ')} of ${topic} are carried in the token.` : `Access to ${topic} is requested (kind 9021) once you are in${S.link.ticket ? ', presenting the ticket from your link' : ''}.`}</p>` : ''}
-      <p class="small muted">The single-use code stays in this tab: it was read from the URL fragment, which a browser never sends to a server, and it is spent with one NIP-43 claim signed by your key.</p>
-      <div class="row"><div><label for="cm">Your name on the bus</label><input id="cm" name="member" value="${inv.member || S.store.handle || ''}"></div>
-      <div class="fit"><button class="btn primary" data-act="claim" ${S.signer && !(S.claim && S.claim.busy) ? '' : 'disabled'}>${topic ? 'Claim Invite & Open Topic' : 'Claim Invite'}</button></div></div>
-      ${S.signer ? '' : html`<p class="small muted">Create or import your key above first.</p>`}
-      ${steps.length ? html`<ul class="steps">${steps.map((s) => html`<li class="${s.state}">${s.state === 'done' ? '✓' : s.state === 'fail' ? '✗' : '…'} ${s.text}</li>`)}</ul>` : ''}</section>`;
-  }
-
   // ------------------------------------------------------------------ sidebar
   function sidebar() {
     const sel = S.selected || {};
@@ -2613,6 +3006,7 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
     const parts = new Set(['inbox', ...savedParts(), ...[...mb.items, ...mb.held].filter((m) => m.owner === S.me).map((m) => m.part), ...[...mb.grants.values()].flatMap((g) => g.parts)]);
     const heldMail = mb.held.filter((m) => !m.ruling).length;
     return html`<aside class="side">
+      ${S.trust.operator_pubkeys.length ? '' : html`<p class="small muted">Showing personal mail and topics with keys addressed to you. Sign in with the original invite to restore campaign access on this device.</p>`}
       <div class="small muted">campaign</div><div><strong>${S.trust.campaign}</strong></div>
       <div class="small muted" title="${S.trust.relay}">${new URL(S.trust.relay).host}</div>
       <h3><span>Shared topics</span><button class="btn tiny" data-act="new-topic">+ New Topic</button></h3>
@@ -3052,14 +3446,14 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
     const p = S.pair, scope = p.room === null ? null : S.scopes.get(p.room) || null, rooms = pairRooms();
     const topic = scope && scope.kind === 'topic' ? scope.group : null, st = S.mode === 'bridge' ? S.bridge.state : null;
     const cmd = pairCmd(scope, p.exported), setup = clientSetup(p.client, cmd, topic, p.info), m = p.minted;
-    const canMint = st ? st.capabilities.invite && (!topic || scope.admins.has(S.me)) : !topic;
+    const canMint = st ? st.capabilities.invite && (!topic || scope.admins.has(S.me)) : !topic && scope && scope.kind === 'root';
     const why = !st ? html`This tab mints campaign invites only: one into a topic also needs a NIP-29 group code and the topic's key-ring registry, which <code>crosswire topic invite</code> and <code>nostr-mailbox ui</code> keep.`
       : !st.capabilities.invite ? html`Minting needs this home's relay admin reach, <code>${st.admin.path}</code>, which <code>nostr-mailbox setup --relay … --kubectl</code> (or <code>--compose</code>, <code>--exec</code>) writes.`
         : html`Only the room's admins (${[...scope.admins].map(who).join(', ')}) mint invites into it.`;
     const row = (label, sub, value, copy, extra) => html`<tr><th scope="row">${label}<span class="secondary">${sub}</span></th>
       <td>${value ? html`<code>${value}</code>` : ''}${extra || ''}</td><td class="act">${value ? html`<button class="btn tiny" data-act="copy" data-text="${value}">${copy}</button>` : ''}</td></tr>`;
     const none = html`<span class="muted">—</span>`;
-    const prompt = scope ? agentPrompt(scope, cmd, p.exported) : null, toml = S.mode === 'standalone' && scope ? exportToml(scope) : null;
+    const prompt = scope ? agentPrompt(scope, cmd, p.exported) : null, toml = S.mode === 'standalone' && scope && S.trust.operator_pubkeys.length ? exportToml(scope) : null;
     return html`<div data-keep="pair">
       <div class="configurator">
         <div><label for="pcl">Client</label><select id="pcl" data-change="pair-client">${CLIENTS.map(([k, l]) => html`<option value="${k}" ${k === p.client ? 'selected' : ''}>${l}</option>`)}</select></div>
@@ -3188,13 +3582,8 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
     S.bridge.state = await api('/api/persona', { name, create: !!create });
     const st = S.bridge.state;
     S.bridge.persona = st.active_persona;
-    S.gen += 1;
-    if (S.relay) S.relay.close();
-    for (const l of S.live) l.close();
-    Object.assign(S, { relay: null, desk: null, me: null, status: 'idle', loaded: false, live: [], liveSignature: null,
-      keyrings: [], scopes: new Map(), views: new Map(), access: new Map(), mailbox: null, profiles: new Map(),
-      selected: null, tab: 'bus', replyTo: null, minted: null, claim: null, rejected: [], invites: { topics: {} },
-      store: { seat: st.seat, handle: st.seat }, signer: null, trust: null });
+    disconnect();
+    Object.assign(S, { me: null, tab: 'bus', store: { seat: st.seat, handle: st.seat }, signer: null, trust: null });
     toast(create ? `Persona ${st.active_persona} created (0600)` : `Signing as persona ${st.active_persona}`);
     if (st.identity && st.trust) { S.signer = new NM.BridgeSigner('', S.bridge.token, S.bridge.persona); S.trust = NM.makeTrust(st.trust); await connect(); }
     else draw();
@@ -3214,19 +3603,80 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
     S.selected = { kind: 'scope', id: topic }; S.tab = 'bus';
     await refresh();
   }
-  async function useKey(signer, handle) {
-    S.signer = signer; S.me = await signer.getPublicKey();
-    S.store.handle = handle || S.store.handle || ''; S.store.seat = seatSlug(S.store.handle);
-    saveStore(); draw();
+  function setSigner(signer, handle, generated = false) {
+    if (signer !== S.signer) {
+      S.store = { signer: signer.type, needsBackup: generated };
+      if (signer.type === 'browser') S.store.nsec = NM.nsec(signer.secret);
+      S.signer = signer;
+    }
+    if (handle) S.store.handle = handle;
+    S.store.seat = seatSlug(S.store.handle);
+    saveStore();  // keep a newly generated key before spending a single-use invite
+  }
+  async function signIn(f, extension = false) {
+    const signer = extension ? new NM.Nip07Signer(window.nostr) :
+      f.nsec.trim() ? new NM.KeySigner(NM.bech32Decode('nsec', f.nsec.trim())) : S.signer;
+    if (!signer) throw new NM.NMError('Enter your saved nsec1… key.');
+    const pk = await signer.getPublicKey(), target = { relay: f.relay.trim(), campaign: f.campaign.trim() };
+    let bundle = (S.store.pubkey || S.me) === pk ? S.store.trust : null;
+    if (bundle && (bundle.relay !== target.relay || bundle.campaign !== target.campaign)) {
+      bundle = null; S.store.tokenRings = []; S.store.requested = [];
+    }
+    const sealed = localStorage.getItem(declarationKey(pk, target));
+    if (f.declaration.trim()) bundle = NM.decodeInviteToken(NM.readInviteInput(f.declaration).join).bundle;
+    else if (sealed && !bundle) bundle = JSON.parse(await signer.nip44Decrypt(pk, sealed));
+    if (bundle && (bundle.relay !== target.relay || bundle.campaign !== target.campaign)) throw new NM.NMError('The declaration names a different relay or campaign.');
+    // Without an operator declaration only discover delivered topic keys and personal mail.
+    // Never assume a member is an operator or open an unconfigured root in cleartext.
+    S.trust = bundle ? NM.makeTrust(bundle) : NM.makeTrust(target, { discover: true });
+    setSigner(signer);
+    S.store.trust = bundle; S.me = pk; S.store.pubkey = pk; saveStore();
+    await connect();
+  }
+  function lock() {
+    disconnect();
+    S.signer = null; S.me = null; S.trust = null; S.store = {}; S.link = {};
+    sessionStorage.removeItem(STORE); localStorage.removeItem(STORE); sessionStorage.removeItem(LINK);
+    document.querySelector('#app').replaceChildren();
+    location.reload();  // discard form drafts, clipboard buttons, crypto caches and pending UI work
+  }
+  async function finishInvite(inv, member) {
+    const topic = inv.extras.topic || inv.trust.keyring || S.link.topic;
+    const desk = S.desk, pk = S.me;
+    if (topic && inv.extras.epochs && Object.keys(inv.extras.epochs).length) {
+      const epochs = Object.entries(inv.extras.epochs).map(([n, key]) => ({ n: Number(n), key }));
+      S.store.tokenRings = [...(S.store.tokenRings || []).filter((r) => r.topic !== topic), { topic, epochs: inv.extras.epochs, current: inv.extras.current,
+        owner: inv.extras.owner ? NM.pubkeyHex(inv.extras.owner) : inv.trust.operator_pubkeys[0], at: NM.nowS() }];
+      saveStore();
+      await desk._ring(pk, topic, topic, epochs, inv.extras.current, 'token');
+    }
+    if (topic) {
+      const { group_code: code, redeem } = inv.extras;
+      const proof = code && redeem ? NM.hex(NM.schnorrSign(NM.sha256(NM.concat(NM.utf8('nostr-mailbox/topic-redeem/v1'),
+        NM.sha256(NM.utf8(code)), NM.unhex(pk))), NM.unhex(redeem))) : null;
+      await desk.requestAccess(topic, 'Joined via invite', code, S.link.ticket, proof);
+      S.store.requested = [...(S.store.requested || []).filter((r) => r.topic !== topic), { topic, at: NM.nowS() }]; S.link.topic = topic;
+    }
+    if (member) {
+      await desk.profile(member);
+      if (!inv.trust.keyring) await desk.post(NM.rootScope(inv.trust), NM.BUS, {
+        body: `${member} joined campaign ${inv.trust.campaign} (${NM.npub(pk)})`, kind: 'handoff',
+        subject: `member-joined:${member}` }, `member-joined:${member}:${pk.slice(0, 16)}`);
+    }
+    forgetLink('role'); forgetLink('ticket'); saveStore();
   }
   const acts = {
     theme() { const next = themeNow() === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = next; localStorage.setItem(THEME, next); draw(); },
     home() {
-      S.modal = null;
+      S.modal = null; S.chapter = 'switchboard';
       if (S.loaded) { const id = S.views.has(S.primary) ? S.primary : [...S.scopes.keys()][0]; S.selected = id === undefined ? { kind: 'mail', part: 'inbox' } : { kind: 'scope', id }; S.tab = 'bus'; }
       draw();
     },
     dismiss(d) { S.errors = S.errors.filter((e) => e.id !== d.id); draw(); },
+    chapter(d) { if (Object.hasOwn(CHAPTERS, d.id)) { S.chapter = d.id; S.modal = null; draw(); } },
+    harness(d) { if (Object.hasOwn(HARNESSES, d.id)) { S.harness = d.id; draw(); } },
+    lock,
+    async nip07() { await signIn(form($('[data-keep="returning"]')), true); },
     async reconnect() { await connect(); },
     async refresh() { await refresh(); },
     select(d) { S.selected = { kind: 'scope', id: d.id }; S.tab = 'bus'; S.replyTo = null; draw(); },
@@ -3258,13 +3708,13 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
       const all = [...S.rejected, ...[...S.views.values()].flatMap((v) => v.rejected), ...(S.mailbox ? S.mailbox.rejected : [])];
       openModal('Records not shown, and why', () => html`<ul class="list">${all.map((r) => html`<li class="small"><span class="chip">${String(r.id).slice(0, 12)}</span> ${r.reason}</li>`)}</ul>`);
     },
+    'backup-key'() {
+      acts.download({ text: S.store.nsec + '\n', name: 'crosswire-' + S.me.slice(0, 12) + '.nsec.txt' });
+      toast('Key file requested. Keep the downloaded file private.');
+    },
     'show-nsec'() { openModal('Back up your key', () => html`<p class="banner"><span class="grow">Whoever holds this signs as you. Store it in a password manager; never paste it into a chat.</span></p><pre class="doc">${S.store.nsec}</pre>`); },
-    forget() { if (!confirm('Forget this key on this device? Without a backup it is gone.')) return; localStorage.removeItem(STORE); sessionStorage.removeItem(STORE); location.reload(); },
+    forget() { if (confirm('Forget this key on this device? Without a backup it is gone.')) lock(); },
     async profile() { const name = prompt('Your handle', S.store.handle || ''); if (!name) return; await S.desk.profile(name); S.store.handle = name; saveStore(); S.profiles.set(S.me, name); toast('Profile published (kind 0)'); draw(); },
-    async 'key-create'() { const f = form($('[data-keep="key"]')); S.store.remember = f.remember === 'on'; const sk = NM.generateSecret(); S.store.nsec = NM.nsec(sk); S.store.signer = 'browser'; await useKey(new NM.KeySigner(sk), f.handle); toast('Keypair created'); },
-    async 'key-import'() { const f = form($('[data-keep="key"]')); S.store.remember = f.remember === 'on'; const sk = NM.bech32Decode('nsec', f.nsec.trim()); S.store.nsec = NM.nsec(sk); S.store.signer = 'browser'; await useKey(new NM.KeySigner(sk), f.handle); toast('Key imported'); },
-    async 'key-nip07'() { const f = form($('[data-keep="key"]')); S.store.remember = f.remember === 'on'; delete S.store.nsec; S.store.signer = 'nip07'; await useKey(new NM.Nip07Signer(window.nostr), f.handle); },
-    'use-token'() { S.link = NM.readInviteInput($('[data-keep="manual"] [name=token]').value); sessionStorage.setItem(LINK, JSON.stringify(S.link)); draw(); },
     async 'persona-create'(d) {
       const box = $('[data-keep="persona-new"] [name=new_persona]');
       const name = d.name || (box ? box.value : '').trim();
@@ -3278,12 +3728,6 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
     },
     'link-dismiss'() { for (const k of ['join', 'topic', 'role', 'ticket']) forgetLink(k); draw(); },
     async 'link-topic'() { forgetLink('join'); await requestLinkedTopic(S.store.handle); },
-    async 'manual-connect'() {
-      const f = form($('[data-keep="manual"]'));
-      S.trust = NM.makeTrust({ schema: NM.TRUST_SCHEMA, relay: f.relay.trim(), campaign: f.campaign.trim(), operator_pubkeys: [f.operator.trim()], campaign_key: f.campaign_key.trim() || null });
-      S.store.trust = { schema: NM.TRUST_SCHEMA, relay: S.trust.relay, campaign: S.trust.campaign, operator_pubkeys: S.trust.operator_pubkeys, campaign_key: S.trust.campaign_key }; saveStore();
-      await connect();
-    },
     async 'bridge-join'() {
       const f = form($('[data-keep="join"]'));
       const member = (f.member || '').trim() || null, typed = (f.token || '').trim();
@@ -3293,38 +3737,6 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
       S.bridge.state = await api('/api/state'); S.signer = new NM.BridgeSigner('', S.bridge.token, S.bridge.persona); S.trust = NM.makeTrust(S.bridge.state.trust);
       await connect();
       if (S.loaded) await requestLinkedTopic(member);
-    },
-    async claim() {
-      const inv = NM.decodeInviteToken(S.link.join);
-      const member = ($('[data-keep="claim"] [name=member]') || {}).value || inv.member || '';
-      const topic = inv.extras.topic || inv.extras.keyring || (S.link.topic && NM.TOPIC_ID.test(S.link.topic) ? S.link.topic : null);
-      const steps = []; S.claim = { busy: true, steps };
-      const step = async (textLabel, fn) => {
-        const s = { text: textLabel, state: '' }; steps.push(s); draw();
-        try { const r = await fn(); s.state = 'done'; draw(); return r; }
-        catch (e) { s.state = 'fail'; S.claim.busy = false; if (S.relay) S.relay.close(); S.desk = null; S.loaded = false; draw(); throw e; }
-      };
-      S.trust = inv.trust;
-      await step(`Connect and authenticate (NIP-42) to ${inv.trust.relay}`, async () => { S.relay = new NM.RelayClient(S.trust.relay, S.signer, { authUrl: S.trust.relay_auth_url || S.trust.relay, onState: (st) => { S.status = st; } }); await S.relay.connect(); S.me = S.relay.pubkey; S.desk = new NM.Desk(S.trust, S.signer, S.relay); });
-      const said = await step('Redeem the single-use invite (NIP-43 kind 28934)', () => S.relay.join(inv.code));
-      if (member) await step(`Publish your profile (kind 0) as ${member}`, () => S.desk.profile(member));
-      S.store.trust = inv.bundle; S.store.handle = member || S.store.handle; S.store.seat = seatSlug(S.store.handle);
-      if (inv.extras.epochs && topic) {
-        S.store.tokenRings = [...(S.store.tokenRings || []).filter((r) => r.topic !== topic), { topic, name: topic, epochs: inv.extras.epochs, current: inv.extras.current, owner: inv.extras.owner ? NM.pubkeyHex(inv.extras.owner) : inv.trust.operator_pubkeys[0], at: NM.nowS() }];
-        await step('Keep the topic keys from the token as a key ring to yourself (kind 1059)', () => S.desk._ring(S.me, topic, topic, Object.entries(inv.extras.epochs).map(([n, key]) => ({ n: Number(n), key })), inv.extras.current, 'token'));
-      }
-      if (member && !inv.trust.keyring) {
-        const root = NM.rootScope(inv.trust);
-        await step('Introduce yourself on bus (as `nostr-mailbox join --as` does)', () => S.desk.post(root, NM.BUS, { body: `${member} joined campaign ${inv.trust.campaign} (${NM.npub(S.me)})`, kind: 'handoff', subject: `member-joined:${member}` }, `member-joined:${member}:${S.me.slice(0, 16)}`));
-      }
-      if (topic) {
-        await step(`Ask for topic ${topic} (NIP-29 kind 9021${inv.extras.group_code ? ', with its invite code' : ''}${S.link.ticket ? ', presenting the invite ticket' : ''})`, () => S.desk.requestAccess(topic, `joined via invite${member ? ' as ' + member : ''}`, inv.extras.group_code || null, S.link.ticket || null));
-        S.store.requested = [...(S.store.requested || []).filter((r) => r.topic !== topic), { topic, at: NM.nowS() }];
-        S.link.topic = topic;
-      }
-      saveStore(); for (const k of ['join', 'role', 'ticket']) forgetLink(k);
-      S.claim = null; toast(`Joined: the relay said ${said || 'ok'}`);
-      await refresh();
     },
     async request(d) {
       const reason = ($('[data-keep="req"] [name=reason]') || {}).value || '';
@@ -3368,6 +3780,18 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
     await refresh();
   }
   const forms = {
+    async 'sign-in'(f) { await signIn(f); },
+    async redeem(f) {
+      const link = f.token.trim() === S.link.join ? S.link : NM.readInviteInput(f.token);
+      const inv = NM.decodeInviteToken(link.join), member = f.handle.trim() || inv.member || '';
+      S.link = link; sessionStorage.setItem(LINK, JSON.stringify(link));
+      if (f.extension && f.invite_nsec.trim()) throw new NM.NMError('Choose one signing key for this invite.');
+      const chosen = f.extension ? new NM.Nip07Signer(window.nostr) :
+        f.invite_nsec.trim() ? new NM.KeySigner(NM.bech32Decode('nsec', f.invite_nsec.trim())) : S.signer;
+      setSigner(chosen || new NM.KeySigner(NM.generateSecret()), member, !chosen);
+      S.trust = inv.trust;
+      await connect(inv, member);
+    },
     async post(f, el) {
       const scope = scopeNow(), file = el.querySelector('[name=file]').files[0];
       const refs = list(f.refs);
@@ -3463,8 +3887,15 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
     'pair-role'(el) { S.pair.role = el.value; draw(); },
     'pair-history'(el) { S.pair.history = el.value; draw(); },
   };
+  const PUBLIC = new Set(['theme', 'home', 'chapter', 'harness', 'copy', 'dismiss', 'maywe-invite', 'link-dismiss']);
+  const ENTRY = new Set(['redeem', 'sign-in', 'nip07', 'reconnect', 'bridge-join', 'persona', 'persona-create']);
   async function run(name, fn) {
+    const entry = ENTRY.has(name);
+    if (!S.desk && !entry && !PUBLIC.has(name)) return;
+    if (entry && S.signingIn) return;
+    if (entry) { S.signingIn = true; S.errors = []; }
     try { await fn(); } catch (e) { report(e, name); }
+    finally { if (entry) { S.signingIn = false; draw(); } }
   }
   document.addEventListener('click', (ev) => {
     const el = ev.target.closest('[data-act]');

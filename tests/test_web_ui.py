@@ -9,9 +9,8 @@ the relay's admin CLI for `/api/invite`: a recording program on a real subproces
 boundary, as in test_nostr_mailbox.py. That `ncli` itself mints such invites is
 witnessed by test_nostr_ncli.py against the real binary.
 
-What these witnesses cannot show: how the page draws in a real browser. The engine and
-the bridge are what decide every byte on the wire, and both run here; the DOM layer is
-held to parse, to be self-contained and to keep the full-width rule."""
+The standalone sign-in and lock witnesses drive headless Chromium against the same
+loopback relay, through the actual forms, session storage and WebSocket."""
 import base64
 import hashlib
 import hmac
@@ -25,9 +24,11 @@ import signal
 import subprocess
 import sys
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import urlsplit
+from urllib.request import urlopen
 
 import pytest
 
@@ -45,9 +46,11 @@ from nostr_mailbox import (
     bech32,
     blossom,
     cli,
+    loopback,
     nip44,
     secp256k1,
     ui,
+    ws,
 )
 from nostr_mailbox import event as event_mod
 from nostr_mailbox import relay as relay_mod
@@ -206,10 +209,11 @@ def test_the_page_is_one_self_contained_full_width_html_file():
                    'href="https://maywe.email"',
                    'https://newsletter.awow.io/v1/subscribe'):
         assert needed in page, needed
-    # The only absolute URLs: the repository, MayWe (its site, its subscribe endpoint and
+    # The only absolute URLs: the two repositories, MayWe (its site, its subscribe endpoint and
     # the two origins its publishable keys belong to), and crosswire.sh's own addresses.
     assert set(re.findall(r"(?:https?|wss?)://[a-z0-9./_-]+", page, re.I)) == {
-        "https://github.com/awowIO/crosswire", "https://maywe.email",
+        "https://github.com/awowIO/crosswire", "https://github.com/awowIO/nostr-relay-deploy",
+        "https://maywe.email",
         "https://newsletter.awow.io/v1/subscribe", "https://docs.awow.io",
         "https://crosswire.sh", "https://crosswire.sh/join/", "wss://crosswire.sh"}
     assert not re.search(r"<script[^>]+\bsrc=|<link[^>]+stylesheet", page, re.I)
@@ -247,7 +251,7 @@ def test_the_page_is_one_self_contained_full_width_html_file():
 
 def test_the_page_links_its_repository_and_asks_for_invites_on_maywe():
     """The header and the footer link the repository, the footer MayWe. Onboarding is two
-    columns: 01 for those already invited (a key, then an nm1_ token or join link), 02 a
+    columns: 01 for sign-in or single-click admission with a token or join link, 02 a
     waitlist request to MayWe's public subscribe with the publishable key of the origin
     it runs on, a honeypot, an optional use case in `details`, and a confirmation banner.
 
@@ -262,7 +266,7 @@ def test_the_page_links_its_repository_and_asks_for_invites_on_maywe():
     footer = re.search(r'<footer class="foot page">.*?</footer>', page, re.S).group(0)
     assert '<a href="https://github.com/awowIO/crosswire"' in footer
     assert '<a href="https://maywe.email"' in footer
-    assert "01 · Already invited" in page and "02 · Request an invite" in page
+    assert "01 · Sign In or Redeem Invite" in page and "02 · Request an Invite" in page
     assert page.count('placeholder="nm1_… or https://crosswire.sh/join/#nm1_…"') == 2
     card = re.search(r"function mayweInviteCard\(\) \{.*?\n  \}\n", page, re.S).group(0)
     for needed in ('<form data-form="maywe-invite"', 'name="email" type="email" required',
@@ -1004,7 +1008,7 @@ READ_INPUT = """(NM, input) => input.map((typed) => {
 
 @needs_node
 def test_the_invite_box_takes_a_bare_token_or_a_join_link(tmp_path, workstation):
-    """The console's invite box (the `use-token` and `bridge-join` actions) takes a bare
+    """The console's invite box (the `redeem` form and `bridge-join` action) takes a bare
     nm1_ token or a full join link, and reads from a link the same token the CLI's
     `join <link>` does, with the link's topic, role and ticket. A link with no token, or
     a token that does not decode, is refused there and then."""
@@ -1782,3 +1786,246 @@ def test_pair_coding_agent_hands_the_cli_a_topic_at_its_true_epoch_and_it_follow
     elsewhere.write_bytes((home / "nostr.toml").read_bytes())
     assert ui.Console(base=home, trust_path=elsewhere, quiet=True).state()["cli"] == shlex.join(
         ["nostr-mailbox", "--home", str(home), "--trust", str(elsewhere)])
+
+
+class ConsoleRelay(LoopbackRelay):
+    """Serve the unmodified standalone HTML alongside the relay's real NIP-11 and WS."""
+
+    def _http(self, sock, request):
+        if (request.path in ("/", "/join/") and
+                relay_mod.NIP11_ACCEPT not in request.headers.get("accept", "")):
+            loopback._respond(sock, 200, PAGE.read_bytes(), content_type="text/html; charset=utf-8")
+        else:
+            super()._http(sock, request)
+
+
+def _until(read):
+    deadline = time.monotonic() + 12
+    while time.monotonic() < deadline:
+        if value := read():
+            return value
+        time.sleep(0.05)
+    pytest.fail("timed out waiting for " + str(read))
+
+
+@contextmanager
+def _browser(tmp_path, page_url):
+    """Chromium's DevTools socket, using the package's stdlib WebSocket client."""
+    chrome = next((p for p in (shutil.which("chromium"), shutil.which("chromium-browser"),
+                               shutil.which("google-chrome"),
+                               "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+                   if p and Path(p).is_file()), None)
+    if chrome is None:
+        pytest.skip("Chromium is needed for the browser admission witness")
+    profile = tmp_path / "chromium"
+    with subprocess.Popen([chrome, "--headless", "--disable-gpu", "--no-first-run",
+                           "--no-default-browser-check", "--disable-background-networking",
+                           "--remote-debugging-port=0", f"--user-data-dir={profile}", page_url],
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) as browser:
+        try:
+            port_file = profile / "DevToolsActivePort"
+            _until(port_file.is_file)
+            port = port_file.read_text().splitlines()[0]
+            with urlopen(f"http://127.0.0.1:{port}/json/list", timeout=WAIT) as res:
+                target = next(t for t in json.load(res) if t["type"] == "page")
+            sock = ws.connect(target["webSocketDebuggerUrl"], timeout_s=WAIT)
+            try:
+                def command(method, params):
+                    sock.send_text(json.dumps({"id": 1, "method": method, "params": params}))
+                    while True:
+                        answer = json.loads(sock.recv_text(time.monotonic() + WAIT))
+                        if answer.get("id") == 1:
+                            break
+                    return answer["result"]
+
+                command("Page.setDownloadBehavior", {"behavior": "allow",
+                                                     "downloadPath": str(tmp_path)})
+                def evaluate(js):
+                    result = command("Runtime.evaluate", {"expression": js, "returnByValue": True,
+                                                          "userGesture": True})
+                    assert "exceptionDetails" not in result, result.get("exceptionDetails")
+                    return result["result"].get("value")
+                _until(lambda: evaluate("!!document.querySelector('[data-act=chapter]')"))
+                yield evaluate
+            finally:
+                sock.close()
+        finally:
+            browser.terminate()
+
+
+def test_public_harness_switcher_and_docs_chapters(tmp_path):
+    with ConsoleRelay() as relay, _browser(tmp_path, relay.http_url) as js:
+        assert js("document.querySelector('.quickstart h2').textContent") == "Try It Now"
+        harnesses = js("[...document.querySelectorAll('[data-act=harness]')].map(b=>b.textContent)")
+        assert harnesses == ["Claude Code", "Codex", "CLI (uv)", "Claude Desktop", "ChatGPT",
+                             "Antigravity", "Cursor"]
+        for harness in harnesses:
+            js(f"document.querySelector('[data-act=harness][data-id={json.dumps(harness)}]').click()")
+            shown = js("document.querySelector('.terminal code').textContent")
+            assert js("document.querySelector('.terminal [data-act=copy]').dataset.text") == shown
+            install, join = shown.splitlines()
+            assert "github.com/awowIO/crosswire" in install and "crosswire join" in join
+        chapters = [
+            ("modes", ["Two Modes on One Relay", "Persona-First", "Org Workspaces"]),
+            ("permissions", ["3-Gate ACL Primitives", "POOL <user>/agents",
+                             "Concrete Permission Matrix", "#partners-only", "#external-intake"]),
+            ("architecture", ["Enrollment & Cross-Pool Encryption Flow",
+                              "Physical Architecture Map: Clients vs. Wire vs. Relay Disk"]),
+            ("reference", ["CLI Quickstart", "mailbox_board", "GitHub Pages", "Kubernetes",
+                           "Multi-Agent Campaign Blueprints"]),
+        ]
+        for chapter, phrases in chapters:
+            js(f"document.querySelector('[data-act=chapter][data-id={chapter}]').click()")
+            assert all(p in js("document.querySelector('main').innerText") for p in phrases)
+            assert not js("!!document.querySelector('.shell, [data-act=pair], [data-act=lock]')")
+            if chapter == "architecture":
+                assert js("Array.from(document.querySelectorAll('main svg'), s=>s.getAttribute("
+                          "'viewBox'))") == ["0 0 1200 310", "0 0 1200 420"]
+                js("document.querySelector('#theme').click()")
+                assert js("document.querySelectorAll('main svg[role=img] title').length") == 2
+            if chapter == "reference":
+                assert js("document.querySelectorAll('main table td code').length") == 6
+        js("document.querySelector('[data-id=switchboard]').click()")
+        assert js("!!document.querySelector('[data-form=redeem]')")
+
+
+def test_browser_redeems_once_backs_up_locks_and_rechecks_membership(tmp_path):
+    with ConsoleRelay() as relay:
+        trust = Trust.from_mapping({"schema": "cf.transport/1", "relay": relay.url,
+                                    "campaign": "camp", "operator_pubkeys": [_npub(_pub(PEER_SK))],
+                                    "campaign_key": os.urandom(32).hex()})
+        token = cli._encode_invite_token(trust, relay.create_invite(), member=None)
+        with _browser(tmp_path, relay.http_url + "/join/#" + token) as js:
+            assert not js("location.hash")
+            assert js("document.querySelector('[name=token]').value") == token
+            assert not js("!!document.querySelector('.shell, [data-act=lock]')")
+            js("document.querySelector('[name=handle]').value='alice';"
+               "document.querySelector('[data-form=redeem] button').click()")
+            _until(lambda: js("!!document.querySelector('.shell')"))
+            assert len(relay.members) == 1
+            backup = js("document.querySelector('.backup button').textContent")
+            assert backup == "Back up your nsec1… key"
+            js("document.querySelector('.backup button').click()")
+            backup_file = _until(lambda: next(tmp_path.glob("crosswire-*.nsec.txt"), None))
+            nsec = backup_file.read_text().strip()
+            member = _pub(bech32.decode(bech32.NSEC, nsec))
+            assert member in relay.members
+            message = next(e for e in relay.stored() if e.kind == int(Kind.MESSAGE))
+            assert message.pubkey == member and "alice joined" not in message.content
+            assert "alice joined" in js("document.querySelector('.shell').innerText")
+            js("document.querySelector('[data-id=permissions]').click()")
+            assert js("!!document.querySelector('main table')")
+            assert js("!!document.querySelector('[data-act=lock]')")
+            js("document.querySelector('[data-act=lock]').click()")
+            _until(lambda: js("!!document.querySelector('[data-form=redeem]')"))
+            for store in ("localStorage", "sessionStorage"):
+                assert not js(f"{store}.getItem('nm.console.v1')")
+            assert not js("!!document.querySelector('.shell, [data-act=lock], [data-act=pair]')")
+            # The consumed invite cannot admit a second generated identity, even as a pasted URL.
+            js("document.querySelector('[name=token]').value=" +
+               json.dumps(relay.http_url + "/join/#" + token) + ";"
+               "document.querySelector('[data-form=redeem] button').click()")
+            _until(lambda: js("!!document.querySelector('[role=alert]')"))
+            assert relay.members == {member} and not js("!!document.querySelector('.shell')")
+
+            def returning(key):
+                for name, val in (("nsec", key), ("relay", relay.url), ("campaign", "camp")):
+                    js(f"document.querySelector('[name={name}]').value={json.dumps(val)}")
+                js("document.querySelector('[data-form=sign-in]').requestSubmit()")
+
+            returning(bech32.encode(bech32.NSEC, STRANGER_SK))
+            _until(lambda: js("document.querySelector('.errors').innerText.includes('membership')"))
+            assert not js("!!document.querySelector('.shell, [data-act=pair], [data-act=lock]')")
+            returning(nsec)
+            _until(lambda: js("!!document.querySelector('.shell')"))
+            assert "alice joined" in js("document.querySelector('.shell').innerText")
+            relay.remove_member(member)
+            _until(lambda: js("!!document.querySelector('[data-form=sign-in]')"))
+            assert not js("!!document.querySelector('.shell, [data-act=lock], [data-act=pair]')")
+
+
+def test_browser_rejects_a_relay_without_membership_before_spending_an_invite(tmp_path):
+    with ConsoleRelay(membership_required=False) as relay, _browser(tmp_path, relay.http_url) as js:
+        trust = Trust.from_mapping({"schema": "cf.transport/1", "relay": relay.url,
+                                    "campaign": "camp", "operator_pubkeys": [_npub(_pub(PEER_SK))]})
+        token = cli._encode_invite_token(trust, relay.create_invite(), member=None)
+        js("document.querySelector('[name=token]').value=" + json.dumps(token) +
+           ";document.querySelector('[data-form=redeem]').requestSubmit()")
+        _until(lambda: js("document.querySelector('.errors').innerText"
+                          ".includes('membership_required')"))
+        assert not relay.members and not js("!!document.querySelector('.shell, [data-act=lock]')")
+
+
+def test_extension_sign_in_waits_for_the_authenticated_membership_read(tmp_path):
+    """Hold the real relay's answer at the gate. Even with AUTH accepted, no room,
+    pair button or key backup is drawn until the protected subscription reaches EOSE."""
+    from threading import Event
+
+    checking, release = Event(), Event()
+
+    class SlowMembership(ConsoleRelay):
+        def _req(self, connection, sub_id, filters):
+            if filters == [{"kinds": [int(Kind.HEARTBEAT)], "limit": 1}]:
+                assert connection.pubkey == _pub(FRIEND_SK)
+                checking.set()
+                if not release.wait(12):
+                    return
+            super()._req(connection, sub_id, filters)
+
+    with SlowMembership() as relay, _browser(tmp_path, relay.http_url) as js:
+        relay.add_member(_pub(FRIEND_SK))
+        js("window.nostr = new NM.KeySigner(NM.unhex(" + json.dumps(FRIEND_SK.hex()) + "))")
+        js("document.querySelector('[data-act=harness]').click();"
+           "document.querySelector('.returning').open=true")
+        js("document.querySelector('[name=relay]').value=" + json.dumps(relay.url))
+        js("document.querySelector('[data-act=nip07]').click()")
+        try:
+            assert checking.wait(WAIT)
+            assert not js("!!document.querySelector('.shell, .backup, [data-act=pair],"
+                          " [data-act=lock], [data-form=invite]')")
+        finally:
+            release.set()
+        _until(lambda: js("!!document.querySelector('.shell')"))
+        assert js("document.querySelector('.side').innerText.includes('@me/inbox')")
+        assert not js("!!document.querySelector('.backup, [data-act=show-nsec]')")
+
+
+def test_workstation_console_checks_its_relay_and_stays_locked_after_sign_out(
+        tmp_path, workstation, relay):
+    info = call(workstation, "GET", "/api/relay-info")
+    assert info["advertises_private"] and info["self_pubkey"] == relay.pubkey
+    with _browser(tmp_path, workstation.url) as js:
+        assert not js("!!document.querySelector('.shell, [data-act=pair]')")
+        js("document.querySelector('[data-act=reconnect]').click()")
+        _until(lambda: js("!!document.querySelector('.shell')"))
+        js("document.querySelector('[data-act=lock]').click()")
+        _until(lambda: js("!!document.querySelector('[data-act=reconnect]')"))
+        relay.remove_member(workstation.pubkey)
+        js("document.querySelector('[data-act=reconnect]').click()")
+        _until(lambda: js("document.querySelector('.errors').innerText.includes('membership')"))
+        assert not js("!!document.querySelector('.shell, [data-act=pair], [data-act=lock]')")
+
+
+def test_spent_claim_retry_still_requires_membership_on_the_current_socket(tmp_path):
+    class RevokeAfterClaim(ConsoleRelay):
+        def _claim(self, event):
+            ok, reason = super()._claim(event)
+            if ok:
+                self.remove_member(event.pubkey)
+            return ok, reason
+
+    with RevokeAfterClaim() as relay, _browser(tmp_path, relay.http_url) as js:
+        trust = Trust.from_mapping({"schema": "cf.transport/1", "relay": relay.url,
+                                    "campaign": "camp", "operator_pubkeys": [_npub(_pub(PEER_SK))]})
+        token = cli._encode_invite_token(trust, relay.create_invite(), member=None)
+        js("document.querySelector('[name=token]').value=" + json.dumps(token))
+        submit = "document.querySelector('[data-form=redeem]').requestSubmit()"
+        js(submit)
+        _until(lambda: js("document.querySelector('.errors').innerText.includes('membership')"))
+        assert not js("!!document.querySelector('.shell, .backup, [data-act=lock]')")
+        pk = js("JSON.parse(sessionStorage.getItem('nm.console.v1')).pubkey")
+        assert pk and pk not in relay.members
+        relay.add_member(pk)
+        js(submit)
+        _until(lambda: js("!!document.querySelector('.shell')"))
+        assert js("!!document.querySelector('.backup')") and relay.members == {pk}
