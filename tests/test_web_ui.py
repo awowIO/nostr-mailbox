@@ -24,6 +24,7 @@ import signal
 import subprocess
 import sys
 import time
+import xml.etree.ElementTree as ET
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -235,7 +236,7 @@ def test_the_page_is_one_self_contained_full_width_html_file():
         held = set(block.group(1).split(";"))
         for name, value in tokens.items():
             assert f"--{name}:{value.replace(' ', '')}" in held, (selector, name)
-    assert ('font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+    assert ('font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
             in style)
     assert "ui-monospace, SFMono-Regular, Consolas, monospace" in style
     assert "font-variant-numeric: tabular-nums" in style
@@ -249,9 +250,20 @@ def test_the_page_is_one_self_contained_full_width_html_file():
     assert "javascript:" not in page.lower()
 
 
+def test_readme_and_console_maps_share_the_same_artwork():
+    def artwork(source):
+        # A standalone SVG has its own namespace and theme. The drawing is shared.
+        return [(node.tag.split("}")[-1], node.attrib, (node.text or "").strip())
+                for node in ET.fromstring(source).iter() if not node.tag.endswith("style")]
+
+    maps = re.findall(r'<div class="diagram-box"[^>]*>(<svg\b.*?</svg>)', PAGE.read_text(), re.S)
+    for drawing, name in zip(maps, ("enrollment-flow", "architecture-map"), strict=True):
+        assert artwork(drawing) == artwork((REPO / "docs" / f"{name}.svg").read_text())
+
+
 def test_the_page_links_its_repository_and_asks_for_invites_on_maywe():
-    """The header and the footer link the repository, the footer MayWe. Onboarding is two
-    columns: 01 for sign-in or single-click admission with a token or join link, 02 a
+    """The header and the footer link the repository, the footer MayWe. The entry column
+    offers sign-in or single-click admission with a token or join link, followed by a
     waitlist request to MayWe's public subscribe with the publishable key of the origin
     it runs on, a honeypot, an optional use case in `details`, and a confirmation banner.
 
@@ -266,7 +278,8 @@ def test_the_page_links_its_repository_and_asks_for_invites_on_maywe():
     footer = re.search(r'<footer class="foot page">.*?</footer>', page, re.S).group(0)
     assert '<a href="https://github.com/awowIO/crosswire"' in footer
     assert '<a href="https://maywe.email"' in footer
-    assert "01 · Sign In or Redeem Invite" in page and "02 · Request an Invite" in page
+    assert "01 · Already invited — Open your room" in page
+    assert "02 · Request an invite — Waitlist via MayWe" in page
     assert page.count('placeholder="nm1_… or https://crosswire.sh/join/#nm1_…"') == 2
     card = re.search(r"function mayweInviteCard\(\) \{.*?\n  \}\n", page, re.S).group(0)
     for needed in ('<form data-form="maywe-invite"', 'name="email" type="email" required',
@@ -1855,7 +1868,14 @@ def _browser(tmp_path, page_url):
 
 def test_public_harness_switcher_and_docs_chapters(tmp_path):
     with ConsoleRelay() as relay, _browser(tmp_path, relay.http_url) as js:
-        assert js("document.querySelector('.quickstart h2').textContent") == "Try It Now"
+        assert js("document.querySelector('.landing h1').textContent") == (
+            "One encrypted wire for your coding agents and teammates across machines.")
+        assert js("[...document.querySelectorAll('.overview strong')].map(s=>s.textContent)") == [
+            "wss://crosswire.sh", "NIP-44 v2", "3 roles", "7 clients"]
+        assert js("document.querySelector('.quickstart h2').textContent") == (
+            "Try It Now — Install & Join in 2 Commands")
+        assert not js("document.querySelector('.returning').open")
+        js("document.querySelector('[name=handle]').value='alice'")
         harnesses = js("[...document.querySelectorAll('[data-act=harness]')].map(b=>b.textContent)")
         assert harnesses == ["Claude Code", "Codex", "CLI (uv)", "Claude Desktop", "ChatGPT",
                              "Antigravity", "Cursor"]
@@ -1865,6 +1885,19 @@ def test_public_harness_switcher_and_docs_chapters(tmp_path):
             assert js("document.querySelector('.terminal [data-act=copy]').dataset.text") == shown
             install, join = shown.splitlines()
             assert "github.com/awowIO/crosswire" in install and "crosswire join" in join
+        specimen = "document.querySelector('.specimen [role=tabpanel]').innerText"
+        bus = js(specimen)
+        assert all(text in bus for text in ("@alice", "alice/claude-code", "@bob/codex",
+                                           "Acknowledged", "✓ signed · E2 · NIP-44 v2"))
+        js("document.querySelector('[data-act=specimen][data-id=handoff]').click()")
+        assert js("[...document.querySelectorAll('.specimen dt')].map(d=>d.textContent)") == [
+            "Original goal", "Open condition", "Evidence & rejected routes", "Next action"]
+        js("document.activeElement.dispatchEvent(new KeyboardEvent('keydown', "
+           "{key:'ArrowRight', bubbles:true}))")
+        assert js("document.activeElement.textContent") == "Write-Only Dropbox"
+        assert "Sealed to Alice’s dropbox" in js(specimen)
+        assert js("document.querySelector('[name=handle]').value") == "alice"
+        assert js("document.querySelectorAll('.previews article').length") == 3
         chapters = [
             ("modes", ["Two Modes on One Relay", "Persona-First", "Org Workspaces"]),
             ("permissions", ["3-Gate ACL Primitives", "POOL <user>/agents",
@@ -1875,17 +1908,22 @@ def test_public_harness_switcher_and_docs_chapters(tmp_path):
                            "Multi-Agent Campaign Blueprints"]),
         ]
         for chapter, phrases in chapters:
-            js(f"document.querySelector('[data-act=chapter][data-id={chapter}]').click()")
+            js(f"document.querySelector('.previews [data-id={chapter}]').click()")
+            active = js("document.querySelector('.chapters [aria-current=page]').dataset.id")
+            assert active == chapter
             assert all(p in js("document.querySelector('main').innerText") for p in phrases)
             assert not js("!!document.querySelector('.shell, [data-act=pair], [data-act=lock]')")
             if chapter == "architecture":
                 assert js("Array.from(document.querySelectorAll('main svg'), s=>s.getAttribute("
-                          "'viewBox'))") == ["0 0 1200 310", "0 0 1200 420"]
+                          "'viewBox'))") == ["0 0 1120 320"] * 2
+                sizes = js("Array.from(document.querySelectorAll('main svg'), s => "
+                           "[s.clientWidth, s.clientHeight])")
+                assert sizes[0] == sizes[1] and sizes[0][1] > 0
                 js("document.querySelector('#theme').click()")
                 assert js("document.querySelectorAll('main svg[role=img] title').length") == 2
             if chapter == "reference":
                 assert js("document.querySelectorAll('main table td code').length") == 6
-        js("document.querySelector('[data-id=switchboard]').click()")
+            js("document.querySelector('.chapters [data-id=switchboard]').click()")
         assert js("!!document.querySelector('[data-form=redeem]')")
 
 

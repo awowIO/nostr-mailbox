@@ -1,61 +1,100 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="880" height="440" viewBox="0 0 880 440"
-     role="img" aria-labelledby="title desc">
-  <title id="title">Enrollment and cross-pool encryption in wave-7</title>
-  <desc id="desc">Alice creates the topic. Bob's seat joins as a reader and writer using its own
-    invite. Each seat signs as itself and uses the shared epoch to encrypt and decrypt posts.
-    When Alice revokes Bob's seat, the remaining readers receive a new epoch key.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 320" width="100%" height="auto" role="img" aria-labelledby="enrollment-flow-title" aria-describedby="enrollment-flow-desc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+  <title id="enrollment-flow-title">Enrollment &amp; Cross-Pool Encryption Flow</title>
+  <desc id="enrollment-flow-desc">Alice creates a topic, enrolls Bob’s seats and exchanges signed messages. Removing a reader rotates the key for future messages.</desc>
+  <style>
+    :root { --panel: #fff; --head: #eef1f5; --ink: #18212f; --muted: #596677; --soft: #f0f3f7; --line: #e0e5eb; --accent: #335ade; }
+    @media (prefers-color-scheme: dark) {
+      :root { --panel: #171e28; --head: #1d2734; --ink: #f0f4fb; --muted: #b5c0d0; --soft: #212b38; --line: #2c3644; --accent: #92acff; }
+    }
+  </style>
   <defs>
-    <style>
-      text { font: 15px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #17323c; }
-      .heading { font-size: 16px; font-weight: 700; }
-      .number { font-size: 14px; font-weight: 700; fill: #fff; text-anchor: middle; }
-      .code { font: 14px ui-monospace, SFMono-Regular, Consolas, monospace; fill: #124f47; }
-      .card { fill: #fff; stroke: #b7ccca; }
-      .arrow { fill: none; stroke: #146c61; stroke-width: 2; stroke-linejoin: round; }
-    </style>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-      <path d="M1 1 9 5 1 9" fill="none" stroke="#146c61" stroke-width="1.7"/>
+    <marker id="enrollment-flow-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+      <path d="M0 0 L8 4 L0 8 Z" fill="var(--accent)"/>
     </marker>
   </defs>
-  <rect x="1" y="1" width="878" height="438" rx="14" fill="#f4f7f5" stroke="#bdcecc"/>
-  <text x="24" y="36" class="heading">One topic, two agent pools</text>
-
-  <rect x="24" y="58" width="390" height="151" rx="12" class="card"/>
-  <circle cx="55" cy="91" r="14" fill="#10675b"/>
-  <text x="55" y="96" class="number">1</text>
-  <text x="80" y="97" class="heading">Alice creates wave-7</text>
-  <text x="45" y="130">Her seat becomes the keeper of a private room.</text>
-  <text x="45" y="152">It generates the first epoch key locally.</text>
-  <rect x="45" y="168" width="196" height="27" rx="5" fill="#e0eee8"/>
-  <text x="56" y="186" class="code">topic create wave-7</text>
-
-  <path d="M417 132h44" class="arrow" marker-end="url(#arrow)"/>
-  <rect x="466" y="58" width="390" height="151" rx="12" class="card"/>
-  <circle cx="497" cy="91" r="14" fill="#10675b"/>
-  <text x="497" y="96" class="number">2</text>
-  <text x="522" y="97" class="heading">Bob enrolls one seat</text>
-  <text x="487" y="130">His seat redeems a read-write invite. Its own</text>
-  <text x="487" y="152">keyring stores the epochs that Alice granted.</text>
-  <rect x="487" y="168" width="269" height="27" rx="5" fill="#e0eee8"/>
-  <text x="498" y="186" class="code">join --code-file wave-7.token</text>
-
-  <path d="M661 212v22H219v19" class="arrow" marker-end="url(#arrow)"/>
-  <rect x="24" y="259" width="390" height="157" rx="12" class="card"/>
-  <circle cx="55" cy="292" r="14" fill="#10675b"/>
-  <text x="55" y="297" class="number">3</text>
-  <text x="80" y="298" class="heading">The two seats exchange a message</text>
-  <text x="45" y="331">Alice signs her post. The relay delivers it to Bob,</text>
-  <text x="45" y="353">who opens it with the same epoch key.</text>
-  <rect x="45" y="371" width="222" height="27" rx="5" fill="#e0eee8"/>
-  <text x="56" y="389" class="code">--topic wave-7 watch bus</text>
-
-  <path d="M417 336h44" class="arrow" marker-end="url(#arrow)"/>
-  <rect x="466" y="259" width="390" height="157" rx="12" fill="#193842"/>
-  <circle cx="497" cy="292" r="14" fill="#c4e7d9"/>
-  <text x="497" y="297" class="number" style="fill:#193842">4</text>
-  <text x="522" y="298" class="heading" style="fill:#f6fbfb">Alice revokes Bob's seat</text>
-  <text x="487" y="331" style="fill:#f6fbfb">Only remaining readers receive the new key.</text>
-  <text x="487" y="353" style="fill:#f6fbfb">Bob keeps the epochs he received earlier.</text>
-  <rect x="487" y="371" width="260" height="27" rx="5" fill="#e0eee8"/>
-  <text x="498" y="389" class="code">topic revoke wave-7 BOB_NPUB</text>
+  <g transform="translate(14 16)">
+    <rect width="252" height="288" rx="6" fill="var(--panel)" stroke="var(--line)" stroke-width="1.25"/>
+    <rect width="252" height="30" rx="6" fill="var(--head)"/>
+    <text x="14" y="19" font-size="10" font-weight="550" letter-spacing=".6" fill="var(--muted)">STEP 01</text>
+    <text x="76" y="20" font-size="12.5" font-weight="600" fill="var(--ink)">Create the room</text>
+    <g font-size="11.5" fill="var(--muted)">
+      <text x="14" y="55" fill="var(--ink)" font-weight="600">Alice’s machine</text>
+      <text x="14" y="72">Alice creates #wave-7. Her seat becomes</text>
+      <text x="14" y="89">the keeper and generates the first epoch</text>
+      <text x="14" y="106">key in its local keyring.</text>
+      <text x="14" y="138" fill="var(--ink)" font-weight="600">Grant each seat</text>
+      <text x="14" y="155">Each agent signs with its own Persona.</text>
+      <text x="14" y="172">Alice grants each seat a role and chooses</text>
+      <text x="14" y="189">which epochs it can read.</text>
+    </g>
+    <path d="M14 210h224" stroke="var(--line)"/>
+    <text x="14" y="230" font-size="10" font-weight="550" letter-spacing=".6" fill="var(--muted)">LOCAL COMMAND</text>
+    <rect x="14" y="238" width="224" height="25" rx="4" fill="var(--soft)" stroke="var(--line)"/>
+    <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ink)">crosswire topic create wave-7</text>
+  </g>
+  <path d="M270 160h20" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#enrollment-flow-arrow)"/>
+  <g transform="translate(294 16)">
+    <rect width="252" height="288" rx="6" fill="var(--panel)" stroke="var(--line)" stroke-width="1.25"/>
+    <rect width="252" height="30" rx="6" fill="var(--head)"/>
+    <text x="14" y="19" font-size="10" font-weight="550" letter-spacing=".6" fill="var(--muted)">STEP 02</text>
+    <text x="76" y="20" font-size="12.5" font-weight="600" fill="var(--ink)">Enroll Bob’s pool</text>
+    <g font-size="11.5" fill="var(--muted)">
+      <text x="14" y="55" fill="var(--ink)" font-weight="600">Bob’s machine</text>
+      <text x="14" y="72">Each seat redeems its own invite. The</text>
+      <text x="14" y="89">relay admits its public key and the keeper</text>
+      <text x="14" y="106">grants it access to the group.</text>
+      <text x="14" y="138" fill="var(--ink)" font-weight="600">Deliver the keyring</text>
+      <text x="14" y="155">A NIP-59 envelope carries the granted</text>
+      <text x="14" y="172">epochs to the reader. A write-only seat</text>
+      <text x="14" y="189">receives a dropbox address instead.</text>
+    </g>
+    <path d="M14 210h224" stroke="var(--line)"/>
+    <text x="14" y="230" font-size="10" font-weight="550" letter-spacing=".6" fill="var(--muted)">LOCAL COMMAND</text>
+    <rect x="14" y="238" width="224" height="25" rx="4" fill="var(--soft)" stroke="var(--line)"/>
+    <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ink)">crosswire join --code-file bob</text>
+  </g>
+  <path d="M550 160h20" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#enrollment-flow-arrow)"/>
+  <g transform="translate(574 16)">
+    <rect width="252" height="288" rx="6" fill="var(--panel)" stroke="var(--line)" stroke-width="1.25"/>
+    <rect width="252" height="30" rx="6" fill="var(--head)"/>
+    <text x="14" y="19" font-size="10" font-weight="550" letter-spacing=".6" fill="var(--muted)">STEP 03</text>
+    <text x="76" y="20" font-size="12.5" font-weight="600" fill="var(--ink)">Exchange a message</text>
+    <g font-size="11.5" fill="var(--muted)">
+      <text x="14" y="55" fill="var(--ink)" font-weight="600">Alice sends</text>
+      <text x="14" y="72">Her agent encrypts the body under the</text>
+      <text x="14" y="89">current epoch and signs the event. The</text>
+      <text x="14" y="106">relay delivers it to subscribed seats.</text>
+      <text x="14" y="138" fill="var(--ink)" font-weight="600">Bob receives</text>
+      <text x="14" y="155">His agent verifies the signature, decrypts</text>
+      <text x="14" y="172">locally with the matching epoch key and</text>
+      <text x="14" y="189">acknowledges the work on the bus.</text>
+    </g>
+    <path d="M14 210h224" stroke="var(--line)"/>
+    <text x="14" y="230" font-size="10" font-weight="550" letter-spacing=".6" fill="var(--muted)">LOCAL COMMAND</text>
+    <rect x="14" y="238" width="224" height="40" rx="4" fill="var(--soft)" stroke="var(--line)"/>
+    <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ink)">crosswire --topic wave-7 \</text>
+    <text x="32" y="269" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ink)">watch bus</text>
+  </g>
+  <path d="M830 160h20" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#enrollment-flow-arrow)"/>
+  <g transform="translate(854 16)">
+    <rect width="252" height="288" rx="6" fill="var(--panel)" stroke="var(--line)" stroke-width="1.25"/>
+    <rect width="252" height="30" rx="6" fill="var(--head)"/>
+    <text x="14" y="19" font-size="10" font-weight="550" letter-spacing=".6" fill="var(--muted)">STEP 04</text>
+    <text x="76" y="20" font-size="12.5" font-weight="600" fill="var(--ink)">Revoke and rotate</text>
+    <g font-size="11.5" fill="var(--muted)">
+      <text x="14" y="55" fill="var(--ink)" font-weight="600">Remove Bob’s seat</text>
+      <text x="14" y="72">Alice removes the public key from the</text>
+      <text x="14" y="89">group roster. The relay ends delivery</text>
+      <text x="14" y="106">to that seat.</text>
+      <text x="14" y="138" fill="var(--ink)" font-weight="600">Start a new epoch</text>
+      <text x="14" y="155">Only the remaining readers receive the</text>
+      <text x="14" y="172">fresh key. Bob can still decrypt history</text>
+      <text x="14" y="189">from the epochs he already holds.</text>
+    </g>
+    <path d="M14 210h224" stroke="var(--line)"/>
+    <text x="14" y="230" font-size="10" font-weight="550" letter-spacing=".6" fill="var(--muted)">LOCAL COMMAND</text>
+    <rect x="14" y="238" width="224" height="40" rx="4" fill="var(--soft)" stroke="var(--line)"/>
+    <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ink)">crosswire topic revoke \</text>
+    <text x="32" y="269" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ink)">wave-7 "$BOB"</text>
+  </g>
 </svg>
