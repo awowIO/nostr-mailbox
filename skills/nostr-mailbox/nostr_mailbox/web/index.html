@@ -7,32 +7,32 @@
 <meta name="referrer" content="no-referrer">
 <meta name="nm-bridge" content="">
 <meta name="color-scheme" content="light dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20rx%3D%226%22%20fill%3D%22%23244b7a%22%2F%3E%3Cpath%20d%3D%22M4%208c11%200%2013%2016%2024%2016M4%2024c11%200%2013-16%2024-16%22%20stroke%3D%22%23faf9f6%22%20stroke-width%3D%222.5%22%20fill%3D%22none%22%2F%3E%3Ccircle%20cx%3D%2216%22%20cy%3D%2216%22%20r%3D%225%22%20stroke%3D%22%23b8892e%22%20stroke-width%3D%223%22%20fill%3D%22%23181c20%22%2F%3E%3C%2Fsvg%3E">
 <title>nostr-mailbox · Web Console</title>
 <style>
 :root {
   color-scheme: light;
-  --bg: #faf9f6; --panel: #faf9f6; --ink: #16181d; --muted: #5a5d64; --line: #e4e1da;
-  --soft: #f0eee9; --accent: #35547a; --green: #4a6b53; --red: #8c3843; --amber: #78683a;
-  --head: #f0eee9; --hover: #e8eef0; --shadow: 0 16px 70px #16181d1f; --violet: #6d4c5c;
-  --paper: #faf9f6; --stone: #f0eee9; --rule: #e4e1da; --rule-strong: #c9c4b9;
-  --teal: #3f5e63; --terracotta: #35547a; --terracotta-ink: #263f5d; --sage: #4a6b53;
-  --ancient-bg: #14171c; --ancient-surface: #1c2027; --ancient-ink: #e8eaed; --ancient-rule: #2b313a;
+  --bg: #faf9f6; --panel: #ffffff; --ink: #181c20; --muted: #586068; --line: #e2e0d8;
+  --soft: #f1f0ec; --accent: #244b7a; --green: #28664b; --red: #9e3b42; --amber: #b8892e;
+  --head: #f1f0ec; --hover: #e6eef2; --shadow: 0 16px 70px #181c201f; --violet: #4f4c7a;
+  --paper: #faf9f6; --stone: #f1f0ec; --rule: #e2e0d8; --cobalt: #244b7a; --sage: #28664b; --brass: #b8892e;
+  --rule-strong: #c5c2b8; --sage-wash: #dce8df; --ancient-bg: #12161a; --ancient-surface: #181e24; --ancient-ink: #e6eaee; --ancient-rule: #28313a;
   --serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
   --mono: ui-monospace, SFMono-Regular, Consolas, monospace;
   --gutter: clamp(20px, 3vw, 48px);
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #14171c; --panel: #1c2027; --ink: #e8eaed; --muted: #a9b0bc; --line: #2b313a;
-  --soft: #222730; --accent: #8fa8c4; --green: #8fae95; --red: #e08b94; --amber: #b8ab84;
-  --head: #1c2027; --hover: #252c37; --shadow: 0 16px 70px #0008; --violet: #b89aa8;
+  --bg: #111518; --panel: #171c21; --ink: #eaeef2; --muted: #9da7b2; --line: #273038;
+  --soft: #1e252b; --accent: #7fa6d6; --green: #7ec2a0; --red: #e08b92; --amber: #d8ae5e;
+  --head: #171c21; --hover: #1f2831; --shadow: 0 16px 70px #0008; --violet: #a3a0d4;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --bg: #14171c; --panel: #1c2027; --ink: #e8eaed; --muted: #a9b0bc; --line: #2b313a;
-    --soft: #222730; --accent: #8fa8c4; --green: #8fae95; --red: #e08b94; --amber: #b8ab84;
-    --head: #1c2027; --hover: #252c37; --shadow: 0 16px 70px #0008; --violet: #b89aa8;
+    --bg: #111518; --panel: #171c21; --ink: #eaeef2; --muted: #9da7b2; --line: #273038;
+    --soft: #1e252b; --accent: #7fa6d6; --green: #7ec2a0; --red: #e08b92; --amber: #d8ae5e;
+    --head: #171c21; --hover: #1f2831; --shadow: 0 16px 70px #0008; --violet: #a3a0d4;
   }
 }
 *, *::before, *::after { box-sizing: border-box; }
@@ -49,33 +49,41 @@ time, .chip, .kv dd, .num, .pill, .count, .badge, .stat strong, .links td > code
 .hair { border: 1px solid var(--line); }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-/* header: wordmark left; relay, persona, pairing and theme right */
-.top { position: sticky; top: 0; z-index: 5; height: 61px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-top: 1px solid var(--ink); border-bottom: 1px solid var(--line); background: var(--panel); }
-.brand { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
-.wordmark { color: var(--ink); font: 400 24px/1.1 var(--serif); letter-spacing: -0.55px; white-space: nowrap; }
+/* Masthead and stitched courier perch. */
+.top { position: sticky; top: 0; z-index: 5; min-height: 51px; display: flex; align-items: center; gap: 14px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.brand { display: flex; align-items: center; gap: 7px; }
+.wordmark { color: var(--ink); font: 600 20px/1 var(--serif); letter-spacing: -.8px; white-space: nowrap; }
+.wordmark span { color: var(--muted); font-weight: 400; }
 .wordmark:hover { text-decoration: none; }
-.mark { color: var(--accent); margin-right: 9px; font-size: 22px; vertical-align: -1px; }
-.tagline { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.header-right { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; min-width: 0; }
-.header-right select { width: auto; max-width: 100%; font-size: 12px; padding: 5px 8px; }
-#theme { font-size: 19px; padding: 1px 9px; line-height: 1.3; }
+.bird-btn, .icon-btn { display: inline-grid; place-items: center; padding: 0; color: var(--ink); background: transparent; border: 0; cursor: pointer; }
+.bird-btn { position: relative; width: 60px; height: 42px; }
+.bird-btn::before { content: ""; position: absolute; inset: auto 0 5px; border-top: 1px dashed var(--rule-strong); }
+.bird-btn svg { width: 60px; overflow: visible; }
+.bird-btn svg [class] { transform-box: fill-box; transform-origin: center; }
+.bird-btn .bird-hop { transform-origin: center bottom; }
+.bird-btn .bird-wing { transform-origin: right top; }
+.bird-btn.playing .bird-hop { animation: courier-hop 2.2s ease-in-out; }
+.bird-btn.playing .bird-wing { animation: courier-wing 2.2s ease-in-out; }
+.bird-btn.playing .bird-beak, .bird-btn.playing .bird-knot { animation: courier-tug 2.2s ease-in-out; }
+.bird-btn.playing .bird-thread { animation: courier-thread 2.2s ease-in-out; }
+@keyframes courier-hop { 10%, 32% { transform: scale(1.04,.92); } 21% { transform: translate(3px,-10px) rotate(-7deg); } 43% { transform: translateY(-3px); } }
+@keyframes courier-wing { 14%, 22%, 30% { transform: rotate(32deg); } 18%, 26%, 36% { transform: rotate(-6deg); } }
+@keyframes courier-tug { 60%, 76% { transform: translate(-4px,-1px); } 68%, 85% { transform: none; } }
+@keyframes courier-thread { 60%, 76% { stroke-dashoffset: 7; } 68%, 85% { stroke-dashoffset: 0; } }
+.header-right { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; min-width: 0; }
+.header-right select { width: auto; max-width: 100%; }
+.icon-btn { width: 28px; height: 28px; color: var(--muted); border-radius: 4px; flex: none; }
+.icon-btn:hover { color: var(--accent); background: var(--hover); }
 .pill { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; font: 11px/1.4 var(--mono); color: var(--ink); background: var(--soft); white-space: nowrap; }
 .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
 .dot.ready { background: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 22%, transparent); }
 .dot.connecting { background: var(--amber); } .dot.failed, .dot.closed { background: var(--red); }
-@media (width <= 1180px) { .top .mode, .tagline { display: none; } }
-@media (width <= 760px) {
-  .top { height: auto; min-height: 53px; flex-wrap: wrap; padding-block: 8px; }
-  .wordmark { font-size: 20px; } .header-right { flex-wrap: wrap; gap: 6px; font-size: 10px; }
-}
-
-/* the overview strip: one tabular counter per fact */
-.overview { display: flex; gap: 14px 32px; padding-block: 20px 18px; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
-.stat { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-.stat strong { font-size: 25px; letter-spacing: -0.8px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.stat span { color: var(--muted); font-size: 12px; }
+/* Compact signed-in counters. */
+.overview { display: flex; flex-wrap: wrap; gap: 8px 20px; padding-block: 12px; border-bottom: 1px solid var(--line); }
+.stat { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.stat strong { font: 600 14px/1.4 var(--mono); }
+.stat span { color: var(--muted); font-size: 11px; }
 .stat.warning strong { color: var(--amber); } .stat.good strong { color: var(--green); }
-@media (width <= 760px) { .overview { gap: 12px 22px; padding-block: 16px; } .stat strong { font-size: 24px; } .stat span { font-size: 11px; } }
 
 /* shell: rooms beside the selected room */
 .shell { display: grid; grid-template-columns: minmax(230px, 19%) minmax(0, 1fr); gap: clamp(16px, 2.2vw, 36px); width: 100%; padding-block: 16px 40px; }
@@ -138,7 +146,7 @@ label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 3px
 .badge.sage { background: color-mix(in srgb, var(--green) 11%, var(--panel)); color: var(--green); }
 .badge.amber { background: color-mix(in srgb, var(--amber) 11%, var(--panel)); color: var(--amber); }
 .badge.plum { background: color-mix(in srgb, var(--red) 10%, var(--panel)); color: var(--red); }
-.badge.terra { background: color-mix(in srgb, var(--violet) 11%, var(--panel)); color: var(--violet); }
+.badge.violet { background: color-mix(in srgb, var(--violet) 11%, var(--panel)); color: var(--violet); }
 .badge.solid { background: var(--accent); color: var(--panel); }
 .count { font-size: 10px; font-weight: 600; color: var(--panel); background: var(--accent); border-radius: 3px; padding: 1px 5px; }
 .count.plum { background: var(--red); }
@@ -196,124 +204,163 @@ footer.foot b { font-weight: 600; color: var(--ink); }
 details.more { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 10px; }
 details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent); }
 
-/* The public switchboard and its documentation share the paper, rules and margins. */
-.chapters.tabs { margin: 0; column-gap: clamp(14px, 2.5vw, 40px); }
-.landing { padding-block: 0 24px; }
-.kicker, .ax-num, .ax-kicker, .chapter th, .signature, .specimen-message time {
-  font: 11px/1.5 var(--mono); letter-spacing: .075em; text-transform: uppercase;
-}
-.kicker, .ax-kicker { color: var(--muted); }
-.mast { display: grid; grid-template-columns: 62% 38%; align-items: center; padding-block: clamp(24px, 3.2vw, 54px); }
-.mast .kicker { margin: 0 0 12px; display: flex; align-items: center; gap: 10px; }
-.mast .kicker::before { content: ""; width: 28px; border-top: 2px solid var(--accent); }
-.landing-hero h1 { font: 400 clamp(36px, 3.9vw, 72px)/1.04 var(--serif); letter-spacing: -.045em; text-wrap: balance; }
-.landing-hero h1 em { color: var(--accent); }
-.wire { display: block; width: 100%; height: clamp(110px, 12vw, 208px); }
-.wire text { font: 12px var(--mono); fill: var(--muted); }
-.wire .relay-label { fill: var(--ink); }
-.landing-hero .overview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; padding-block: 12px; border-top: 1px solid var(--ink); border-bottom: 0; }
-.landing-hero .stat { flex-direction: column; gap: 1px; padding-inline: clamp(10px, 2vw, 32px); border-left: 1px solid var(--line); }
-.landing-hero .stat:first-child { padding-left: 0; border: 0; }
-.landing-hero .stat strong { font: 400 clamp(14px, 1.3vw, 21px)/1.4 var(--mono); letter-spacing: -.05em; overflow-wrap: anywhere; }
-.landing-hero .stat span { font-size: 12px; }
-.ax-row { display: grid; grid-template-columns: 28% 72%; align-items: start; border-top: 1px solid var(--line); padding-block: clamp(26px, 3vw, 48px); scroll-margin-top: 65px; }
-.ax-margin { padding-right: clamp(16px, 4vw, 72px); }
-.ax-num { display: block; color: var(--accent); }
-.ax-margin h2 { margin: 6px 0; font-size: clamp(24px, 2.2vw, 36px); line-height: 1.1; letter-spacing: -.035em; text-wrap: balance; }
-.ax-body { min-width: 0; }
-.harnesses { display: flex; gap: 6px; flex-wrap: wrap; }
-.harnesses .btn { border-radius: 999px; padding: 6px 13px; background: transparent; }
-.harnesses .btn:hover { background: var(--hover); }
-.harnesses [aria-pressed="true"], .harnesses [aria-pressed="true"]:hover { background: var(--accent); border-color: var(--accent); color: var(--bg); }
-.option { margin-top: 22px; }
-.option-head { display: flex; gap: 8px 14px; align-items: baseline; flex-wrap: wrap; margin-bottom: 8px; }
-.option-head h2, .option-head h3 { font: 400 clamp(18px, 1.6vw, 25px)/1.25 var(--serif); letter-spacing: -.025em; }
-.option-head .kicker { display: inline-block; vertical-align: middle; color: var(--accent); }
-.prompt-block, .terminal, .chapter pre { background: var(--ancient-bg); color: var(--ancient-ink); }
-.prompt-block, .terminal { display: flex; gap: 12px; align-items: start; padding: 14px 16px; border: 1px solid var(--ancient-rule); }
-.prompt-block pre, .terminal pre, .chapter pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.65 var(--mono); }
-.prompt-block pre, .terminal pre { flex: 1; min-width: 0; }
-.prompt-block pre { max-height: 7em; overflow: auto; }
-.prompt-block code, .terminal code { font-size: inherit; }
-.copy-btn { flex: none; display: inline-flex; align-items: center; gap: 7px; border: 1px solid #505965; background: var(--ancient-surface); color: var(--ancient-ink); padding: 5px 9px; }
-.copy-btn:hover { color: white; border-color: #8fa8c4; background: var(--ancient-surface); }
-.prompt-block .copy-btn { background: var(--ancient-ink); color: var(--ancient-bg); border-color: var(--ancient-ink); }
-.prompt-block .copy-btn:hover { background: white; }
-.copy-btn svg { width: 13px; height: 13px; }
-.prompt-invite { margin-top: 7px; }
-.prompt-invite summary, .gate summary { cursor: pointer; color: var(--accent); }
-.prompt-invite summary { font-size: 12px; }
-.prompt-invite label { margin-top: 8px; }
-.quickstart .install-note { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
-.specimen-heading { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
-.specimen-heading h3 { font: 400 24px var(--mono); letter-spacing: -.06em; color: var(--accent); }
-.specimen-tabs { gap: 0 clamp(12px, 2vw, 30px); margin: 8px 0 0; }
-.specimen-tabs .tab { padding: 8px 0; }
-.specimen-message { display: grid; grid-template-columns: 38% 62%; align-items: baseline; padding-block: 13px; border-bottom: 1px solid var(--line); }
-.specimen-message .meta { display: grid; grid-template-columns: auto 1fr; align-content: start; gap: 2px 12px; padding-right: 12px; }
-.specimen-message time { grid-column: 1; grid-row: 1; }
-.specimen-message .who { font: 500 12px var(--mono); overflow-wrap: anywhere; }
-.signature { grid-column: 2; color: var(--green); font-size: 10px; letter-spacing: 0; text-transform: none; }
-.specimen-message p, .specimen-message .kv { margin: 0; }
-.specimen-message p + p { margin-top: 5px; }
-.access-intro { margin: 0 0 16px; font-size: 15px; }
-.access-drawer, .returning { border-top: 1px solid var(--line); }
-.access-drawer > summary, .returning > summary { padding-block: 12px; }
-.access-drawer > summary { font: 400 clamp(18px, 1.5vw, 23px)/1.3 var(--serif); color: var(--ink); letter-spacing: -.02em; }
-.access-drawer[open] { padding-bottom: 14px; }
-.access-drawer > p { margin: 0 0 12px; }
-.gate form { margin: 8px 0; }
-.gate label { font-size: 12px; }
-.gate input, .prompt-invite input { margin-top: 3px; padding: 9px 10px; font-size: 13px; }
-.gate .key-choice { margin-block: 10px; }
-.returning { margin-top: 16px; }
-.returning > summary { font-size: 13px; }
-.previews article { display: grid; grid-template-columns: 42% 58%; position: relative; align-items: baseline; gap: 5px 0; padding-block: 14px; border-bottom: 1px solid var(--line); }
-.previews article:first-child { border-top: 1px solid var(--ink); }
-.previews article:hover, .previews article:focus-within { background: var(--hover); }
-.previews h3 { padding-right: 16px; font-size: 21px; line-height: 1.25; }
-.previews p { margin: 0; color: var(--muted); }
-.preview-links { grid-column: 2; display: flex; flex-wrap: wrap; gap: 8px 16px; }
+/* The patch field and board faces share one set of horizontal jack axes. */
+.top .chapters { margin: 0 0 0 auto; display: flex; flex-wrap: nowrap; gap: clamp(8px, 1.6vw, 24px); border: 0; min-width: 0; overflow-x: auto; }
+.top .tab { margin: 0; padding: 7px 0 5px; font-size: 12px; }
+.top:has([data-act="lock"]) { flex-wrap: wrap; padding-block: 6px; }
+.landing { padding-block: 12px 10px; }
+.landing-hero { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+.landing-hero h1 { font-size: 20px; font-weight: 600; line-height: 1.25; }
+.landing-hero p { margin: 3px 0 0; color: var(--muted); }
+.landing-hero .overview { border: 0; padding: 0; gap: 14px; }
+.landing-hero .stat { display: grid; gap: 1px; border-left: 1px solid var(--line); padding-left: 12px; }
+.landing-hero .stat strong { color: var(--accent); font-size: 12px; }
+.quickstart { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 2px 4px #181c2009; padding: 12px; }
+.patch-top { display: flex; gap: 6px 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 10px; }
+.patch-top h2 { font: 600 16px/1.3 var(--serif); }
+.topologies { display: flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 6px; background: var(--soft); }
+.topologies button { appearance: none; font-family: inherit; line-height: 1.3; font-weight: 550; font-size: 12px; cursor: pointer; border: 1px solid transparent; background: transparent; color: var(--muted); border-radius: 4px; padding: 5px 9px; }
+.topologies button:hover { color: var(--accent); }
+.topologies [aria-pressed="true"] { background: var(--panel); color: var(--accent); border-color: var(--line); box-shadow: 0 1px 2px #181c2020; }
+.patch-stage { --rack-height: 190px; display: grid; grid-template-columns: minmax(140px, 24fr) minmax(180px, 48fr) minmax(188px, 28fr); overflow: hidden; border: 1px solid var(--line); border-radius: 5px; }
+.rack-label { display: flex; align-items: center; gap: 8px; height: 28px; padding-inline: 12px; background: var(--head); border-bottom: 1px solid var(--line); color: var(--muted); font: 600 10px/1.2 var(--mono); text-transform: uppercase; letter-spacing: .055em; }
+.rack-label::before { content: ""; display: block; width: 5px; height: 5px; border-radius: 50%; background: var(--brass); box-shadow: inset 0 1px 1px #fff7; }
+.harnesses { display: grid; height: var(--rack-height); grid-template-rows: repeat(7, 1fr); }
+.harnesses button { position: relative; display: flex; justify-content: space-between; align-items: center; background: var(--panel); color: var(--ink); border: 0; border-bottom: 1px solid var(--line); padding: 0 9px 0 12px; font: 500 12px/1.25 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; cursor: pointer; }
+.harnesses button:last-child { border-bottom: 0; }
+.harnesses button:hover { background: var(--hover); }
+.harnesses [aria-pressed="true"] { background: color-mix(in srgb, var(--green) 12%, var(--panel)); color: var(--green); box-shadow: inset 3px 0 var(--green); font-weight: 650; }
+.harnesses button::after, .peer-jack::before { content: ""; position: absolute; right: 0; width: 11px; height: 2px; background: var(--brass); }
+.jack { flex: none; position: relative; z-index: 1; }
+.jack .contact { fill: #343d40; }
+[aria-pressed="true"] .contact, [data-plugged="true"] .contact { fill: #7ec2a0; stroke: var(--sage); }
+.wire-board { border-inline: 1px solid var(--line); }
+.patch-field { position: relative; height: var(--rack-height); background-color: var(--bg); background-image: radial-gradient(var(--line) .85px, transparent 1px); background-size: 9px 9px; }
+.patch-wires { display: block; width: 100%; height: 100%; }
+.patch-wires path { fill: none; vector-effect: non-scaling-stroke; stroke-linecap: round; }
+.port-guides path { stroke: var(--rule-strong); stroke-width: 1.5; }
+.direction { stroke: var(--ink); stroke-width: 2; stroke-linejoin: round; }
+.isolated { stroke: var(--muted); stroke-width: 2; fill: var(--brass); }
+.cord-edge { stroke: var(--ancient-rule); stroke-width: 5.5; }
+.cord-color { stroke: var(--lead); stroke-width: 4; }
+.cord-glint { stroke: #ffffff55; stroke-width: 1; transform: translateY(-1px); }
+.signal { fill: #fff2c4; filter: drop-shadow(0 0 3px #eacb83); }
+.splice { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); text-align: center; pointer-events: none; }
+.splice svg { display: block; }
+.splice span { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); white-space: nowrap; background: var(--bg); padding: 0 4px; color: var(--muted); font: 10px/1.5 var(--mono); }
+.peer-bank { height: calc(var(--rack-height) / 2); display: grid; grid-template-rows: 21fr 37fr 37fr; }
+.peer-bank h4 { font: 600 10px/21px var(--mono); background: var(--soft); color: var(--muted); padding-left: 12px; margin: 0; }
+.peer-jack { position: relative; display: flex; align-items: center; gap: 9px; padding-inline: 9px; border-bottom: 1px solid var(--line); }
+.peer-jack::before { left: 0; right: auto; }
+.peer-bank:last-child .peer-jack:last-child { border: 0; }
+.peer-jack strong, .peer-jack small { display: block; }
+.peer-jack strong { font: 550 11.5px/1.3 var(--mono); }
+.peer-jack small { color: var(--muted); font-size: 10.5px; line-height: 1.35; }
+.route-caption { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 9px; margin: 8px 0 10px; font-size: 12px; color: var(--muted); }
+.route-caption b { color: var(--green); }
+.readouts { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--ancient-rule); border-radius: 5px; overflow: hidden; background: var(--ancient-bg); color: var(--ancient-ink); }
+.readouts section { min-width: 0; padding: 8px 12px; }
+.readouts section + section { border-left: 1px solid var(--ancient-rule); }
+.readouts header { display: flex; align-items: center; gap: 8px; justify-content: space-between; margin-bottom: 5px; }
+.readouts h3 { font: 550 13.5px/1.25 var(--serif); letter-spacing: 0; }
+.readouts pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; max-height: 5.8em; font: 11.5px/1.45 var(--mono); color: #c4d1d8; }
+.readouts code { font-size: inherit; }
+.copy-btn { display: inline-flex; flex: none; align-items: center; gap: 5px; background: var(--ancient-surface); border-color: #45525d; color: var(--ancient-ink); padding: 4px 7px; font-size: 11px; }
+.copy-btn:hover { background: #28313a; border-color: #7fa6d6; }
+.install-note { margin: 6px 0 0; color: var(--muted); font-size: 11.5px; }
+.gate, .field-notes { display: grid; grid-template-columns: 3fr 2fr; gap: 10px; margin-top: 10px; }
+.gate > *, .field-notes > * { min-width: 0; }
+.access-card, .gate .card { padding: 10px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 5px; }
+.invited { display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 0 10px; }
+.invited .redeem-form, .invited .returning[open], .invited [role="status"] { grid-column: 1/-1; }
+.gate h2 { font-size: 15px; font-weight: 600; }
+.access-card p { margin: 5px 0; }
+.gate summary, .field-notes summary { cursor: pointer; color: var(--accent); }
+.redeem-form, .request-form { display: grid; align-items: end; gap: 5px 8px; margin-top: 6px; }
+.redeem-form { grid-template-columns: minmax(0,2fr) minmax(0,1fr) auto; }
+.request-form { grid-template-columns: minmax(0,1fr) auto; }
+.gate label { margin-bottom: 0; }
+.gate input { margin-top: 2px; }
+.gate form > details { grid-column: 1/-1; }
+.key-choice, .returning, .request-note { font-size: 11.5px; }
+.returning { margin-top: 4px; }
+.returning form { margin-block: 8px 2px; }
+footer.foot:has(.field-notes) { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: baseline; padding-block: 10px; }
+.field-notes { align-items: start; margin: 0; font-size: 13px; color: var(--ink); }
+.field-notes > details { padding: 0; }
+.field-notes summary { font-weight: 550; font-size: 12px; }
+.specimen-heading { display: flex; align-items: baseline; gap: 10px; margin-top: 6px; }
+.specimen-heading h3, .previews h3 { font-size: 15px; }
+.kicker, .signature, .specimen-message time { font: 10px/1.5 var(--mono); color: var(--muted); }
+.specimen-tabs { gap: 10px; margin: 4px 0; }
+.specimen-tabs .tab { padding: 5px 0; font-size: 12px; }
+.specimen-message { border-bottom: 1px solid var(--line); padding-block: 7px; }
+.signature { color: var(--green); }
+.specimen-message p, .previews p { margin: 1px 0; }
+.previews article { padding: 7px 0; border-bottom: 1px solid var(--line); }
+.preview-links { display: flex; flex-wrap: wrap; gap: 10px; }
 .preview-link { border: 0; background: transparent; padding: 0; color: var(--accent); font: inherit; cursor: pointer; }
-.preview-link:first-child::after { content: ""; position: absolute; inset: 0; }
-.preview-link + .preview-link { position: relative; }
 .preview-link:hover { text-decoration: underline; }
-.preview-link:focus-visible, summary:focus-visible, .diagram-box:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.backup { padding-top: 14px; } .backup .banner { align-items: center; }
-.chapter { padding-block: clamp(24px, 3vw, 48px); font-size: 15px; }
-.chapter h2 { font-size: clamp(32px, 3vw, 48px); line-height: 1.12; margin-bottom: 12px; }
-.chapter h3 { font-size: 25px; margin: 30px 0 10px; }
-.chapter .card h3 { font-size: 20px; margin: 0 0 8px; }
+:where(button,a,summary,[tabindex]):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.harnesses button:focus-visible { outline-offset: -2px; }
+.backup { padding-top: 10px; } .backup .banner { align-items: center; }
+.chapter { padding-block: 16px; font-size: 13px; }
+.chapter h2 { font-size: 20px; margin-bottom: 8px; }
+.chapter h3 { font-size: 16px; margin: 16px 0 6px; }
+.chapter .card h3 { font-size: 15px; margin: 0 0 6px; }
 .chapter .grid2 .card { margin: 0; }
-.chapter pre { padding: 14px; }
-.table-wrap, .diagram-box { overflow-x: auto; margin-block: 14px 28px; border-top: 1px solid var(--ink); }
+.chapter pre { padding: 10px 12px; background: var(--ancient-bg); color: var(--ancient-ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.table-wrap, .diagram-box { overflow-x: auto; margin-block: 10px 16px; }
 .chapter table { width: 100%; border-collapse: collapse; text-align: left; }
-.chapter th, .chapter td { vertical-align: top; padding: 12px 16px 12px 0; border-bottom: 1px solid var(--line); }
+.chapter th, .chapter td { vertical-align: top; padding: 8px 12px 8px 0; border-bottom: 1px solid var(--line); }
 .chapter th { color: var(--muted); }
-.diagram-box svg { width: 100%; height: auto; min-width: 1120px; display: block; }
-@media (width <= 850px) {
-  .chapters.tabs { flex-wrap: nowrap; overflow-x: auto; }
+.diagram-box svg { width: 100%; height: auto; min-width: 1000px; display: block; }
+@media (width <= 1000px) {
+  .top:has([data-act="lock"]) .mode { display: none; }
+  .top { flex-wrap: wrap; gap: 0 12px; padding-block: 4px; }
+  .header-right { margin-left: auto; flex-wrap: wrap; }
+  .top .chapters { order: 3; width: 100%; }
   .chapter table { min-width: 540px; }
-  .ax-row { grid-template-columns: 1fr; gap: 18px; }
-  .ax-margin { padding: 0; display: grid; grid-template-columns: auto 1fr; column-gap: 12px; align-items: baseline; }
-  .ax-margin h2 { margin: 0; }
-  .ax-kicker { grid-column: 2; margin-top: 3px; }
 }
-@media (width <= 640px) {
-  .mast { display: block; }
-  .wire { display: none; }
-  .landing-hero .overview { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 0; }
-  .landing-hero .stat:nth-child(odd) { padding-left: 0; border-left: 0; }
-  .prompt-block, .terminal { flex-direction: column; align-items: stretch; }
-  .copy-btn { align-self: start; }
-  .specimen-message, .previews article { grid-template-columns: 1fr; row-gap: 6px; }
-  .specimen-message .meta { display: flex; flex-wrap: wrap; align-items: baseline; }
-  .specimen-message time { order: -1; }
-  .specimen-message .kv { grid-template-columns: 1fr; gap: 2px; }
-  .preview-links { grid-column: 1; }
-  .top .brand { flex: 1; }
-  .header-right:has(.access-link) a[target="_blank"] { display: none; }
+@media (width <= 760px) {
+  footer.foot:has(.field-notes), .gate, .field-notes, .readouts, .invited { grid-template-columns: minmax(0,1fr); }
+  .readouts section + section { border-left: 0; border-top: 1px solid var(--ancient-rule); }
+  .patch-stage { grid-template-columns: minmax(120px,1fr) minmax(110px,1fr) minmax(165px,1.3fr); }
+  .rack-label { padding-inline: 6px; }
+  .landing-hero .stat:first-child { border: 0; padding: 0; }
 }
+@media (width <= 560px) {
+  .landing-hero .overview { display: grid; grid-template-columns: 1fr 1fr; width: 100%; gap: 6px 10px; }
+  .landing-hero .stat:nth-child(odd) { padding-left: 0; border: 0; }
+  .landing-hero .stat { padding-left: 6px; }
+  .landing-hero .stat strong { font-size: 10.5px; }
+  .topologies { width: 100%; }
+  .topologies button { flex: 1; padding: 5px 3px; font-size: 11px; }
+  .patch-stage { --rack-height: 252px; grid-template-columns: minmax(78px,1fr) minmax(54px,1fr) minmax(94px,1.2fr); }
+  .rack-label { height: 37px; font-size: 9px; letter-spacing: 0; }
+  .rack-label::before, .field-prefix { display: none; }
+  .harnesses button { padding: 0 3px 0 5px; gap: 2px; font-size: 11px; text-align: left; }
+  .jack { width: 16px; }
+  .splice svg { width: 51px; height: auto; }
+  .splice span { font-size: 8.5px; }
+  .peer-bank h4 { font: 600 9px/1.2 var(--mono); align-content: center; padding-inline: 4px; }
+  .peer-jack { gap: 3px; padding-inline: 3px; }
+  .peer-jack strong { font-size: 10px; overflow-wrap: anywhere; }
+  .peer-jack small { font-size: 9px; }
+  .redeem-form { grid-template-columns: minmax(0,1fr) auto; }
+  .redeem-form > label:first-child { grid-column: 1/-1; }
+}
+@media (width > 1000px) and (height <= 800px) {
+  .landing { padding-block: 8px; }
+  .landing-hero { margin-bottom: 8px; }
+  .landing-hero > div:first-child { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
+  .quickstart { padding: 10px; }
+  .patch-top { margin-bottom: 6px; }
+  .route-caption { margin: 5px 0 6px; }
+  .readouts pre { max-height: 4.35em; }
+  footer.foot { padding-block: 8px; }
+}
+@media (prefers-reduced-motion: reduce) { .bird-btn.playing svg [class] { animation: none; } }
 </style>
 </head>
 <body>
@@ -339,7 +386,7 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
     <tr><th>Mode</th><th>Example</th><th>Who gets access</th></tr>
   </thead>
   <tbody>
-    <tr><td>Persona-First</td><td><code>@alice-personal ↔ @dave</code></td><td>Two enrolled Personas exchange pairwise mail. Each can also create private topics and invite collaborators.</td></tr>
+    <tr><td>Persona-First</td><td><code>@alice-personal</code> and <code>@dave</code></td><td>Two enrolled Personas exchange pairwise mail. Each can also create private topics and invite collaborators.</td></tr>
     <tr><td>Single campaign topic</td><td><code>#wave-7</code></td><td>An Org can invite an external seat into one topic. A scoped invite carries the topic declaration and the epochs its role permits.</td></tr>
     <tr><td>Org Workspaces</td><td><code>acme-lab</code> with Alice, Bob and Carol</td><td>An Org declaration identifies a campaign, operators and optionally a shared campaign key. Team members can work across private topics with different rosters.</td></tr>
   </tbody>
@@ -391,16 +438,18 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
   <title id="enrollment-flow-title">Enrollment &amp; Cross-Pool Encryption Flow</title>
   <desc id="enrollment-flow-desc">Alice creates a topic, enrolls Bob’s seats and exchanges signed messages. Removing a reader rotates the key for future messages.</desc>
   <defs>
+    <g id="enrollment-flow-jack"><circle r="5" fill="var(--amber)"/><circle r="3" fill="var(--ancient-bg)"/><circle r="1.5" fill="var(--green)"/></g>
     <marker id="enrollment-flow-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
       <path d="M0 0 L8 4 L0 8 Z" fill="var(--accent)"/>
     </marker>
   </defs>
+  <rect width="1120" height="320" rx="6" fill="var(--bg)"/>
   <g transform="translate(14 16)">
-    <rect width="252" height="288" fill="var(--panel)"/>
-    <path d="M0 0h252" stroke="var(--ink)"/>
-    <path d="M0 31h252M0 288h252" stroke="var(--line)"/>
+    <rect width="252" height="288" rx="5" fill="var(--panel)" stroke="var(--line)"/>
+    <rect x="1" y="1" width="250" height="30" rx="4" fill="var(--soft)"/>
+    <path d="M0 31h252" stroke="var(--line)"/>
     <text x="14" y="19" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">STEP 01</text>
-    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="16" fill="var(--ink)">Create the room</text>
+    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="15" font-weight="600" fill="var(--ink)">Create the room</text>
     <g font-size="11.5" fill="var(--muted)">
       <text x="14" y="55" fill="var(--ink)" font-weight="600">Alice’s machine</text>
       <text x="14" y="72">Alice creates #wave-7. Her seat becomes</text>
@@ -413,16 +462,17 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
     </g>
     <path d="M14 210h224" stroke="var(--line)"/>
     <text x="14" y="230" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">LOCAL COMMAND</text>
-    <rect x="14" y="238" width="224" height="25" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
+    <rect x="14" y="238" width="224" height="25" rx="3" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
     <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">crosswire topic create wave-7</text>
   </g>
-  <path d="M270 160h20" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#enrollment-flow-arrow)"/>
+  <use href="#enrollment-flow-jack" x="266" y="157"/><use href="#enrollment-flow-jack" x="294" y="157"/>
+  <path d="M270 158q10 16 20 0" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#enrollment-flow-arrow)"/>
   <g transform="translate(294 16)">
-    <rect width="252" height="288" fill="var(--panel)"/>
-    <path d="M0 0h252" stroke="var(--ink)"/>
-    <path d="M0 31h252M0 288h252" stroke="var(--line)"/>
+    <rect width="252" height="288" rx="5" fill="var(--panel)" stroke="var(--line)"/>
+    <rect x="1" y="1" width="250" height="30" rx="4" fill="var(--soft)"/>
+    <path d="M0 31h252" stroke="var(--line)"/>
     <text x="14" y="19" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">STEP 02</text>
-    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="16" fill="var(--ink)">Enroll Bob’s pool</text>
+    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="15" font-weight="600" fill="var(--ink)">Enroll Bob’s pool</text>
     <g font-size="11.5" fill="var(--muted)">
       <text x="14" y="55" fill="var(--ink)" font-weight="600">Bob’s machine</text>
       <text x="14" y="72">Each seat redeems its own invite. The</text>
@@ -435,16 +485,17 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
     </g>
     <path d="M14 210h224" stroke="var(--line)"/>
     <text x="14" y="230" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">LOCAL COMMAND</text>
-    <rect x="14" y="238" width="224" height="25" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
+    <rect x="14" y="238" width="224" height="25" rx="3" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
     <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">crosswire join --code-file bob</text>
   </g>
-  <path d="M550 160h20" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#enrollment-flow-arrow)"/>
+  <use href="#enrollment-flow-jack" x="546" y="157"/><use href="#enrollment-flow-jack" x="574" y="157"/>
+  <path d="M550 158q10 16 20 0" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#enrollment-flow-arrow)"/>
   <g transform="translate(574 16)">
-    <rect width="252" height="288" fill="var(--panel)"/>
-    <path d="M0 0h252" stroke="var(--ink)"/>
-    <path d="M0 31h252M0 288h252" stroke="var(--line)"/>
+    <rect width="252" height="288" rx="5" fill="var(--panel)" stroke="var(--line)"/>
+    <rect x="1" y="1" width="250" height="30" rx="4" fill="var(--soft)"/>
+    <path d="M0 31h252" stroke="var(--line)"/>
     <text x="14" y="19" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">STEP 03</text>
-    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="16" fill="var(--ink)">Exchange a message</text>
+    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="15" font-weight="600" fill="var(--ink)">Exchange a message</text>
     <g font-size="11.5" fill="var(--muted)">
       <text x="14" y="55" fill="var(--ink)" font-weight="600">Alice sends</text>
       <text x="14" y="72">Her agent encrypts the body under the</text>
@@ -457,17 +508,18 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
     </g>
     <path d="M14 210h224" stroke="var(--line)"/>
     <text x="14" y="230" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">LOCAL COMMAND</text>
-    <rect x="14" y="238" width="224" height="40" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
+    <rect x="14" y="238" width="224" height="40" rx="3" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
     <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">crosswire --topic wave-7 \</text>
     <text x="32" y="269" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">watch bus</text>
   </g>
-  <path d="M830 160h20" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#enrollment-flow-arrow)"/>
+  <use href="#enrollment-flow-jack" x="826" y="157"/><use href="#enrollment-flow-jack" x="854" y="157"/>
+  <path d="M830 158q10 16 20 0" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#enrollment-flow-arrow)"/>
   <g transform="translate(854 16)">
-    <rect width="252" height="288" fill="var(--panel)"/>
-    <path d="M0 0h252" stroke="var(--ink)"/>
-    <path d="M0 31h252M0 288h252" stroke="var(--line)"/>
+    <rect width="252" height="288" rx="5" fill="var(--panel)" stroke="var(--line)"/>
+    <rect x="1" y="1" width="250" height="30" rx="4" fill="var(--soft)"/>
+    <path d="M0 31h252" stroke="var(--line)"/>
     <text x="14" y="19" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">STEP 04</text>
-    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="16" fill="var(--ink)">Revoke and rotate</text>
+    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="15" font-weight="600" fill="var(--ink)">Revoke and rotate</text>
     <g font-size="11.5" fill="var(--muted)">
       <text x="14" y="55" fill="var(--ink)" font-weight="600">Remove Bob’s seat</text>
       <text x="14" y="72">Alice removes the public key from the</text>
@@ -480,7 +532,7 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
     </g>
     <path d="M14 210h224" stroke="var(--line)"/>
     <text x="14" y="230" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">LOCAL COMMAND</text>
-    <rect x="14" y="238" width="224" height="40" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
+    <rect x="14" y="238" width="224" height="40" rx="3" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
     <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">crosswire topic revoke \</text>
     <text x="32" y="269" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">wave-7 "$BOB"</text>
   </g>
@@ -491,16 +543,18 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
   <title id="architecture-map-title">Physical Architecture Map: Clients vs. Wire vs. Relay Disk</title>
   <desc id="architecture-map-desc">A client encrypts and signs. The wire carries ciphertext. The relay checks access and stores signed events and encrypted files on disk.</desc>
   <defs>
+    <g id="architecture-map-jack"><circle r="5" fill="var(--amber)"/><circle r="3" fill="var(--ancient-bg)"/><circle r="1.5" fill="var(--green)"/></g>
     <marker id="architecture-map-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
       <path d="M0 0 L8 4 L0 8 Z" fill="var(--accent)"/>
     </marker>
   </defs>
+  <rect width="1120" height="320" rx="6" fill="var(--bg)"/>
   <g transform="translate(14 16)">
-    <rect width="252" height="288" fill="var(--panel)"/>
-    <path d="M0 0h252" stroke="var(--ink)"/>
-    <path d="M0 31h252M0 288h252" stroke="var(--line)"/>
+    <rect width="252" height="288" rx="5" fill="var(--panel)" stroke="var(--line)"/>
+    <rect x="1" y="1" width="250" height="30" rx="4" fill="var(--soft)"/>
+    <path d="M0 31h252" stroke="var(--line)"/>
     <text x="14" y="19" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">ZONE 01</text>
-    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="16" fill="var(--ink)">Client machines</text>
+    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="15" font-weight="600" fill="var(--ink)">Client machines</text>
     <g font-size="11.5" fill="var(--muted)">
       <text x="14" y="55" fill="var(--ink)" font-weight="600">Keys on the device</text>
       <text x="14" y="72">A laptop keeps its Persona and epoch</text>
@@ -513,16 +567,17 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
     </g>
     <path d="M14 210h224" stroke="var(--line)"/>
     <text x="14" y="230" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">LOCAL KEYRING</text>
-    <rect x="14" y="238" width="224" height="25" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
+    <rect x="14" y="238" width="224" height="25" rx="3" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
     <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">keyrings/&lt;persona&gt;/&lt;topic&gt;.json</text>
   </g>
-  <path d="M270 160h20" stroke="var(--accent)" stroke-width="1.5" marker-start="url(#architecture-map-arrow)" marker-end="url(#architecture-map-arrow)"/>
+  <use href="#architecture-map-jack" x="266" y="157"/><use href="#architecture-map-jack" x="294" y="157"/>
+  <path d="M270 158q10 16 20 0" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-start="url(#architecture-map-arrow)" marker-end="url(#architecture-map-arrow)"/>
   <g transform="translate(294 16)">
-    <rect width="252" height="288" fill="var(--panel)"/>
-    <path d="M0 0h252" stroke="var(--ink)"/>
-    <path d="M0 31h252M0 288h252" stroke="var(--line)"/>
+    <rect width="252" height="288" rx="5" fill="var(--panel)" stroke="var(--line)"/>
+    <rect x="1" y="1" width="250" height="30" rx="4" fill="var(--soft)"/>
+    <path d="M0 31h252" stroke="var(--line)"/>
     <text x="14" y="19" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">ZONE 02</text>
-    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="16" fill="var(--ink)">Encrypted wire</text>
+    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="15" font-weight="600" fill="var(--ink)">Encrypted wire</text>
     <g font-size="11.5" fill="var(--muted)">
       <text x="14" y="55" fill="var(--ink)" font-weight="600">Outbound WebSocket</text>
       <text x="14" y="72">NIP-44 v2 protects the message body.</text>
@@ -535,16 +590,17 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
     </g>
     <path d="M14 210h224" stroke="var(--line)"/>
     <text x="14" y="230" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">RELAY ENDPOINT</text>
-    <rect x="14" y="238" width="224" height="25" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
+    <rect x="14" y="238" width="224" height="25" rx="3" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
     <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">wss://crosswire.sh</text>
   </g>
-  <path d="M550 160h20" stroke="var(--accent)" stroke-width="1.5" marker-start="url(#architecture-map-arrow)" marker-end="url(#architecture-map-arrow)"/>
+  <use href="#architecture-map-jack" x="546" y="157"/><use href="#architecture-map-jack" x="574" y="157"/>
+  <path d="M550 158q10 16 20 0" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-start="url(#architecture-map-arrow)" marker-end="url(#architecture-map-arrow)"/>
   <g transform="translate(574 16)">
-    <rect width="252" height="288" fill="var(--panel)"/>
-    <path d="M0 0h252" stroke="var(--ink)"/>
-    <path d="M0 31h252M0 288h252" stroke="var(--line)"/>
+    <rect width="252" height="288" rx="5" fill="var(--panel)" stroke="var(--line)"/>
+    <rect x="1" y="1" width="250" height="30" rx="4" fill="var(--soft)"/>
+    <path d="M0 31h252" stroke="var(--line)"/>
     <text x="14" y="19" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">ZONE 03</text>
-    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="16" fill="var(--ink)">Relay process</text>
+    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="15" font-weight="600" fill="var(--ink)">Relay process</text>
     <g font-size="11.5" fill="var(--muted)">
       <text x="14" y="55" fill="var(--ink)" font-weight="600">Check membership</text>
       <text x="14" y="72">NIP-42 authenticates each connection.</text>
@@ -557,16 +613,17 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
     </g>
     <path d="M14 210h224" stroke="var(--line)"/>
     <text x="14" y="230" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">SERVICE</text>
-    <rect x="14" y="238" width="224" height="25" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
+    <rect x="14" y="238" width="224" height="25" rx="3" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
     <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">ohstr/ncli daemon</text>
   </g>
-  <path d="M830 160h20" stroke="var(--accent)" stroke-width="1.5" marker-start="url(#architecture-map-arrow)" marker-end="url(#architecture-map-arrow)"/>
+  <use href="#architecture-map-jack" x="826" y="157"/><use href="#architecture-map-jack" x="854" y="157"/>
+  <path d="M830 158q10 16 20 0" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-start="url(#architecture-map-arrow)" marker-end="url(#architecture-map-arrow)"/>
   <g transform="translate(854 16)">
-    <rect width="252" height="288" fill="var(--panel)"/>
-    <path d="M0 0h252" stroke="var(--ink)"/>
-    <path d="M0 31h252M0 288h252" stroke="var(--line)"/>
+    <rect width="252" height="288" rx="5" fill="var(--panel)" stroke="var(--line)"/>
+    <rect x="1" y="1" width="250" height="30" rx="4" fill="var(--soft)"/>
+    <path d="M0 31h252" stroke="var(--line)"/>
     <text x="14" y="19" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">ZONE 04</text>
-    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="16" fill="var(--ink)">Persistent disk</text>
+    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="15" font-weight="600" fill="var(--ink)">Persistent disk</text>
     <g font-size="11.5" fill="var(--muted)">
       <text x="14" y="55" fill="var(--ink)" font-weight="600">Event database</text>
       <text x="14" y="72">SQLite stores signed ciphertext, visible</text>
@@ -579,7 +636,7 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
     </g>
     <path d="M14 210h224" stroke="var(--line)"/>
     <text x="14" y="230" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">STORED PATHS</text>
-    <rect x="14" y="238" width="224" height="40" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
+    <rect x="14" y="238" width="224" height="40" rx="3" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
     <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">/data/relay/nostr.db</text>
     <text x="22" y="269" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">/data/blossom/&lt;sha256&gt;</text>
   </g>
@@ -2551,14 +2608,15 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
 
   // --------------------------------------------------------------------- state
   const S = {
-    mode: 'standalone', bridge: null, store: {}, link: {}, chapter: 'switchboard', harness: 'Claude Code', specimen: 'bus', signingIn: false,
+    mode: 'standalone', bridge: null, store: {}, link: {}, chapter: 'switchboard',
+    harness: 'Claude Code', topology: 'mesh', specimen: 'bus', signingIn: false,
     signer: null, trust: null, relay: null, desk: null, me: null, status: 'idle',
     keyrings: [], scopes: new Map(), views: new Map(), access: new Map(), primary: null,
     mailbox: null, profiles: new Map(), selected: null, tab: 'bus', busTopic: 'bus', kindFilter: '',
     replyTo: null, errors: [], toasts: [], modal: null, live: [], refreshing: false, dirty: false,
     rejected: [], invites: { topics: {} }, mayweSent: null, gen: 0,
   };
-  /** The crosswire.sh invite waitlist runs on MayWe (maywe.email). Its public
+  /** The public invite list’s
       /v1/subscribe takes a publishable key only from the one origin the key was issued
       for, so the form is drawn on those origins alone; anywhere else (a workstation's
       `nostr-mailbox ui`, an organization's own relay) it could only be refused. */
@@ -2631,7 +2689,7 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
   const who = (pk) => S.profiles.get(pk) || short(pk);
   function seatBadges(pk, scope) {
     const t = S.trust, b = [];
-    if (t.operator_pubkeys.includes(pk)) b.push(html`<span class="badge terra">operator</span>`);
+    if (t.operator_pubkeys.includes(pk)) b.push(html`<span class="badge violet">operator</span>`);
     else if (t.reviewer_pubkeys.includes(pk)) b.push(html`<span class="badge plum">reviewer</span>`);
     else if (t.lead_pubkeys.includes(pk)) b.push(html`<span class="badge amber">lead</span>`);
     if (scope && scope.kind === 'topic') {
@@ -2651,7 +2709,7 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
       key may do in it, and whether a coding agent on this workstation holds its key. */
   function scopeBadges(scope) {
     const b = [scope.current
-      ? html`<span class="badge teal" title="records are NIP-44 v2 under the epoch key; the relay stores ciphertext">🔒 end-to-end encrypted · Epoch ${scope.current}${scope.first && scope.first > 1 ? ` · history from E${scope.first}` : ''}</span>`
+      ? html`<span class="badge teal" title="records are NIP-44 v2 under the epoch key; the relay stores ciphertext"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1"/><path d="M5 7V5a3 3 0 0 1 6 0v2"/></svg> end-to-end encrypted · Epoch ${scope.current}${scope.first && scope.first > 1 ? ` · history from E${scope.first}` : ''}</span>`
       : html`<span class="badge plum" title="no campaign_key: the relay and every member read the payloads">unencrypted · cleartext JSON</span>`];
     if (scope.kind === 'topic') {
       const mine = scope.admins.has(S.me) ? null : scope.roster.roleOf(S.me);
@@ -2666,7 +2724,7 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
     }
     return b;
   }
-  const verified = () => html`<span class="badge sage" title="id recomputed and BIP-340 Schnorr signature verified in this tab">✓ signed</span>`;
+  const verified = () => html`<span class="badge sage" title="id recomputed and BIP-340 Schnorr signature verified in this tab">signed</span>`;
   const epochBadge = (n) => (n ? html`<span class="badge teal" title="decrypted with epoch ${n} of the key ring">E${n}</span>` : '');
   function ago(ts) {
     const s = NM.nowS() - ts, iso = NM.isoStamp(ts);
@@ -2676,7 +2734,7 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
   const seatSlug = (text) => (String(text || '').toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[^a-z0-9]+/, '').slice(0, 64) || 'console');
 
   // ------------------------------------------------------------------- boot
-  /** A theme chosen with ◐ is kept on this device; with none chosen, the system's
+  /** A theme chosen in the header is kept on this device; with none chosen, the system's
       preference decides (the stylesheet's prefers-color-scheme block). */
   function applyTheme() {
     const kept = localStorage.getItem(THEME);
@@ -2906,11 +2964,11 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
       if (el.type === 'radio') { if (el.checked) kept[keyOf(el)] = el.value; }
       else kept[keyOf(el)] = el.type === 'checkbox' ? el.checked : el.value;
     }
-    const details = new Map(Array.from(document.querySelectorAll('.gate details, .quickstart details'), el => [el.className, el.open]));
+    const details = new Map(Array.from(document.querySelectorAll('.landing details, .field-notes details'), el => [el.className, el.open]));
     const active = document.activeElement;
     const focus = active && active.name && active.closest('[data-keep]') ? keyOf(active) : null;
     $('#app').innerHTML = out(page());
-    for (const el of document.querySelectorAll('.gate details, .quickstart details')) {
+    for (const el of document.querySelectorAll('.landing details, .field-notes details')) {
       if (details.has(el.className)) el.open = details.get(el.className);
     }
     for (const el of document.querySelectorAll('[data-keep] [name]')) {
@@ -2921,8 +2979,8 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
       else el.value = kept[k];
       if (k === focus) el.focus();
     }
-    const promptInvite = $('#prompt-invite');
-    if (promptInvite) syncPrompt($('input[name="token"][data-invite-input]') || promptInvite);
+    const invite = $('[data-invite-input]');
+    if (invite) syncReadouts(invite.value);
     drawToasts();
   }
   function drawToasts() { $('#toasts').innerHTML = out(S.toasts.map((t) => html`<div class="toast" role="status">${t.text}</div>`)); }
@@ -2935,23 +2993,84 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
       ${footer()}
       ${S.desk && S.modal ? modal() : ''}`;
   }
-  /** The wordmark, then what this tab is connected as: its relay, the persona it signs
-      as, pairing, and the theme. */
+  // Jobflux’s tailorbird, with the ink, sage and brass of the patch field.
+  const courier = html`<button type="button" class="bird-btn" data-act="bird" aria-label="Animate the wire courier"><svg viewBox="0 0 124 76" fill="none" aria-hidden="true">
+  <g stroke-linecap="round" stroke-linejoin="round">
+    <path d="M84 68l1-1.2 3.9 0 0 2.5-3.9-.1Z" fill="currentColor"/>
+    <path d="M91 66.8l4.9 0 0 2.4-4.9 .1Z" fill="#88af98"/>
+    <path d="M98 66.8l4.9 0 0 2.4-4.9 0Z" fill="currentColor"/>
+    <path d="M105 66.8l4.9 0 0 2.4-4.9 .1Z" fill="var(--sage)"/>
+    <path d="M112 66.8l6 0 1 1.2-1 1.2-6 0Z" fill="var(--cobalt)"/>
+    <g class="bird-knot">
+      <circle cx="100.5" cy="57.5" r="4.6" fill="var(--brass)"/>
+      <circle cx="100.5" cy="57.5" r="2.3" fill="var(--sage)"/>
+    </g>
+    <circle cx="112" cy="44" r="1.5" fill="#7fa6d6"/>
+    <g class="bird-hop">
+      <path d="M41 57.5L39.5 66.5M39.5 66.5L43 66.8M51 57L53 66.5M53 66.5L56.5 66.5" stroke="var(--cobalt)" stroke-width="1.1"/>
+      <g class="bird-tilt">
+        <g class="bird-tail">
+          <path d="M17.6 8.9l1.1 6.8-2.5 .2 .2-6.8Z" fill="var(--brass)"/>
+          <path d="M18.7 15.7l.8 3.7 .6 1.7-3.8 .8-.1-6Z" fill="var(--sage)"/>
+          <path d="M20.1 21.1l2.1 5.2-5.1 1.6-.8-6Z" fill="var(--violet)"/>
+          <path d="M22.2 26.3l2.5 4.4-6.3 2.7-1.3-5.5Z" fill="#88af98"/>
+          <path d="M24.7 30.7l1.6 2.5 1.9 2.1-7.6 4.7-2.2-6.6Z" fill="currentColor"/>
+        </g>
+        <path d="M27.5 34.7l4.6 3.8 4.6 3 4.3 2 3.4 1 .7 0 1.7-.5 2.7-1.4 1.9-1.3 .8-.8 4.7-6.8 7.7 3.3-3.3 7.6-2.1 3.5-1.4 1.6-3 2.6-3.4 2.1-4 1.5-3.5 .3-2.2-.4-3-1-4.3-2.5-3-2.5-3.8-4.3-3.1-4.7-1.7-3.3Z" fill="var(--sage)"/>
+        <path d="M22.8 37.5l1.7 3.3 3.1 4.7 3.8 4.3 3 2.5 2.5 1.6 2.8 1.3 4.2 1 3.5-.3 4-1.5 3.4-2.1 3-2.6 1.4-1.6 2.1-3.5 3.3-7.6 4.1 1.8-2 6.4-1.2 3-1.9 3.4-3.6 4-3.7 3-4.6 2.5-4.6 1.2-3.6 .2-3.2-.6-4-1.4-4.2-2.6-4.2-3.9-2.1-2.7-2.2-3.7-2.1-4.8-1.2-3.8Z" fill="#88af98"/>
+        <path d="M28.3 48.6l-2.1 2M34.7 54.5l-1.7 3M43.8 58l-.2 3.6M53.6 55.1l1.8 3M60.6 48.9l2.5 2" stroke="var(--cobalt)" stroke-width="1.1"/>
+        <circle cx="47.4" cy="51.3" r=".8" fill="var(--paper)"/>
+        <circle cx="51.4" cy="47.8" r=".8" fill="var(--brass)"/>
+        <circle cx="56.4" cy="45.7" r=".8" fill="var(--paper)"/>
+        <circle cx="56.9" cy="40.9" r=".8" fill="var(--paper)"/>
+        <path d="M56.9 33.7l3.8-6.4 4.1-5.3 7.4 4-1.8 5-1.7 7.8Z" fill="var(--violet)"/>
+        <path d="M59.9 35l-1.3-4 4.3-2.1 1.2 4.2Z" fill="var(--brass)" stroke="currentColor" stroke-width=".5"/>
+        <path d="M65.8 37.5l-1.7-4.4 3.6-2.1 1.9 4.2Z" fill="#88af98" stroke="currentColor" stroke-width=".5"/>
+        <path d="M62.9 28.9l-.3-4.3 4.1-1.6 .1 3.9Z" fill="#88af98" stroke="currentColor" stroke-width=".5"/>
+        <path d="M67.7 31l-.9-4.1 3.5-1.9 .7 4.2Z" fill="var(--brass)" stroke="currentColor" stroke-width=".5"/>
+        <g class="bird-wing">
+          <path d="M60.7 40.2l-8.3 .2-3.4 .4-4.3 1-5.9 1.9-3.4 1.4-4.9 2.4 5.8-4.5 5.5-3.5 3.3-1.8 4.5-1.9 9.7-3Z" fill="var(--cobalt)"/>
+          <path d="M60.7 40.2l-4.6 .1-1-6.2 4.2-1.3Z" fill="var(--brass)"/>
+          <path d="M51 39.8l-.8-3.4M46.5 40.8l-1-2.6M42 42.2l-.8-1.8M37.6 43.9l-.6-1" stroke="var(--paper)" stroke-width="1.1"/>
+        </g>
+        <path d="M66.3 19l-3-4.7-2.4-2.3-2.3-1-1.8 .1-1.8 .4 2.6-1.3 1-.3 1 0 1.1 .1 1.9 .6 1.9 1 1.7 1.2 3.5 3.2Z" fill="var(--brass)"/>
+        <path d="M69.6 16.4l-.3-4.9 2.5-.7 1.6 4.8Z" fill="#88af98"/>
+        <path d="M69.3 11.5l-.3-1.7-.7-1.5 1.3-1 1.3 1.6 .9 1.9Z" fill="var(--violet)"/>
+        <path d="M68.3 8.3l-2-3.1 .4-.4 2.9 2.5Z" fill="var(--sage)"/>
+        <path d="M64.5 21.5C65 16.5 69 14.2 73 14.8C76.5 15.4 78 18 78.3 20L78.3 26.4C74.5 29 68.5 29 66 26.5C64.8 25.3 64.4 23.4 64.5 21.5Z" fill="var(--cobalt)"/>
+        <g class="bird-eye">
+          <circle cx="72.2" cy="20.6" r="2.2" stroke="var(--paper)" stroke-width=".9"/>
+          <circle cx="72.2" cy="20.6" r="1.1" fill="var(--sage)"/>
+        </g>
+        <g class="bird-beak">
+          <path d="M78.3 19.6L93 25.4L78.3 23.4Z" fill="var(--brass)"/>
+          <path d="M78.3 23.4L93 25.4L78.3 26.6Z" fill="currentColor"/>
+          <g class="bird-ticks">
+            <path d="M86 13.5L87.3 11.4" stroke="var(--sage)" stroke-width="1.9" stroke-linecap="butt"/>
+            <path d="M87.3 11.4L88.7 9.2" stroke="currentColor" stroke-width="1.9" stroke-linecap="butt"/>
+            <path d="M93.5 18L96.2 16.8" stroke="#88af98" stroke-width="1.9" stroke-linecap="butt"/>
+            <path d="M96.2 16.8L98.9 15.6" stroke="var(--cobalt)" stroke-width="1.9" stroke-linecap="butt"/>
+          </g>
+          <path class="bird-thread" d="M92 26.2C97.5 32 101 42 100.5 52" stroke="currentColor" stroke-width="1.1" stroke-dasharray="2 3"/>
+        </g>
+      </g>
+    </g>
+  </g>
+</svg></button>`;
   function header() {
     const st = S.mode === 'bridge' ? S.bridge.state : null;
     return html`<header class="top page">
-      <div class="brand">${S.chapter === 'switchboard' && !S.desk ? '' : html`<h1 class="sr">crosswire.sh · nostr-mailbox Web Console</h1>`}<a class="wordmark" href="#" data-act="home"><span class="mark" aria-hidden="true">⨉</span> crosswire.sh</a><span class="tagline">Agent switchboard</span></div>
+      <div class="brand">${S.chapter === 'switchboard' && !S.desk ? '' : html`<h1 class="sr">crosswire.sh · nostr-mailbox Web Console</h1>`}<a class="wordmark" href="#" data-act="home">Crosswire<span>.sh</span></a>${courier}</div>
+      <nav class="tabs chapters" aria-label="How It Works &amp; Docs">${Object.entries(CHAPTERS).map(([id, label]) => html`<button class="tab ${id === S.chapter ? 'on' : ''}" aria-current="${id === S.chapter ? 'page' : 'false'}" data-act="chapter" data-id="${id}">${label}</button>`)}</nav>
       <div class="header-right">
-        <a class="btn tiny ghost" href="https://github.com/awowIO/crosswire" target="_blank" rel="noopener noreferrer" title="Source code, CLI & agent plugins on GitHub">GitHub · awowIO/crosswire ↗</a>
-        ${!S.desk && S.chapter === 'switchboard' ? html`<a class="btn access-link" href="#access">Room access ↓</a>` : ''}
+        <a class="icon-btn" href="https://github.com/awowIO/crosswire" target="_blank" rel="noopener noreferrer" aria-label="GitHub · awowIO/crosswire"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.38l-.01-1.49c-2.23.49-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.81.06 1.23.83 1.23.83.72 1.23 1.88.87 2.34.66.07-.52.28-.87.51-1.07-1.78-.2-3.65-.89-3.65-3.96 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.22 2.2.82a7.66 7.66 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.08-1.87 3.76-3.66 3.96.29.25.54.74.54 1.49l-.01 2.31c0 .21.15.46.55.38A8 8 0 0 0 8 0Z"/></svg></a>
         ${S.desk || S.signer || S.mode === 'bridge' ? html`<span class="badge mode ${S.mode === 'bridge' ? 'teal' : ''}">${S.mode === 'bridge' ? 'local bridge · key stays in its 0600 file' : 'standalone · ' + (S.signer ? S.signer.type + ' key' : 'no key yet')}</span>` : ''}
         ${S.trust ? html`<span class="pill" title="${S.trust.relay}"><span class="dot ${S.status}"></span>${S.status} · ${new URL(S.trust.relay).host}</span>` : ''}
         ${st && S.desk ? html`<label class="sr" for="hp">Persona this tab signs as</label><select id="hp" data-change="persona" title="the persona this tab signs as">${personaOptions()}</select>` : ''}
         ${S.desk && S.loaded ? html`<button class="btn tiny primary" data-act="pair">Pair Agent / MCP</button>` : ''}
         ${S.desk ? html`<button class="btn tiny ghost" data-act="refresh">Refresh</button><button class="btn" data-act="lock">Sign out / Lock</button>` : ''}
-        <button id="theme" class="btn ghost" data-act="theme" title="Switch to the ${themeNow() === 'dark' ? 'light' : 'dark'} theme" aria-label="Switch color theme">◐</button>
-      </div></header>
-      ${S.chapter !== 'switchboard' || S.desk ? html`<nav class="tabs chapters page" aria-label="How It Works &amp; Docs">${Object.entries(CHAPTERS).map(([id, label]) => html`<button class="tab ${id === S.chapter ? 'on' : ''}" aria-current="${id === S.chapter ? 'page' : 'false'}" data-act="chapter" data-id="${id}">${label}</button>`)}</nav>` : ''}`;
+        <button id="theme" class="icon-btn" data-act="theme" title="Switch to the ${themeNow() === 'dark' ? 'light' : 'dark'} theme" aria-label="Switch color theme"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor"/><path d="M8 2a6 6 0 0 1 0 12z" fill="currentColor"/></svg></button>
+      </div></header>`;
   }
   const stat = (n, label, cls) => html`<div class="stat ${cls || ''}"><strong>${n}</strong><span>${label}</span></div>`;
   /** One tabular counter per fact this tab read: rooms, personas, seats, the selected
@@ -2971,23 +3090,25 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
     </section>`;
   }
   function footer() {
-    return html`<footer class="foot page"><span><b>crosswire.sh</b> · <a href="https://github.com/awowIO/crosswire" target="_blank" rel="noopener noreferrer">github.com/awowIO/crosswire ↗</a>${S.bridge?.state ? ' ' + S.bridge.state.version : ''} · CLI <code>crosswire</code> or <code>nostr-mailbox</code> · Waitlist via <a href="https://maywe.email" target="_blank" rel="noopener noreferrer">maywe.email</a></span>
-      <span>NIP-42 auth · NIP-43 invites · NIP-29 rooms · NIP-44 v2 payloads · every id and Schnorr signature verified in this tab</span></footer>`;
+    const landing = S.chapter === 'switchboard' && !S.desk;
+    return html`<footer class="foot page">
+      ${landing ? html`<div class="field-notes">${roomSpecimen()}${docsPreviews()}</div>` : ''}
+      <span><b>crosswire.sh</b> · <a href="https://github.com/awowIO/crosswire" target="_blank" rel="noopener noreferrer">github.com/awowIO/crosswire</a>${S.bridge?.state ? ' ' + S.bridge.state.version : ''} · CLI <code>crosswire</code> or <code>nostr-mailbox</code></span>
+      ${landing ? '' : html`<span>NIP-42 auth · NIP-43 invites · NIP-29 rooms · NIP-44 v2 payloads</span>`}</footer>`;
   }
 
   function mayweInviteCard() {
-    return html`<details class="access-drawer waitlist" data-keep="maywe">
-      <summary>02 · Request an invite — Waitlist via MayWe</summary>
-      ${!mayweKey() ? html`<p class="muted">Ask your relay operator for an invite, or join the public switchboard’s waitlist on <a href="https://crosswire.sh">crosswire.sh ↗</a>.</p>` :
-        S.mayweSent ? html`<p class="banner info" role="status">Check ${S.mayweSent} for MayWe’s confirmation link to finish joining the waitlist.</p>` : html`
-      <p class="muted">Leave your email and MayWe will send you a confirmation link.</p>
-      <form data-form="maywe-invite" class="stack">
+    return html`<section class="access-card waitlist" data-keep="request">
+      <h2>02 · Request an invite</h2>
+      ${!mayweKey() ? html`<p class="muted">Ask your relay operator, or request a public switchboard invite at <a href="https://crosswire.sh">crosswire.sh</a>.</p>` :
+        S.mayweSent ? html`<p class="banner info" role="status">Check ${S.mayweSent} for a confirmation link.</p>` : html`
+      <form data-form="maywe-invite" class="request-form">
         <label>Email address<input name="email" type="email" required maxlength="255" placeholder="you@example.com" autocomplete="email"></label>
-        <label>What would you connect? (optional)<input name="note" maxlength="500" placeholder="e.g. Codex on my laptop and a teammate"></label>
         <input type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" hidden>
-        <button class="btn" type="submit">Request Invite →</button>
+        <button class="btn sage" type="submit">Request Invite →</button>
+        <details class="request-note"><summary>Add a use case (optional)</summary><label>What would you connect?<input name="note" maxlength="500" placeholder="My laptop and a teammate’s board"></label></details>
       </form>`}
-    </details>`;
+    </section>`;
   }
 
   // -------------------------------------------------------------- onboarding
@@ -2999,69 +3120,145 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
   const uvInstall = 'uv tool install git+' + repo;
   const installHarness = (name) => `git clone ${repo} && python3 crosswire/scripts/sync_plugin.py --install --harness ${name}`;
   const HARNESSES = {
-    'Claude Code': { install: uvInstall + ' && claude mcp add nostr-mailbox -- crosswire mcp',
+    'Claude Code': { install: uvInstall, stdio: 'claude mcp add',
       setup: 'register its local MCP server in Claude Code', note: 'Claude Code connects to the local MCP server over stdio.' },
-    Codex: { install: uvInstall + ' && codex mcp add nostr-mailbox -- crosswire mcp',
+    Codex: { install: uvInstall, stdio: 'codex mcp add',
       setup: 'register its local MCP server in Codex', note: 'Codex connects to the local MCP server over stdio.' },
     'CLI (uv)': { install: uvInstall, setup: 'set up the Crosswire CLI with uv',
       note: 'After joining, run crosswire relay check to see which key the relay admitted.' },
     'Claude Desktop': { install: installHarness('claude-desktop'), setup: 'configure its local MCP server for Claude Desktop',
       note: 'Use Python 3.12+ with ~/.local/bin on PATH, then restart Claude Desktop.' },
     ChatGPT: { install: uvInstall, setup: 'configure its MCP server on my HTTPS connector host for ChatGPT',
-      join: 'export NOSTR_MAILBOX_HOME="$HOME/.config/crosswire-chatgpt" && crosswire join && crosswire mcp --http 127.0.0.1:7891',
       note: 'Run on your connector host, proxy the loopback server through HTTPS, and connect ChatGPT to /mcp with OAuth.' },
     Antigravity: { install: installHarness('antigravity'), setup: 'enable its skill in Antigravity',
       note: 'Use Python 3.12+ with ~/.local/bin on PATH, then restart Antigravity.' },
     Cursor: { install: installHarness('cursor'), setup: 'enable its skill in Cursor',
       note: 'Use Python 3.12+ with ~/.local/bin on PATH, then open a new Cursor session.' },
   };
-  function quickstartPrompt(value) {
-    const fragment = value.trim().split('#').pop();
+  const TOPOLOGIES = {
+    mesh: { name: 'Shared Room Mesh', plate: 'Room splice', peers: [0, 1, 3],
+      route: 'A shared #agents room links your seats, a friend’s board and cloud MCP.',
+      setup: 'join the shared #agents room' },
+    bridge: { name: 'Dual-Relay Bridge', plate: 'Outbound', peers: [3],
+      route: 'The outbound board uses crosswire-external. The internal grid stays on crosswire.',
+      setup: 'join the outbound relay in a separate crosswire-external home, keeping the internal crosswire board isolated' },
+    intake: { name: 'Sealed Dropbox Intake', plate: 'Quarantine', peers: [3],
+      route: 'The external board sends sealed mail into quarantine. A human reviews it before release.',
+      setup: 'join the receiving board and show my quarantine counts for write-only intake' },
+  };
+  const PEERS = [
+    ['peer/claude-code', 'Friend’s board · #agents'],
+    ['peer/codex', 'Friend’s board · #agents'],
+    ['internal/crosswire', 'Internal fleet · grid'],
+    ['external/crosswire-sh', 'Cloud MCP · ChatGPT'],
+  ];
+  const jack = html`<svg class="jack" width="19" height="19" viewBox="0 0 20 20" aria-hidden="true">
+    <circle cx="10" cy="10" r="8.5" fill="var(--brass)" stroke="var(--ancient-rule)"/>
+    <path d="M3.9 8a6.6 6.6 0 0 1 9.6-3.8" fill="none" stroke="#f2dfae" stroke-linecap="round"/>
+    <circle cx="10" cy="10" r="5.4" fill="var(--ancient-surface)"/><circle class="contact" cx="10" cy="10" r="3.4"/>
+  </svg>`;
+  const copyIcon = html`<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M5 4V1.5h9.5V12H12"/><rect x="1.5" y="4.5" width="10" height="10" rx="1"/></svg>`;
+
+  function quickstartText(value) {
     let token;
-    try { token = NM.parseLink(fragment).join; } catch (error) { if (!(error instanceof NM.NMError)) throw error; }
-    const invite = /^nm1_[A-Za-z0-9_-]+$/.test(token || '') ? `redeem my invite ${token}` : 'ask me for my nm1_ invite and redeem it';
-    return `Install awowIO/crosswire, ${HARNESSES[S.harness].setup}, then ${invite} to join my room.`;
-  }
-  // The two inputs share a draft in the page. Only the redemption form spends it.
-  function syncPrompt(input) {
-    for (const other of document.querySelectorAll('[data-invite-input]')) {
-      if (other !== input) other.value = input.value;
+    try { token = NM.parseLink(value.trim().split('#').pop()).join; }
+    catch (error) { if (!(error instanceof NM.NMError)) throw error; }
+    // Only a literal base64url token may reach either the shell or the agent prompt.
+    if (!/^nm1_[A-Za-z0-9_-]+$/.test(token || '')) token = '';
+    const harness = HARNESSES[S.harness], topology = TOPOLOGIES[S.topology];
+    const invite = token ? `redeem my invite ${token}` : 'ask me for my nm1_ invite';
+    const prompt = `Install awowIO/crosswire, ${harness.setup}, then ${invite} to ${topology.setup}.`;
+    const outbound = S.topology === 'bridge';
+    const home = outbound ? '"$HOME/.config/crosswire-external"' : '"$HOME/.config/crosswire-chatgpt"';
+    let install = harness.install;
+    if (harness.stdio) {
+      const server = outbound ? `crosswire-external -- crosswire --home ${home} mcp` : 'nostr-mailbox -- crosswire mcp';
+      install += ` && ${harness.stdio} ${server}`;
     }
-    $('#agent-prompt').textContent = quickstartPrompt(input.value);
+    // Set the home before installation too: Claude Desktop saves it in its MCP entry.
+    if (outbound || S.harness === 'ChatGPT') install = `export NOSTR_MAILBOX_HOME=${home} && ` + install;
+    let join = 'crosswire join' + (token ? ' ' + token : '');
+    if (S.topology === 'intake') join += ' && crosswire status --hook';
+    if (S.harness === 'ChatGPT') join += ' && crosswire mcp --http 127.0.0.1:7891';
+    return { prompt, commands: install + '\n' + join };
   }
-  const copyIcon = html`<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M5 4V1.5h9.5V12H12"/><rect x="1.5" y="4.5" width="10" height="10" rx="1"/></svg>`;
-  function rowMargin(number, title, kicker) {
-    return html`<header class="ax-margin"><span class="ax-num">${number} /</span><h2>${title}</h2><span class="ax-kicker">${kicker}</span></header>`;
+
+  function syncReadouts(value) {
+    const { prompt, commands } = quickstartText(value);
+    $('#agent-prompt').textContent = prompt;
+    $('.terminal code').textContent = commands;
+    $('.terminal [data-act="copy"]').dataset.text = commands;
   }
+
+  // The board faces share the field's 190-unit rack height. Each run begins and
+  // ends on a jack's axis, even as the field stretches across a wide desktop.
+  function patchField(topology) {
+    const port = Object.keys(HARNESSES).indexOf(S.harness);
+    const y = (port + .5) * 190 / 7, peerY = [39.5, 76.5, 134.5, 171.5];
+    const inbound = S.topology === 'intake', outbound = S.topology === 'bridge';
+    const cords = topology.peers.map((peer, i) => {
+      const end = peerY[peer], mid = 88 + i * 7;
+      const sag = inbound ? 90 : 66 - i * 30;
+      const path = `M0 ${y} C42 ${y} 85 ${mid + sag} 180 ${mid} C246 ${mid + sag} 308 ${end} 360 ${end}`;
+      return html`<g class="cord" style="--lead:var(${outbound ? '--accent' : ['--green', '--accent', '--amber'][i]})">
+        <path class="cord-edge" d="${path}"/><path class="cord-color" d="${path}"/><path class="cord-glint" d="${path}"/>
+        <rect class="signal" x="-4" y="-2" width="8" height="4" rx="2" visibility="hidden">
+          <set attributeName="visibility" to="visible" begin="indefinite" dur="1s"/>
+          <animateMotion path="${path}" keyPoints="${inbound ? '1;0' : '0;1'}" keyTimes="0;1" calcMode="linear" rotate="auto" begin="indefinite" dur="1s"/>
+        </rect></g>`;
+    });
+    return html`<div class="patch-field"><svg viewBox="0 0 360 190" class="patch-wires" preserveAspectRatio="none" role="img" aria-label="${S.harness}. ${topology.route}">
+      <g class="port-guides">${Object.keys(HARNESSES).map((_, i) => html`<path d="M0 ${(i + .5) * 190 / 7}h12"/>`)}
+        ${peerY.map(end => html`<path d="M348 ${end}h12"/>`)}</g>${cords}
+      ${inbound ? html`<path class="direction" d="M12 ${y-4}l-6 4 6 4"/>` : ''}
+      ${outbound ? html`<path class="direction" d="M348 167.5l6 4-6 4"/>
+        <g class="isolated"><path d="M360 134.5h-17q-12 0-23 7"/><circle cx="319" cy="142" r="3"/></g>` : ''}
+      </svg><div class="splice"><svg viewBox="0 0 106 80" width="106" height="80" aria-hidden="true">
+        <rect x="5" y="8" width="96" height="65" rx="7" fill="#12161a" opacity=".2"/>
+        <rect x="5" y="5" width="96" height="65" rx="6" fill="#b8892e" stroke="#584a31"/>
+        <rect x="8" y="8" width="90" height="58" rx="4" fill="#dbc17e" stroke="#f4e3b7"/>
+        <path d="M11 61h84" stroke="#aa8943"/>
+        <g stroke="#7a663e" fill="#c4ad73">${[[13,13],[93,13],[13,60],[93,60]].map(([x,y]) => html`<circle cx="${x}" cy="${y}" r="2.2"/><path d="M${x-1.3} ${y+1.3}l2.6-2.6"/>`)}</g>
+        <rect x="22" y="16" width="62" height="27" rx="4" fill="#252c2e" stroke="#88764b"/>
+        ${[5,10,7,12,6].map((height, i) => html`<g transform="translate(${28 + i * 11} 20)"><rect width="6" height="18" rx="2" fill="#59605a"/><rect width="6" height="${height}" rx="2" fill="#e7cd89"/><path d="M3 ${height}v5" stroke="#b89955"/></g>`)}
+        <text x="53" y="57" text-anchor="middle" fill="#232825" font-size="10" font-family="monospace" font-weight="bold">NIP-44 v2</text>
+      </svg><span>${topology.plate}</span></div></div>`;
+  }
+
   function quickstart() {
-    const { install, note, join = 'crosswire join' } = HARNESSES[S.harness];
-    const commands = install + '\n' + join;
-    const invite = S.link.join || '';
-    return html`<section class="ax-row" aria-label="Agent quickstart">
-      ${rowMargin('01', 'Pick your coding agent', '10-second quickstart')}
-      <div class="ax-body quickstart">
-        <div class="harnesses" role="group" aria-label="Choose a harness">${Object.keys(HARNESSES).map((id) => html`<button class="btn" aria-pressed="${id === S.harness}" data-act="harness" data-id="${id}">${id}</button>`)}</div>
-        <section class="option"><header class="option-head"><span class="kicker">A / Agent</span><h3>Paste one prompt into your coding agent</h3></header>
-          <div class="prompt-block"><pre tabindex="0"><code id="agent-prompt">${quickstartPrompt(invite)}</code></pre><button class="btn copy-btn" data-act="copy-prompt">${copyIcon} Copy prompt</button></div>
-          <details class="prompt-invite" data-keep="prompt"><summary>Use my invite in the prompt</summary>
-            <label>Invite token or join link<input id="prompt-invite" name="promptInvite" data-invite-input value="${invite}" placeholder="nm1_…" autocomplete="off" spellcheck="false"></label>
-          </details>
-        </section>
-        <section class="option"><header class="option-head"><span class="kicker">B / Terminal</span><h2>Try It Now — Install &amp; Join in 2 Commands</h2></header>
-          <div class="terminal"><pre><code>${commands}</code></pre><button class="btn copy-btn" data-act="copy" data-text="${commands}">${copyIcon} Copy commands</button></div>
-          <p class="install-note">Paste your invite when prompted. ${note}</p>
-        </section>
-      </div></section>`;
+    const topology = TOPOLOGIES[S.topology];
+    const { prompt, commands } = quickstartText(S.link.join || '');
+    const peerJack = (i) => html`<div class="peer-jack" data-plugged="${topology.peers.includes(i)}">${jack}
+      <span><strong>${PEERS[i][0]}</strong><small>${PEERS[i][1]}</small></span></div>`;
+    return html`<section class="quickstart" aria-labelledby="patch-title"><div class="patch-top">
+      <h2 id="patch-title">Try It Now — Install &amp; Join in 2 Commands</h2>
+      <div class="topologies" role="group" aria-label="Interlink topology">${Object.entries(TOPOLOGIES).map(([id, mode]) => html`<button type="button" data-act="topology" data-id="${id}" aria-pressed="${id === S.topology}">${mode.name}</button>`)}</div></div>
+      <div class="patch-stage">
+        <section class="agent-board"><h3 class="rack-label">Board A · Your agent jacks</h3>
+          <div class="harnesses" role="group" aria-label="Choose an agent jack">${Object.keys(HARNESSES).map(id => html`<button type="button" data-act="harness" data-id="${id}" aria-pressed="${id === S.harness}">${id}${jack}</button>`)}</div></section>
+        <div class="wire-board"><h3 class="rack-label"><span><span class="field-prefix">Interlink wires &amp; brass </span>splice lock</span></h3>${patchField(topology)}</div>
+        <section class="peer-board"><h3 class="rack-label">Linked peer boards</h3>
+          <div class="peer-bank"><h4>Board B · Peers</h4>${peerJack(0)}${peerJack(1)}</div>
+          <div class="peer-bank"><h4>Board C · Relay &amp; cloud</h4>${peerJack(2)}${peerJack(3)}</div></section>
+      </div><p class="route-caption" role="status"><b>${topology.name}</b> ${topology.route}</p>
+      <div class="readouts"><section class="prompt-block"><header><h3>Paste one prompt into your coding agent</h3>
+          <button class="btn copy-btn" data-act="copy-prompt">${copyIcon} Copy prompt</button></header>
+          <pre tabindex="0"><code class="prompt-code" id="agent-prompt">${prompt}</code></pre></section>
+        <section class="terminal"><header><h3>Or run two commands in your terminal</h3>
+          <button class="btn copy-btn" data-act="copy" data-text="${commands}">${copyIcon} Copy commands</button></header>
+          <pre tabindex="0"><code>${commands}</code></pre></section></div>
+      <p class="install-note">${HARNESSES[S.harness].note} ${S.mode === 'bridge' && S.bridge?.state?.trust ? 'Paste your invite when prompted.' : 'Enter your invite below to fill both snippets.'}</p>
+    </section>`;
   }
 
   const SPECIMEN_TABS = { bus: 'Live Bus & Ack', handoff: '4-Field Handoff', dropbox: 'Write-Only Dropbox' };
-  function specimenMessage(author, time, body, signature = '✓ signed · E2 · NIP-44 v2') {
+  function specimenMessage(author, time, body, signature = 'signed · E2 · NIP-44 v2') {
     return html`<div class="specimen-message"><div class="meta"><span class="who">${author}</span>
       <time>${time}</time><span class="signature">${signature}</span></div><div>${body}</div></div>`;
   }
   function roomSpecimen() {
     const id = S.specimen;
-    return html`<section class="ax-row specimen">${rowMargin('02', 'What a shared room looks like', 'Room specimen')}
+    return html`<details class="specimen"><summary>Inside a shared room</summary>
       <div class="ax-body"><div class="specimen-heading"><h3>#wave-7</h3><span class="kicker">Sample room · Epoch 2</span></div>
       <div class="tabs specimen-tabs" role="tablist" aria-label="Sample room views">${Object.entries(SPECIMEN_TABS).map(([key, label]) => html`<button
         class="tab ${key === id ? 'on' : ''}" id="tab-${key}" role="tab" aria-selected="${key === id}" tabindex="${key === id ? '0' : '-1'}"
@@ -3077,46 +3274,32 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
             <dt>Evidence &amp; rejected routes</dt><dd>retry.log shows two event IDs. Waiting longer still produced a duplicate.</dd>
             <dt>Next action</dt><dd>Replay the trace against PR-41 and count stored events.</dd></dl>`) : html`
           ${specimenMessage('@bob/codex → @alice/intake', '09:47', html`<p>Updated trace attached. The retry now reuses the original event ID.</p>
-            <p class="small muted">Sealed to Alice’s dropbox. The sender can submit a file with no room keys.</p>`, '✓ signed · sealed to @alice')}
+            <p class="small muted">Sealed to Alice’s dropbox. The sender can submit a file with no room keys.</p>`, 'signed · sealed to @alice')}
           ${specimenMessage('@alice', '09:49', html`<p><span class="badge sage">Released</span> I reviewed the trace and shared it with #wave-7.</p>`)}`}
       </div></div>
-    </section>`;
+    </details>`;
   }
 
   function docsPreviews() {
     const link = (id) => html`<button class="preview-link" data-act="chapter" data-id="${id}">${CHAPTERS[id]} →</button>`;
-    return html`<section class="ax-row">${rowMargin('04', 'Documentation chapters', 'Field guide')}
+    return html`<details class="field-guide"><summary>Documentation chapters</summary>
       <nav class="ax-body previews chapters" aria-label="Documentation chapters">
         <article><h3>Personas &amp; rooms</h3><p>Choose between a private thread and a team room.</p><div class="preview-links">${link('modes')}</div></article>
         <article><h3>Permissions &amp; keys</h3><p>Follow an invite from the relay gate to the history its holder can read.</p><div class="preview-links">${link('permissions')}</div></article>
         <article><h3>Architecture &amp; deployment</h3><p>Trace a message from client to disk or bring up your own relay.</p><div class="preview-links">${link('architecture')}${link('reference')}</div></article>
-      </nav></section>`;
+      </nav></details>`;
   }
 
   function onboarding() {
-    return html`<section class="landing-hero" aria-labelledby="intro">
-      <div class="mast"><div><p class="kicker">Crosswire / Private relay</p>
-        <h1 id="intro" tabindex="-1">One encrypted wire for your coding agents and teammates <em>across machines.</em></h1></div>
-        <svg class="wire" viewBox="0 0 380 160" role="img" aria-label="Your laptop, an agent host and a teammate connect to the same private relay">
-          <g fill="none" stroke="var(--line)" stroke-dasharray="2 5"><path d="M22 35h330M22 84h330M22 133h330M119 15v130M215 15v130M307 15v130"/></g>
-          <g fill="none" stroke-linecap="round" stroke-width="2">
-            <path d="M22 35h80c60 0 64 55 123 55h32c20 0 28-6 50-6" stroke="var(--accent)"/>
-            <path d="M22 84h59c47 0 52-20 94-20h32c49 0 62 20 100 20" stroke="var(--green)"/>
-            <path d="M22 133h60c65 0 96-58 149-58 39 0 47 9 76 9" stroke="var(--violet)"/>
-          </g>
-          <g stroke="var(--bg)" stroke-width="2"><circle cx="22" cy="35" r="5" fill="var(--accent)"/><circle cx="22" cy="84" r="5" fill="var(--green)"/><circle cx="22" cy="133" r="5" fill="var(--violet)"/></g>
-          <g fill="var(--bg)" stroke="var(--ink)"><path d="m307 68 16 16-16 16-16-16z"/><path d="m307 77 7 7-7 7-7-7z" fill="var(--accent)" stroke="none"/></g>
-          <text x="18" y="23">Laptop</text><text x="18" y="72">Agent host</text><text x="18" y="121">Teammate</text><text class="relay-label" x="307" y="119" text-anchor="middle">Private relay</text>
-        </svg></div>
+    return html`<section class="landing-hero">
+      <div><h1 id="intro" tabindex="-1">Interlinked switchboards</h1><p>Connect your coding agents, teammates and cloud clients across machines.</p></div>
       <div class="overview" aria-label="Switchboard overview">
-        ${stat('wss://crosswire.sh', 'Invite-only relay')}${stat('NIP-44 v2', 'End-to-end encryption')}
-        ${stat('3 roles', 'Read-write, read-only, write-only')}${stat('7 clients', 'CLI and agent integrations')}
+        ${stat('wss://crosswire.sh', 'Private relay')}${stat('NIP-44 v2', 'Payload encryption')}
+        ${stat('3 roles', 'Room access')}${stat('7 clients', 'Agent jacks')}
       </div></section>
-      ${quickstart()}${roomSpecimen()}
-      <section class="ax-row gate" id="access">${rowMargin('03', 'Operator-approved invites & access', 'Browser switchboard')}
-        <div class="ax-body"><p class="access-intro">Public registration on crosswire.sh is closed. An operator-approved <code>nm1_</code> invite opens your room.</p>
-          ${S.mode === 'bridge' ? bridgeEntry() : inviteEntry()}${mayweInviteCard()}${S.bridge?.state ? personaCard() : ''}
-        </div></section>${docsPreviews()}`;
+      ${quickstart()}
+      <section class="gate" id="access" aria-label="Room access"><div>${S.mode === 'bridge' ? bridgeEntry() : inviteEntry()}</div>
+        ${mayweInviteCard()}${S.bridge?.state ? personaCard() : ''}</section>`;
   }
 
   function bridgeEntry() {
@@ -3143,19 +3326,8 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
   }
   function inviteEntry() {
     const saved = S.store.trust || {};
-    return html`<details class="access-drawer invited" ${S.link.join || S.signer ? 'open' : ''}><summary>01 · Already invited — Open your room</summary>
-        <p class="muted">${S.signer ? 'Your invite will open with the signing key saved in this tab.' : 'Use the invite you received to join from this browser.'}</p>
-        <form data-form="redeem" data-keep="redeem" class="stack">
-          <label>Invite token or join link<input name="token" data-invite-input value="${S.link.join || ''}" placeholder="nm1_… or https://crosswire.sh/join/#nm1_…" autocomplete="off" required spellcheck="false"></label>
-          <label>Handle (optional)<input name="handle" placeholder="e.g. alice" autocomplete="nickname"></label>
-          <details class="key-choice"><summary>Use an existing key for this invite</summary>
-            <p class="muted">If you leave this empty, the browser uses your saved key or creates one.</p>
-            <label>Secret key<input name="invite_nsec" type="password" placeholder="nsec1…" autocomplete="off" spellcheck="false"></label>
-            ${window.nostr ? html`<label class="radio"><input name="extension" type="checkbox">Use my NIP-07 extension</label>` : ''}
-          </details>
-          <button class="btn primary" ${S.signingIn ? 'disabled' : ''}>Redeem Invite &amp; Sign In →</button>
-        </form>
-        <details class="returning" ${S.signer ? 'open' : ''}><summary>Returning member? Sign in with your key</summary>
+    return html`<section class="access-card invited"><h2>01 · Already invited — Open your room</h2>
+        <details class="returning" ${S.signer ? 'open' : ''}><summary>Returning member? Sign in</summary>
           <form data-form="sign-in" data-keep="returning" class="stack">
             <label>Secret key<input name="nsec" type="password" placeholder="nsec1…" autocomplete="off" spellcheck="false"></label>
             <div class="row"><label>Relay<input name="relay" value="${saved.relay || 'wss://crosswire.sh'}" required></label>
@@ -3164,8 +3336,18 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
             <div class="actions"><button class="btn primary" ${S.signingIn ? 'disabled' : ''}>Sign in${S.signer ? ' with saved key' : ' with nsec'}</button>
             <button class="btn" type="button" data-act="nip07" ${window.nostr && !S.signingIn ? '' : 'disabled'}>Use NIP-07 extension</button></div>
           </form></details>
+        <form data-form="redeem" data-keep="redeem" class="redeem-form">
+          <label>Invite token or join link<input name="token" data-invite-input value="${S.link.join || ''}" placeholder="nm1_… or https://crosswire.sh/join/#nm1_…" autocomplete="off" required spellcheck="false"></label>
+          <label>Handle (optional)<input name="handle" placeholder="e.g. alice" autocomplete="nickname"></label>
+          <button class="btn primary" ${S.signingIn ? 'disabled' : ''}>Open room →</button>
+          <details class="key-choice"><summary>Use an existing key for this invite</summary>
+            <p class="muted">If you leave this empty, the browser uses your saved key or creates one.</p>
+            <label>Secret key<input name="invite_nsec" type="password" placeholder="nsec1…" autocomplete="off" spellcheck="false"></label>
+            ${window.nostr ? html`<label class="radio"><input name="extension" type="checkbox">Use my NIP-07 extension</label>` : ''}
+          </details>
+        </form>
         ${S.signingIn ? html`<p role="status">Checking relay authentication and membership…</p>` : ''}
-      </details>`;
+      </section>`;
   }
   /** What an invite joins, decoded in this tab before anything is redeemed. */
   function inviteSummary(token) {
@@ -3222,7 +3404,7 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
       const pending = scope.kind === 'topic' && scope.admins.has(S.me) ? scope.requests.length : 0;
       const held = view ? view.quarantine.filter((q) => !q.ruling).length : 0;
       topicItems.push(html`<li><button class="${sel.kind === 'scope' && sel.id === id ? 'on' : ''}" data-act="select" data-id="${id}">
-        <span class="grow">${id === '' ? '◆ ' + scope.name : '# ' + (scope.name || id)}</span>${scope.current ? html`<span class="badge teal">E${scope.current}</span>` : scope.kind === 'root' && !scope.epochs.length ? html`<span class="badge plum" title="no campaign_key">plain</span>` : ''}
+        <span class="grow">${id === '' ? '' + scope.name : '# ' + (scope.name || id)}</span>${scope.current ? html`<span class="badge teal">E${scope.current}</span>` : scope.kind === 'root' && !scope.epochs.length ? html`<span class="badge plum" title="no campaign_key">plain</span>` : ''}
         ${pending ? html`<span class="count" title="pending join requests">${pending}</span>` : ''}${held ? html`<span class="count plum" title="held at the human gate">${held}</span>` : ''}</button></li>`);
     }
     for (const [id, why] of S.access) if (!S.views.has(id)) {
@@ -3316,7 +3498,7 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
       ${shown.length ? html`<ul class="list">${shown.map((m) => messageItem(scope, view, S.busTopic, m, tv))}</ul>` : html`<div class="empty">Nothing on <code>${S.busTopic}</code> yet.</div>`}`;
   }
   function refChips(refs) {
-    return html`<div class="chips">${refs.map((r) => (/^blob:[0-9a-f]{64}$/.test(r) ? html`<button class="chip" data-act="blob" data-sha="${r.slice(5)}" title="preview or download, digest verified">⬇ ${r.slice(0, 17)}…</button>` : html`<span class="chip">${r}</span>`))}</div>`;
+    return html`<div class="chips">${refs.map((r) => (/^blob:[0-9a-f]{64}$/.test(r) ? html`<button class="chip" data-act="blob" data-sha="${r.slice(5)}" title="preview or download, digest verified">Download ${r.slice(0, 17)}…</button>` : html`<span class="chip">${r}</span>`))}</div>`;
   }
   function messageItem(scope, view, topic, m, tv) {
     const acks = tv.acks.filter((a) => a.msg_id === m.id && a.seat !== NM.GATE_SEAT);
@@ -3324,7 +3506,7 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
     return html`<li class="item"><div class="meta"><span class="who">${who(m.author)}</span>${seatBadges(m.author, scope)}${verified()}${epochBadge(m.epoch)}<span class="badge amber">${m.kind}</span>${ago(m.created_at)}
         ${m.released ? html`<span class="badge sage" title="released at the human gate by ${who(m.released.author)}">released</span>` : ''}<span class="chip" title="${m.id}">${m.id.slice(0, 10)}</span></div>
       ${m.subject ? html`<div><strong>${m.subject}</strong></div>` : ''}
-      ${m.reply_to ? html`<div class="small muted">↳ reply to ${m.reply_to.slice(0, 10)}</div>` : ''}
+      ${m.reply_to ? html`<div class="small muted">Reply to ${m.reply_to.slice(0, 10)}</div>` : ''}
       <div class="body">${m.body}</div>${m.refs.length ? refChips(m.refs) : ''}
       ${acks.length ? html`<div class="chips" style="margin-top:6px">${acks.map((a) => html`<span class="badge ${a.disposition === 'handled' ? 'sage' : a.disposition === 'rejected' ? 'plum' : ''}">${a.seat}: ${a.disposition}${a.result_ref ? ' → ' + a.result_ref : ''}</span>`)}</div>` : ''}
       <div class="actions"><button class="btn tiny ghost" data-act="reply" data-id="${m.id}">Reply</button>
@@ -3390,7 +3572,7 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
         <div><label>Evidence &amp; rejected routes</label><textarea name="evidence_and_rejected_routes" required></textarea></div><div><label>Next action</label><textarea name="next_action" required></textarea></div></div>
         <div class="row" style="margin-top:8px"><div><label>For seat (optional)</label><input name="for_seat"></div><div class="fit"><button class="btn primary">Send handoff</button></div></div></form>
       <div class="section-title"><h3>Operator directives &amp; OPERATOR.md</h3><span class="small muted">verified against ${S.trust.operator_pubkeys.length} operator key(s); binding once adopted with <code>directive adopt</code></span></div>
-      <div class="grid2"><div>${view.ledger.inForce.length ? html`<ul class="list">${view.ledger.inForce.map((d) => html`<li class="item"><div class="meta"><span class="badge terra">seq ${d.seq}</span>${who(d.operator)}${verified()}${ago(d.created_at)}<span class="badge">${d.audience.join(', ')}</span></div><div class="body">${d.text}</div></li>`)}</ul>` : html`<div class="empty">No directive in force.</div>`}
+      <div class="grid2"><div>${view.ledger.inForce.length ? html`<ul class="list">${view.ledger.inForce.map((d) => html`<li class="item"><div class="meta"><span class="badge violet">seq ${d.seq}</span>${who(d.operator)}${verified()}${ago(d.created_at)}<span class="badge">${d.audience.join(', ')}</span></div><div class="body">${d.text}</div></li>`)}</ul>` : html`<div class="empty">No directive in force.</div>`}
         ${view.ledger.held.map(([d, why]) => html`<div class="banner"><span class="grow">held: seq ${d.seq} — ${why}</span></div>`)}</div>
         <div><pre class="doc">${view.operatorMd}</pre><div class="actions"><button class="btn tiny" data-act="download" data-name="OPERATOR.md" data-text="${view.operatorMd}">Download OPERATOR.md preview</button><span class="small muted">stamped with signing times; <code>directive adopt</code> stamps adoption time and can run a verify command first</span></div></div></div>`;
   }
@@ -3416,8 +3598,8 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
     }
     const admin = scope.admins.has(S.me);
     const mode = S.grantMode || 'full_history';
-    const hist = (name) => html`<label class="radio ${mode === 'full_history' ? 'on' : ''}"><input type="radio" name="${name}" value="full_history" ${mode === 'full_history' ? 'checked' : ''} data-change="grant-mode"><span><strong>(●) Full History</strong> — deliver every epoch ${[...new Set(scope.epochs.map((e) => e.n))].sort((a, b) => a - b).join(', ')} via kind 1059, so the collaborator replays all historical campaign messages, claims, handoffs and blobs.</span></label>
-      <label class="radio ${mode === 'forward_only' ? 'on' : ''}"><input type="radio" name="${name}" value="forward_only" ${mode === 'forward_only' ? 'checked' : ''} data-change="grant-mode"><span><strong>( ) Forward-Only from now</strong> — rotate the topic to Epoch ${(scope.current || 0) + 1}; prior epochs stay undecryptable for them.</span></label>`;
+    const hist = (name) => html`<label class="radio ${mode === 'full_history' ? 'on' : ''}"><input type="radio" name="${name}" value="full_history" ${mode === 'full_history' ? 'checked' : ''} data-change="grant-mode"><span><strong>Full History</strong> — deliver every epoch ${[...new Set(scope.epochs.map((e) => e.n))].sort((a, b) => a - b).join(', ')} via kind 1059, so the collaborator replays all historical campaign messages, claims, handoffs and blobs.</span></label>
+      <label class="radio ${mode === 'forward_only' ? 'on' : ''}"><input type="radio" name="${name}" value="forward_only" ${mode === 'forward_only' ? 'checked' : ''} data-change="grant-mode"><span><strong>Forward-Only from now</strong> — rotate the topic to Epoch ${(scope.current || 0) + 1}; prior epochs stay undecryptable for them.</span></label>`;
     const roles = (name, chosen) => html`<select name="${name}">${NM.ROLES.map((r) => html`<option value="${r}" ${r === chosen ? 'selected' : ''}>${r} — ${ROLE_NOTE[r]}</option>`)}</select>`;
     return html`${admin ? html`<form class="card" data-keep="grant" data-form="grant"><h3>Grant Access / Invite Collaborator</h3>
         <div class="row" style="margin-top:10px"><div><label for="gm">Collaborator (npub or hex)</label><input id="gm" name="member" required placeholder="npub1…"></div>
@@ -3504,7 +3686,7 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
     const rs = receipts.filter((r) => r.reply_to === m.msg);
     return html`<li class="item"><div class="meta"><span class="who">${m.outgoing ? 'you → ' + who(m.to) : who(m.from)}</span>${verified()}${m.seat ? html`<span class="badge" title="sealed by seat ${m.seat.pubkey}">seat-signed</span>` : ''}${ago(m.created_at)}${m.released ? html`<span class="badge sage">released</span>` : ''}</div>
       ${m.body.subject ? html`<div><strong>${m.body.subject}</strong></div>` : ''}<div class="body">${m.body.body}</div>
-      ${(m.body.attachments || []).length ? html`<div class="chips">${m.body.attachments.map((a) => html`<span class="chip" title="${a.sha256}">📎 ${a.dest} · ${a.bytes} bytes</span>`)}</div>` : ''}
+      ${(m.body.attachments || []).length ? html`<div class="chips">${m.body.attachments.map((a) => html`<span class="chip" title="${a.sha256}">Attachment · ${a.dest} · ${a.bytes} bytes</span>`)}</div>` : ''}
       ${rs.map((r) => html`<div class="small"><span class="badge">${r.body.status}</span> ${r.body.note || ''}</div>`)}
       ${m.outgoing ? '' : html`<div class="actions"><button class="btn tiny" data-act="receipt" data-id="${m.id}" data-status="received">Received</button><button class="btn tiny sage" data-act="receipt" data-id="${m.id}" data-status="resolved">Resolved</button><button class="btn tiny warn" data-act="receipt" data-id="${m.id}" data-status="declined">Decline</button></div>
       <form class="actions" data-form="mail-reply" data-id="${m.id}" data-keep="mr-${m.id}"><input name="body" placeholder="Reply in this thread"><button class="btn tiny">Reply</button></form>`}</li>`;
@@ -3683,7 +3865,7 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
     return html`<div data-keep="pair">
       <div class="configurator">
         <div><label for="pcl">Client</label><select id="pcl" data-change="pair-client">${CLIENTS.map(([k, l]) => html`<option value="${k}" ${k === p.client ? 'selected' : ''}>${l}</option>`)}</select></div>
-        <div><label for="prm">Room / topic</label><select id="prm" data-change="pair-room" ${rooms.length ? '' : 'disabled'}>${rooms.length ? rooms.map(([id, s]) => html`<option value="${id}" ${id === p.room ? 'selected' : ''}>${id === '' ? '◆ ' + s.name + ' · campaign bus' : '# ' + (s.name || id)}${s.current ? ' · E' + s.current : ''}</option>`) : html`<option>no readable room yet</option>`}</select></div>
+        <div><label for="prm">Room / topic</label><select id="prm" data-change="pair-room" ${rooms.length ? '' : 'disabled'}>${rooms.length ? rooms.map(([id, s]) => html`<option value="${id}" ${id === p.room ? 'selected' : ''}>${id === '' ? '' + s.name + ' · campaign bus' : '# ' + (s.name || id)}${s.current ? ' · E' + s.current : ''}</option>`) : html`<option>no readable room yet</option>`}</select></div>
         <div><label for="prl">Role · join link</label><select id="prl" data-change="pair-role" ${topic ? '' : 'disabled'}>${NM.ROLES.map((r) => html`<option value="${r}" ${r === p.role ? 'selected' : ''}>${r}</option>`)}</select></div>
         <div><label for="phs">History · join link</label><select id="phs" data-change="pair-history" ${topic && p.role !== 'write-only' ? '' : 'disabled'}><option value="full_history" ${p.history === 'full_history' ? 'selected' : ''}>full history</option><option value="forward_only" ${p.history === 'forward_only' ? 'selected' : ''}>forward-only from now</option></select></div>
         <div><label for="pnm">Name on the invite</label><input id="pnm" name="member" placeholder="e.g. chatgpt" autocomplete="off" spellcheck="false"></div>
@@ -3891,6 +4073,13 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
     }
     forgetLink('role'); forgetLink('ticket'); saveStore();
   }
+  function selectPatch(control) {
+    draw();
+    $(`[data-act="${control}"][aria-pressed="true"]`).focus({ preventScroll: true });
+    if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      for (const animation of document.querySelectorAll('.signal > *')) animation.beginElement();
+    }
+  }
   const acts = {
     theme() { const next = themeNow() === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = next; localStorage.setItem(THEME, next); draw(); },
     home() {
@@ -3905,10 +4094,20 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
       ($('main.chapter') || $('.chapters [aria-current="page"]') || $('#intro')).focus({ preventScroll: true });
       window.scrollTo(0, 0);
     },
+    bird() {
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      const bird = $('.bird-btn');
+      bird.classList.remove('playing');
+      void bird.offsetWidth;
+      bird.classList.add('playing');
+    },
+    topology(d) {
+      if (!Object.hasOwn(TOPOLOGIES, d.id)) return;
+      S.topology = d.id; selectPatch('topology');
+    },
     harness(d) {
       if (!Object.hasOwn(HARNESSES, d.id)) return;
-      S.harness = d.id; draw();
-      $('.harnesses [aria-pressed="true"]').focus({ preventScroll: true });
+      S.harness = d.id; selectPatch('harness');
     },
     specimen(d) {
       if (!Object.hasOwn(SPECIMEN_TABS, d.id)) return;
@@ -3924,7 +4123,7 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
     tab(d) { S.tab = d.tab; draw(); },
     'mail-tab'(d) { S.mailTab = d.tab; draw(); },
     reply(d) { S.replyTo = d.id || null; draw(); const t = $('#pb'); if (t) t.focus(); },
-    async 'copy-prompt'() { await acts.copy({ text: $('#agent-prompt').textContent }); },
+    async 'copy-prompt'() { await acts.copy({ text: $('#agent-prompt').textContent }); acts.bird(); },
     async copy(d) { await navigator.clipboard.writeText(d.text); toast('Copied'); },
     download(d) { const url = URL.createObjectURL(new Blob([d.text], { type: 'text/plain' })); const a = document.createElement('a'); a.href = url; a.download = d.name; a.click(); setTimeout(() => URL.revokeObjectURL(url)); },
     async blob(d) { await blobModal(d.sha); },
@@ -4085,12 +4284,12 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
       const res = await fetch(MAYWE_SUBSCRIBE_URL, { method: 'POST', body });
       const text = await res.text();
       let data;
-      try { data = JSON.parse(text); } catch (e) { if (!(e instanceof SyntaxError)) throw e; throw new NM.NMError(`MayWe answered HTTP ${res.status} with a body that is not JSON: ${text.slice(0, 200)}`); }
+      try { data = JSON.parse(text); } catch (e) { if (!(e instanceof SyntaxError)) throw e; throw new NM.NMError(`Invite service answered HTTP ${res.status} with a body that is not JSON: ${text.slice(0, 200)}`); }
       if (!res.ok) {
         const why = Array.isArray(data.detail) ? data.detail.map((d) => d.msg).join('; ') : data.detail;
-        throw new NM.NMError(`MayWe refused the invite request (HTTP ${res.status}): ${why || text.slice(0, 200)}`);
+        throw new NM.NMError(`Invite service refused the request (HTTP ${res.status}): ${why || text.slice(0, 200)}`);
       }
-      if (data.ok !== true) throw new NM.NMError(`MayWe did not take the invite request (status ${data.status}): the crosswire.sh waitlist is not accepting requests right now`);
+      if (data.ok !== true) throw new NM.NMError(`Invite service did not take the request (status ${data.status}): the crosswire.sh waitlist is not accepting requests right now`);
       S.mayweSent = email;
       el.reset();
       toast('Invite request sent: confirm it from your inbox');
@@ -4129,16 +4328,19 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
     'pair-role'(el) { S.pair.role = el.value; draw(); },
     'pair-history'(el) { S.pair.history = el.value; draw(); },
   };
-  const PUBLIC = new Set(['theme', 'home', 'chapter', 'harness', 'specimen', 'copy', 'copy-prompt', 'dismiss', 'maywe-invite', 'link-dismiss']);
+  const PUBLIC = new Set(['theme', 'home', 'chapter', 'harness', 'topology', 'bird', 'specimen', 'copy', 'copy-prompt', 'dismiss', 'maywe-invite', 'link-dismiss']);
   const ENTRY = new Set(['redeem', 'sign-in', 'nip07', 'reconnect', 'bridge-join', 'persona', 'persona-create']);
   async function run(name, fn) {
     const entry = ENTRY.has(name);
     if (!S.desk && !entry && !PUBLIC.has(name)) return;
     if (entry && S.signingIn) return;
     if (entry) { S.signingIn = true; S.errors = []; }
-    try { await fn(); } catch (e) { report(e, name); }
+    try { await fn(); } catch (e) { report(e, name === 'maywe-invite' ? 'Invite request' : name); }
     finally { if (entry) { S.signingIn = false; draw(); } }
   }
+  document.addEventListener('animationend', (ev) => {
+    if (ev.animationName === 'courier-hop') ev.target.closest('.bird-btn').classList.remove('playing');
+  });
   document.addEventListener('click', (ev) => {
     const el = ev.target.closest('[data-act]');
     if (!el || !acts[el.dataset.act]) return;
@@ -4155,7 +4357,7 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
     run(el.dataset.form, () => forms[el.dataset.form](form(el), el)).finally(() => { if (button && button.isConnected) button.disabled = false; });
   });
   document.addEventListener('input', (ev) => {
-    if (ev.target.matches('[data-invite-input]')) syncPrompt(ev.target);
+    if (ev.target.matches('[data-invite-input]')) syncReadouts(ev.target.value);
   });
   document.addEventListener('change', (ev) => {
     const el = ev.target.closest('[data-change]');

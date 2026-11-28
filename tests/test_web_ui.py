@@ -181,29 +181,22 @@ def _session(ws, *, trust: Trust | None = None) -> ui.TopicSession:
 
 
 # =============================================================== the page itself
-# The AWOW.io design system crosswire.sh's console is drawn in: its light tokens, and
-# the dark ones under both the ◐ toggle and the system's preference.
-LIGHT = {"bg": "#faf9f6", "panel": "#faf9f6", "ink": "#16181d", "muted": "#5a5d64",
-         "line": "#e4e1da", "soft": "#f0eee9", "accent": "#35547a", "green": "#4a6b53",
-         "red": "#8c3843", "amber": "#78683a", "head": "#f0eee9", "hover": "#e8eef0",
-         "shadow": "0 16px 70px #16181d1f", "violet": "#6d4c5c",
-         "paper": "#faf9f6", "stone": "#f0eee9", "rule": "#e4e1da", "rule-strong": "#c9c4b9",
-         "teal": "#3f5e63", "terracotta": "#35547a", "terracotta-ink": "#263f5d",
-         "sage": "#4a6b53", "ancient-bg": "#14171c", "ancient-surface": "#1c2027",
-         "ancient-ink": "#e8eaed", "ancient-rule": "#2b313a"}
-DARK = {"bg": "#14171c", "panel": "#1c2027", "ink": "#e8eaed", "muted": "#a9b0bc",
-        "line": "#2b313a", "soft": "#222730", "accent": "#8fa8c4", "green": "#8fae95",
-        "red": "#e08b94", "amber": "#b8ab84", "head": "#1c2027", "hover": "#252c37",
-        "shadow": "0 16px 70px #0008", "violet": "#b89aa8"}
+# The paper, metal and wire colours shared by the standalone patchbay and its diagrams.
+LIGHT = {"bg": "#faf9f6", "panel": "#ffffff", "ink": "#181c20", "muted": "#586068",
+         "line": "#e2e0d8", "soft": "#f1f0ec", "accent": "#244b7a", "green": "#28664b",
+         "red": "#9e3b42", "amber": "#b8892e", "head": "#f1f0ec", "hover": "#e6eef2",
+         "shadow": "0 16px 70px #181c201f", "violet": "#4f4c7a", "paper": "#faf9f6",
+         "stone": "#f1f0ec", "rule": "#e2e0d8", "rule-strong": "#c5c2b8", "cobalt": "#244b7a",
+         "sage": "#28664b", "sage-wash": "#dce8df", "brass": "#b8892e", "ancient-bg": "#12161a",
+         "ancient-surface": "#181e24", "ancient-ink": "#e6eaee", "ancient-rule": "#28313a"}
+DARK = {"bg": "#111518", "panel": "#171c21", "ink": "#eaeef2", "muted": "#9da7b2",
+        "line": "#273038", "soft": "#1e252b", "accent": "#7fa6d6", "green": "#7ec2a0",
+        "red": "#e08b92", "amber": "#d8ae5e", "head": "#171c21", "hover": "#1f2831",
+        "shadow": "0 16px 70px #0008", "violet": "#a3a0d4"}
 
 
 def test_the_page_is_one_self_contained_full_width_html_file():
-    """One file that runs from the relay's origin or from loopback with nothing fetched:
-    no external URL, no script or stylesheet by reference, no font or CDN. Full width:
-    the page wrapper and `main` span the viewport behind fluid gutters, and no
-    declaration caps a width with a fixed length. Drawn in the AWOW.io design
-    system: its tokens in both themes, its type, a 61px header with the crosswire.sh
-    wordmark, and a ◐ toggle that flips <html data-theme>."""
+    """The full-width console carries its artwork, theme and both scripts in one file."""
     page = PAGE.read_text()
     assert page.startswith("<!doctype html>\n<html lang=\"en\"")
     for needed in ('<meta charset="utf-8">',
@@ -211,14 +204,11 @@ def test_the_page_is_one_self_contained_full_width_html_file():
                    "<title>nostr-mailbox · Web Console</title>", "<body>", "</html>",
                    '<meta name="nm-bridge" content="">',
                    'href="https://github.com/awowIO/crosswire"',
-                   'href="https://maywe.email"',
+                   '<link rel="icon" href="data:image/svg+xml,',
                    'https://newsletter.awow.io/v1/subscribe'):
         assert needed in page, needed
-    # The only absolute URLs: the two repositories, MayWe (its site, its subscribe endpoint and
-    # the two origins its publishable keys belong to), and crosswire.sh's own addresses.
     assert set(re.findall(r"(?:https?|wss?)://[a-z0-9./_-]+", page, re.I)) == {
         "https://github.com/awowIO/crosswire", "https://github.com/awowIO/nostr-relay-deploy",
-        "https://maywe.email",
         "https://newsletter.awow.io/v1/subscribe", "https://docs.awow.io",
         "https://crosswire.sh", "https://crosswire.sh/join/", "wss://crosswire.sh"}
     assert not re.search(r"<script[^>]+\bsrc=|<link[^>]+stylesheet", page, re.I)
@@ -244,10 +234,9 @@ def test_the_page_is_one_self_contained_full_width_html_file():
             in style)
     assert "ui-monospace, SFMono-Regular, Consolas, monospace" in style
     assert "font-variant-numeric: tabular-nums" in style
-    assert re.search(r"\.top \{[^}]*height: 61px;[^}]*border-bottom: 1px solid var\(--line\);"
-                     r"[^}]*background: var\(--panel\);", style)
-    assert '<span class="mark" aria-hidden="true">⨉</span> crosswire.sh</a>' in page
-    assert '<button id="theme"' in page and 'aria-label="Switch color theme">◐</button>' in page
+    assert 'class="bird-btn" data-act="bird" aria-label="Animate the wire courier"><svg' in page
+    assert 'aria-label="Switch color theme"><svg' in page
+    assert not re.search(r"[\U0001f000-\U0001faff\ufe0f●◐⬇]", page)
     assert "document.documentElement.dataset.theme = next" in page
     assert not re.search(r"""\son(?:click|load|error|submit|change|input|mouse\w*|key\w*)=["']""",
                          page, re.I), "no inline handlers: the bridge's CSP admits two scripts"
@@ -265,25 +254,19 @@ def test_readme_and_console_maps_share_the_same_artwork():
         assert artwork(drawing) == artwork((REPO / "docs" / f"{name}.svg").read_text())
 
 
-def test_the_page_links_its_repository_and_asks_for_invites_on_maywe():
-    """The header and the footer link the repository, the footer MayWe. The entry column
-    offers sign-in or single-click admission with a token or join link, followed by a
-    waitlist request to MayWe's public subscribe with the publishable key of the origin
-    it runs on, a honeypot, an optional use case in `details`, and a confirmation banner.
-
-    What this cannot show: that MayWe takes the request. No test here posts to MayWe,
-    as each request mails a real confirmation; the field names are read off its
-    subscribe route (newsletter app/routes/subscribe.py)."""
+def test_the_page_links_its_repository_and_uses_origin_bound_invite_requests():
+    """Public origins subscribe with their own key. Local consoles point to the public
+    site. Submitting to the live service would email a real confirmation."""
     page = PAGE.read_text()
-    repo = ('<a class="btn tiny ghost" href="https://github.com/awowIO/crosswire" '
-            'target="_blank" rel="noopener noreferrer"')
     header = re.search(r'<header class="top page">.*?</header>', page, re.S).group(0)
-    assert repo in header and "GitHub · awowIO/crosswire ↗</a>" in header
+    assert 'href="https://github.com/awowIO/crosswire"' in header
+    assert 'aria-label="GitHub · awowIO/crosswire"><svg width="16" height="16"' in header
+    assert '<nav class="tabs chapters"' in header
     footer = re.search(r'<footer class="foot page">.*?</footer>', page, re.S).group(0)
     assert '<a href="https://github.com/awowIO/crosswire"' in footer
-    assert '<a href="https://maywe.email"' in footer
+    assert "maywe.email" not in page
     assert "01 · Already invited — Open your room" in page
-    assert "02 · Request an invite — Waitlist via MayWe" in page
+    assert "<h2>02 · Request an invite</h2>" in page
     assert page.count('placeholder="nm1_… or https://crosswire.sh/join/#nm1_…"') == 2
     card = re.search(r"function mayweInviteCard\(\) \{.*?\n  \}\n", page, re.S).group(0)
     for needed in ('<form data-form="maywe-invite"', 'name="email" type="email" required',
@@ -1855,6 +1838,11 @@ def _browser(tmp_path, page_url):
                             break
                     return answer["result"]
 
+                command("Emulation.setFocusEmulationEnabled", {"enabled": True})
+                command("Emulation.setEmulatedMedia", {"features": [
+                    {"name": "prefers-reduced-motion", "value": "no-preference"}]})
+                command("Emulation.setDeviceMetricsOverride", {
+                    "width": 1280, "height": 720, "deviceScaleFactor": 1, "mobile": False})
                 command("Page.setDownloadBehavior", {"behavior": "allow",
                                                      "downloadPath": str(tmp_path)})
                 def evaluate(js):
@@ -1872,28 +1860,48 @@ def _browser(tmp_path, page_url):
 
 def test_public_harness_switcher_and_docs_chapters(tmp_path):
     with ConsoleRelay() as relay, _browser(tmp_path, relay.http_url) as js:
-        assert js("document.querySelector('.landing h1').textContent") == (
-            "One encrypted wire for your coding agents and teammates across machines.")
+        assert js("document.querySelector('.landing h1').textContent") == "Interlinked switchboards"
+        assert js("document.querySelector('.gate').getBoundingClientRect().bottom <= innerHeight")
+        assert "maywe" not in js("document.body.innerText.toLowerCase()")
         assert js("[...document.querySelectorAll('.overview strong')].map(s=>s.textContent)") == [
             "wss://crosswire.sh", "NIP-44 v2", "3 roles", "7 clients"]
         assert js("document.querySelector('.quickstart h2').textContent") == (
             "Try It Now — Install & Join in 2 Commands")
         assert not js("document.querySelector('.returning').open")
         js("document.querySelector('[name=handle]').value='alice'")
-        harnesses = js("[...document.querySelectorAll('[data-act=harness]')].map(b=>b.textContent)")
+        harnesses = js("[...document.querySelectorAll('[data-act=harness]')]"
+                       ".map(b=>b.textContent.trim())")
         assert harnesses == ["Claude Code", "Codex", "CLI (uv)", "Claude Desktop", "ChatGPT",
                              "Antigravity", "Cursor"]
-        prompts = set()
+        prompts, paths = set(), set()
         for harness in harnesses:
             js(f"document.querySelector('[data-act=harness][data-id={json.dumps(harness)}]').click()")
             prompt = js("document.querySelector('#agent-prompt').textContent")
             assert "awowIO/crosswire" in prompt and "ask me for my nm1_ invite" in prompt
             prompts.add(prompt)
+            paths.add(js("document.querySelector('.cord-color').getAttribute('d')"))
             shown = js("document.querySelector('.terminal code').textContent")
             assert js("document.querySelector('.terminal [data-act=copy]').dataset.text") == shown
             install, join = shown.splitlines()
             assert "github.com/awowIO/crosswire" in install and "crosswire join" in join
-        assert len(prompts) == len(harnesses)
+        assert len(prompts) == len(paths) == len(harnesses)
+        modes = js("[...document.querySelectorAll('[data-act=topology]')].map(b=>b.textContent)")
+        assert modes == ["Shared Room Mesh", "Dual-Relay Bridge", "Sealed Dropbox Intake"]
+        variants = []
+        for mode, peers, direction in (("bridge", 1, "0;1"), ("intake", 1, "1;0"),
+                                       ("mesh", 3, "0;1")):
+            js(f"document.querySelector('[data-act=topology][data-id={mode}]').click()")
+            assert js("document.querySelectorAll('.peer-jack[data-plugged=true]').length") == peers
+            assert js("document.querySelectorAll('.patch-wires .cord-color').length") == peers
+            assert js("document.querySelector('.signal animateMotion')"
+                      ".getAttribute('keyPoints')") == direction
+            variants.append((js("document.querySelector('.prompt-code').textContent"),
+                             js("document.querySelector('.terminal code').textContent")))
+        assert len({p for p, _ in variants}) == len({c for _, c in variants}) == 3
+        assert "crosswire-external" in variants[0][1] and "status --hook" in variants[1][1]
+        js("document.querySelector('[data-act=copy-prompt]').click()")
+        _until(lambda: js("!!document.querySelector('.bird-btn.playing')"))
+        assert not relay.members
         trust = Trust.from_mapping({"schema": "cf.transport/1", "relay": relay.url,
                                     "campaign": "camp", "operator_pubkeys": [_npub(_pub(PEER_SK))]})
         token = cli._encode_invite_token(trust, relay.create_invite(), member=None)
@@ -1902,15 +1910,18 @@ def test_public_harness_switcher_and_docs_chapters(tmp_path):
            ";box.dispatchEvent(new Event('input', {bubbles:true}))")
         js("document.querySelector('[data-id=Codex]').click()")
         assert token in js("document.querySelector('#agent-prompt').textContent")
-        assert js("document.querySelector('#prompt-invite').value") == join_url
-        js("const draft = document.querySelector('#prompt-invite'); draft.value='';"
+        assert js("document.querySelector('[name=token]').value") == join_url
+        assert token in js("document.querySelector('.terminal [data-act=copy]').dataset.text")
+        js("const draft = document.querySelector('[name=token]'); draft.value='';"
            "draft.dispatchEvent(new Event('input', {bubbles:true}))")
         assert not js("document.querySelector('[name=token]').value")
         assert token not in js("document.querySelector('#agent-prompt').textContent")
+        assert token not in js("document.querySelector('.terminal code').textContent")
+        js("document.querySelector('.specimen summary').click()")
         specimen = "document.querySelector('.specimen [role=tabpanel]').innerText"
         bus = js(specimen)
         assert all(text in bus for text in ("@alice", "alice/claude-code", "@bob/codex",
-                                           "Acknowledged", "✓ signed · E2 · NIP-44 v2"))
+                                           "Acknowledged", "signed · E2 · NIP-44 v2"))
         js("document.querySelector('[data-act=specimen][data-id=handoff]').click()")
         assert js("[...document.querySelectorAll('.specimen dt')].map(d=>d.textContent)") == [
             "Original goal", "Open condition", "Evidence & rejected routes", "Next action"]
@@ -1930,6 +1941,7 @@ def test_public_harness_switcher_and_docs_chapters(tmp_path):
                            "Multi-Agent Campaign Blueprints"]),
         ]
         for chapter, phrases in chapters:
+            js("document.querySelector('.field-guide').open=true")
             js(f"document.querySelector('.previews [data-id={chapter}]').click()")
             active = js("document.querySelector('.chapters [aria-current=page]').dataset.id")
             assert active == chapter

@@ -2,22 +2,24 @@
   <title id="enrollment-flow-title">Enrollment &amp; Cross-Pool Encryption Flow</title>
   <desc id="enrollment-flow-desc">Alice creates a topic, enrolls Bob’s seats and exchanges signed messages. Removing a reader rotates the key for future messages.</desc>
   <style>
-    :root { --panel: #faf9f6; --head: #f0eee9; --ink: #16181d; --muted: #5a5d64; --soft: #f0eee9; --line: #e4e1da; --accent: #35547a; --ancient-bg: #14171c; --ancient-rule: #2b313a; --ancient-ink: #e8eaed; }
+    :root { --bg: #faf9f6; --panel: #ffffff; --head: #f1f0ec; --ink: #181c20; --muted: #586068; --soft: #f1f0ec; --line: #e2e0d8; --accent: #244b7a; --green: #28664b; --amber: #b8892e; --ancient-bg: #12161a; --ancient-surface: #181e24; --ancient-ink: #e6eaee; --ancient-rule: #28313a; }
     @media (prefers-color-scheme: dark) {
-      :root { --panel: #1c2027; --head: #1c2027; --ink: #e8eaed; --muted: #a9b0bc; --soft: #222730; --line: #2b313a; --accent: #8fa8c4; }
+      :root { --bg: #111518; --panel: #171c21; --head: #171c21; --ink: #eaeef2; --muted: #9da7b2; --soft: #1e252b; --line: #273038; --accent: #7fa6d6; --green: #7ec2a0; --amber: #d8ae5e; }
     }
   </style>
   <defs>
+    <g id="enrollment-flow-jack"><circle r="5" fill="var(--amber)"/><circle r="3" fill="var(--ancient-bg)"/><circle r="1.5" fill="var(--green)"/></g>
     <marker id="enrollment-flow-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
       <path d="M0 0 L8 4 L0 8 Z" fill="var(--accent)"/>
     </marker>
   </defs>
+  <rect width="1120" height="320" rx="6" fill="var(--bg)"/>
   <g transform="translate(14 16)">
-    <rect width="252" height="288" fill="var(--panel)"/>
-    <path d="M0 0h252" stroke="var(--ink)"/>
-    <path d="M0 31h252M0 288h252" stroke="var(--line)"/>
+    <rect width="252" height="288" rx="5" fill="var(--panel)" stroke="var(--line)"/>
+    <rect x="1" y="1" width="250" height="30" rx="4" fill="var(--soft)"/>
+    <path d="M0 31h252" stroke="var(--line)"/>
     <text x="14" y="19" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">STEP 01</text>
-    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="16" fill="var(--ink)">Create the room</text>
+    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="15" font-weight="600" fill="var(--ink)">Create the room</text>
     <g font-size="11.5" fill="var(--muted)">
       <text x="14" y="55" fill="var(--ink)" font-weight="600">Alice’s machine</text>
       <text x="14" y="72">Alice creates #wave-7. Her seat becomes</text>
@@ -30,16 +32,17 @@
     </g>
     <path d="M14 210h224" stroke="var(--line)"/>
     <text x="14" y="230" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">LOCAL COMMAND</text>
-    <rect x="14" y="238" width="224" height="25" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
+    <rect x="14" y="238" width="224" height="25" rx="3" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
     <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">crosswire topic create wave-7</text>
   </g>
-  <path d="M270 160h20" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#enrollment-flow-arrow)"/>
+  <use href="#enrollment-flow-jack" x="266" y="157"/><use href="#enrollment-flow-jack" x="294" y="157"/>
+  <path d="M270 158q10 16 20 0" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#enrollment-flow-arrow)"/>
   <g transform="translate(294 16)">
-    <rect width="252" height="288" fill="var(--panel)"/>
-    <path d="M0 0h252" stroke="var(--ink)"/>
-    <path d="M0 31h252M0 288h252" stroke="var(--line)"/>
+    <rect width="252" height="288" rx="5" fill="var(--panel)" stroke="var(--line)"/>
+    <rect x="1" y="1" width="250" height="30" rx="4" fill="var(--soft)"/>
+    <path d="M0 31h252" stroke="var(--line)"/>
     <text x="14" y="19" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">STEP 02</text>
-    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="16" fill="var(--ink)">Enroll Bob’s pool</text>
+    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="15" font-weight="600" fill="var(--ink)">Enroll Bob’s pool</text>
     <g font-size="11.5" fill="var(--muted)">
       <text x="14" y="55" fill="var(--ink)" font-weight="600">Bob’s machine</text>
       <text x="14" y="72">Each seat redeems its own invite. The</text>
@@ -52,16 +55,17 @@
     </g>
     <path d="M14 210h224" stroke="var(--line)"/>
     <text x="14" y="230" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">LOCAL COMMAND</text>
-    <rect x="14" y="238" width="224" height="25" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
+    <rect x="14" y="238" width="224" height="25" rx="3" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
     <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">crosswire join --code-file bob</text>
   </g>
-  <path d="M550 160h20" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#enrollment-flow-arrow)"/>
+  <use href="#enrollment-flow-jack" x="546" y="157"/><use href="#enrollment-flow-jack" x="574" y="157"/>
+  <path d="M550 158q10 16 20 0" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#enrollment-flow-arrow)"/>
   <g transform="translate(574 16)">
-    <rect width="252" height="288" fill="var(--panel)"/>
-    <path d="M0 0h252" stroke="var(--ink)"/>
-    <path d="M0 31h252M0 288h252" stroke="var(--line)"/>
+    <rect width="252" height="288" rx="5" fill="var(--panel)" stroke="var(--line)"/>
+    <rect x="1" y="1" width="250" height="30" rx="4" fill="var(--soft)"/>
+    <path d="M0 31h252" stroke="var(--line)"/>
     <text x="14" y="19" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">STEP 03</text>
-    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="16" fill="var(--ink)">Exchange a message</text>
+    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="15" font-weight="600" fill="var(--ink)">Exchange a message</text>
     <g font-size="11.5" fill="var(--muted)">
       <text x="14" y="55" fill="var(--ink)" font-weight="600">Alice sends</text>
       <text x="14" y="72">Her agent encrypts the body under the</text>
@@ -74,17 +78,18 @@
     </g>
     <path d="M14 210h224" stroke="var(--line)"/>
     <text x="14" y="230" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">LOCAL COMMAND</text>
-    <rect x="14" y="238" width="224" height="40" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
+    <rect x="14" y="238" width="224" height="40" rx="3" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
     <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">crosswire --topic wave-7 \</text>
     <text x="32" y="269" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">watch bus</text>
   </g>
-  <path d="M830 160h20" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#enrollment-flow-arrow)"/>
+  <use href="#enrollment-flow-jack" x="826" y="157"/><use href="#enrollment-flow-jack" x="854" y="157"/>
+  <path d="M830 158q10 16 20 0" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#enrollment-flow-arrow)"/>
   <g transform="translate(854 16)">
-    <rect width="252" height="288" fill="var(--panel)"/>
-    <path d="M0 0h252" stroke="var(--ink)"/>
-    <path d="M0 31h252M0 288h252" stroke="var(--line)"/>
+    <rect width="252" height="288" rx="5" fill="var(--panel)" stroke="var(--line)"/>
+    <rect x="1" y="1" width="250" height="30" rx="4" fill="var(--soft)"/>
+    <path d="M0 31h252" stroke="var(--line)"/>
     <text x="14" y="19" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">STEP 04</text>
-    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="16" fill="var(--ink)">Revoke and rotate</text>
+    <text x="76" y="20" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="15" font-weight="600" fill="var(--ink)">Revoke and rotate</text>
     <g font-size="11.5" fill="var(--muted)">
       <text x="14" y="55" fill="var(--ink)" font-weight="600">Remove Bob’s seat</text>
       <text x="14" y="72">Alice removes the public key from the</text>
@@ -97,7 +102,7 @@
     </g>
     <path d="M14 210h224" stroke="var(--line)"/>
     <text x="14" y="230" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="10" letter-spacing=".6" fill="var(--muted)">LOCAL COMMAND</text>
-    <rect x="14" y="238" width="224" height="40" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
+    <rect x="14" y="238" width="224" height="40" rx="3" fill="var(--ancient-bg)" stroke="var(--ancient-rule)"/>
     <text x="22" y="254" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">crosswire topic revoke \</text>
     <text x="32" y="269" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--ancient-ink)">wave-7 "$BOB"</text>
   </g>
