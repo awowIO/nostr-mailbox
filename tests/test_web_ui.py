@@ -210,7 +210,8 @@ def test_the_page_is_one_self_contained_full_width_html_file():
     assert set(re.findall(r"(?:https?|wss?)://[a-z0-9./_-]+", page, re.I)) == {
         "https://github.com/awowIO/crosswire", "https://github.com/awowIO/nostr-relay-deploy",
         "https://newsletter.awow.io/v1/subscribe", "https://docs.awow.io",
-        "https://crosswire.sh", "https://crosswire.sh/join/", "wss://crosswire.sh"}
+        "https://crosswire.sh", "https://crosswire.sh/join/", "wss://crosswire.sh",
+        "http://www.w3.org/2000/svg", "wss://grid-lab", "https://.../join/"}
     assert not re.search(r"<script[^>]+\bsrc=|<link[^>]+stylesheet", page, re.I)
     assert not re.search(r"""(?:src|href)\s*=\s*["']//""", page), "no protocol-relative URL"
     style = re.search(r"<style>(.*?)</style>", page, re.S).group(1)
@@ -245,14 +246,22 @@ def test_the_page_is_one_self_contained_full_width_html_file():
 
 
 def test_readme_and_console_maps_share_the_same_artwork():
-    def artwork(source):
-        # A standalone SVG has its own namespace and theme. The drawing is shared.
-        return [(node.tag.split("}")[-1], node.attrib, (node.text or "").strip())
-                for node in ET.fromstring(source).iter() if not node.tag.endswith("style")]
-
     maps = re.findall(r'<div class="diagram-box"[^>]*>(<svg\b.*?</svg>)', PAGE.read_text(), re.S)
-    for drawing, name in zip(maps, ("enrollment-flow", "architecture-map"), strict=True):
-        assert artwork(drawing) == artwork((REPO / "docs" / f"{name}.svg").read_text())
+    landmarks = {
+        "enrollment-flow": ("1. Create Channel & Local Pool", "2. Invite Bob + Bob's Pool",
+                            "3. Cross-Pool Encrypted Bus", "4. Evict & Rotate Key",
+                            "crosswire join <invite_link>", "alice-seat-1..4", "bob-seat-1..4",
+                            "K_wave7_v2"),
+        "architecture-map": ("ZONE 01A", "ZONE 01B", "ZONE 02", "ZONE 03", "/run/.../seat.sock",
+                             "Sealed Keyring Delivery", "ohstr/ncli daemon", "data-nostr-relay-0",
+                             "/data/db/relay.db", "/data/media/<sha256>"),
+    }
+    for drawing, (name, labels) in zip(maps, landmarks.items(), strict=True):
+        assert drawing == (REPO / "docs" / f"{name}.svg").read_text().strip()
+        svg = ET.fromstring(drawing)
+        assert svg.attrib["viewBox"] == "0 0 1120 320"
+        diagram_text = "".join(svg.itertext())
+        assert all(label in diagram_text for label in labels)
 
 
 def test_the_page_links_its_repository_and_uses_origin_bound_invite_requests():
@@ -1868,7 +1877,7 @@ def test_public_harness_switcher_and_docs_chapters(tmp_path):
         assert js("document.querySelector('.gate').getBoundingClientRect().bottom <= innerHeight")
         assert "maywe" not in js("document.body.innerText.toLowerCase()")
         assert js("[...document.querySelectorAll('.overview strong')].map(s=>s.textContent)") == [
-            "wss://crosswire.sh", "End-to-end encrypted", "3 roles", "6"]
+            "wss://crosswire.sh", "End-to-end encrypted", "3 roles", "7"]
         assert js("document.querySelector('.wordmark').textContent.trim()") == "crosswire.sh"
         assert js("[...document.querySelector('.header-right').children].map(e=>e.tagName)") == [
             "A", "BUTTON"]
@@ -1877,16 +1886,30 @@ def test_public_harness_switcher_and_docs_chapters(tmp_path):
         assert js("document.querySelector('.cli-fallback summary').textContent") == (
             "Or run terminal commands manually")
         assert not js("document.querySelector('.cli-fallback').open")
-        assert js("document.querySelector('.patch-wires').getAttribute('viewBox')") == "0 0 920 140"
+        assert js("document.querySelector('.patch-wires').getAttribute('viewBox')") == "0 0 1120 264"
         assert js("document.querySelectorAll('.patch-field svg').length") == 1
         assert js("document.querySelector('.quickstart h2').textContent") == (
             "Connect your coding agent")
         assert not js("document.querySelector('.returning').open")
         js("document.querySelector('[name=handle]').value='alice'")
-        harnesses = js("[...document.querySelectorAll('[data-act=harness]')]"
+        harnesses = js("[...document.querySelectorAll('.patch-wires button[data-act=harness]')]"
                        ".map(b=>b.textContent.trim())")
-        assert harnesses == ["Claude Code", "Codex", "Claude Desktop", "ChatGPT",
+        assert harnesses == ["Claude Code", "Codex", "CLI (uv)", "Claude Desktop", "ChatGPT",
                              "Antigravity", "Cursor"]
+        # Match rendered path endpoints to rendered pin centres, including all SVG transforms.
+        js("""window.patchRoutes = (selector) => {
+            const svg = document.querySelector('.patch-wires');
+            const pins = [...svg.querySelectorAll('circle.socket-pin')].map(pin => ({
+                name: pin.dataset.port,
+                centre: new DOMPoint(pin.cx.baseVal.value, pin.cy.baseVal.value)
+                    .matrixTransform(pin.getScreenCTM())
+            }));
+            return [...svg.querySelectorAll(selector)].map(cord =>
+                [0, cord.getTotalLength()].map(length => {
+                    const p = cord.getPointAtLength(length).matrixTransform(cord.getScreenCTM());
+                    return pins.find(({centre}) => Math.hypot(p.x-centre.x, p.y-centre.y) < 0.01)?.name;
+                }));
+        }""")
         js("document.querySelector('.cli-fallback summary').click()")
         assert js("document.querySelector('.terminal code').getBoundingClientRect().height > 0")
         if js("getComputedStyle(document.documentElement).colorScheme") == "dark":
@@ -1902,29 +1925,40 @@ def test_public_harness_switcher_and_docs_chapters(tmp_path):
             prompt = js("document.querySelector('#agent-prompt').textContent")
             assert "awowIO/crosswire" in prompt and "ask me for my invite link or code" in prompt
             prompts.add(prompt)
-            assert harness in js("document.querySelector('.patch-wires').textContent")
+            assert js("document.activeElement.dataset.id") == harness
+            assert js("patchRoutes('.active-cord')[0]") == [harness, "external-in"]
+            assert js("""(() => {
+                const button = document.activeElement, b = button.getBoundingClientRect();
+                const pin = [...document.querySelectorAll('.socket-pin')]
+                    .find(p => p.dataset.port === button.dataset.id);
+                const centre = new DOMPoint(pin.cx.baseVal.value, pin.cy.baseVal.value)
+                    .matrixTransform(pin.getScreenCTM());
+                return pin.cx.baseVal.value === 298 && Math.abs(centre.y - (b.y+b.height/2)) < .02
+                    && document.elementFromPoint(centre.x, centre.y) === button;
+            })()""")
             assert harness in js("document.querySelector('.prompt-block h3').textContent")
             assert js("document.querySelector('.cli-fallback').open")
             shown = js("document.querySelector('.terminal code').textContent")
             assert js("document.querySelector('.terminal [data-act=copy]').dataset.text") == shown
             install, join = shown.splitlines()
             assert "github.com/awowIO/crosswire" in install and "crosswire join" in join
+            if harness == "CLI (uv)":
+                assert js("document.querySelector('.readouts').firstElementChild.className") == "terminal"
         assert len(prompts) == len(harnesses)
         modes = js("[...document.querySelectorAll('[data-act=topology]')].map(b=>b.textContent)")
         assert modes == ["Shared Room Mesh", "Dual-Relay Bridge", "Sealed Dropbox Intake"]
         variants = []
-        for mode, peers, direction in (("bridge", 1, "0;1"), ("intake", 1, "1;0"),
-                                       ("mesh", 3, "0;1")):
+        for mode, peers, direction in (("bridge", ["partner"], "0;1"), ("intake", ["dropbox"], "1;0"),
+                                       ("mesh", ["partner", "connector"], "0;1")):
             js(f"document.querySelector('[data-act=topology][data-id={mode}]').click()")
-            assert js("document.querySelectorAll('.patch-wires .cord').length") == 1 + peers
-            assert js("document.querySelectorAll('.patch-wires .board').length") == 2 + peers
-            assert js("""(() => {
-                const sockets = [...document.querySelectorAll('.patch-wires .socket')];
-                const touches = point => sockets.some(s => Math.hypot(
-                    point.x - s.cx.baseVal.value, point.y - s.cy.baseVal.value) < 0.01);
-                return [...document.querySelectorAll('.patch-wires .cord')].every(p =>
-                    touches(p.getPointAtLength(0)) && touches(p.getPointAtLength(p.getTotalLength())));
-            })()""")
+            fleet = [["bus", "internal-in"], ["internal-out", "fleet"]]
+            active = [["Cursor", "external-in"]] + [["external-out", peer] for peer in peers]
+            assert sorted(js("patchRoutes('.cord')")) == sorted(fleet + active)
+            assert sorted(js("patchRoutes('.fleet-cord')")) == sorted(fleet)
+            labels = js("document.querySelector('.patch-wires').textContent")
+            assert all(label in labels for label in ("External / Partner Switchboard",
+                       "Private Internal Switchboard", "Friend / Partner Workstation Board",
+                       "Cloud & Remote Agent Fleet", "One-Way Intake & Quarantine Dropbox"))
             assert js("document.querySelector('.signal animateMotion')"
                       ".getAttribute('keyPoints')") == direction
             variants.append((js("document.querySelector('.prompt-code').textContent"),
@@ -1987,7 +2021,7 @@ def test_public_harness_switcher_and_docs_chapters(tmp_path):
                               b => b.textContent).join(' ') === 'READ WRITE MANAGE')""")
             if chapter == "architecture":
                 assert js("Array.from(document.querySelectorAll('main svg'), s=>s.getAttribute("
-                          "'viewBox'))") == ["0 0 1120 192"] * 2
+                          "'viewBox'))") == ["0 0 1120 320"] * 2
                 sizes = js("Array.from(document.querySelectorAll('main svg'), s => "
                            "[s.clientWidth, s.clientHeight])")
                 assert sizes[0] == sizes[1] and sizes[0][1] > 0

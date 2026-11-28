@@ -208,18 +208,22 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
 .topologies button { appearance: none; font-family: inherit; line-height: 1.3; font-weight: 550; font-size: 12px; cursor: pointer; border: 1px solid transparent; background: transparent; color: var(--muted); border-radius: 4px; padding: 5px 9px; }
 .topologies button:hover { color: var(--accent); }
 .topologies [aria-pressed="true"] { background: var(--panel); color: var(--accent); border-color: var(--line); box-shadow: 0 1px 2px #181c2020; }
-.harnesses { display: flex; flex-wrap: wrap; gap: 6px; }
-.harnesses button { background: var(--panel); color: var(--ink); border: 1px solid var(--rule-strong); border-radius: 4px; padding: 5px 12px; font: inherit; cursor: pointer; }
-.harnesses button:hover { background: var(--soft); }
-.harnesses [aria-pressed="true"] { background: var(--green); color: var(--panel); border-color: var(--green); }
 .patch-field { margin-top: 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 5px; overflow-x: auto; }
-.patch-wires { display: block; width: 100%; height: auto; max-height: 150px; }
+.patch-wires { display: block; width: 100%; min-width: 1000px; height: auto; fill: var(--ink); font-size: 12px; }
 .patch-wires .board { fill: var(--panel); stroke: var(--rule-strong); }
-.patch-wires .bridge { fill: var(--soft); }
-.patch-wires text { fill: var(--ink); text-anchor: middle; font-size: 17px; font-weight: 600; }
-.patch-wires .board-label { fill: var(--muted); font-size: 14px; font-weight: 400; }
-.patch-wires .cord { fill: none; stroke: var(--green); stroke-width: 2; }
-.patch-wires .socket { fill: var(--panel); stroke: var(--green); stroke-width: 2; }
+.patch-wires .module { fill: var(--soft); stroke: var(--line); }
+.patch-wires .board-title { font: 600 14.5px var(--serif); }
+.patch-wires .engraving { font: 600 9.5px var(--mono); letter-spacing: .8px; fill: var(--muted); }
+.patch-wires .module-title { font-size: 12.5px; font-weight: 650; }
+.patch-wires .address { fill: var(--accent); font: 10.5px var(--mono); }
+.patch-wires .jack { display: flex; align-items: center; justify-content: space-between; width: 100%; height: 100%; padding: 0 30px 0 10px; border: 1px solid var(--line); border-radius: 3px; background: var(--panel); color: var(--ink); font: 550 12px/1 sans-serif; cursor: pointer; }
+.patch-wires .jack::after { content: attr(data-interface); color: var(--muted); font: 10px var(--mono); }
+.patch-wires .jack:hover { background: var(--hover); }
+.patch-wires .jack[aria-pressed="true"] { border-color: var(--green); box-shadow: inset 3px 0 var(--green); background: color-mix(in srgb, var(--green) 12%, var(--panel)); }
+.patch-wires .jack:focus-visible { outline-offset: -2px; }
+.patch-wires .cord { fill: none; stroke: var(--green); stroke-width: 2.8; }
+.patch-wires .fleet-cord { stroke: var(--accent); stroke-width: 1.7; stroke-dasharray: 5 3; }
+.patch-wires .socket-pin { fill: var(--ancient-bg); stroke: var(--amber); stroke-width: 2; }
 .patch-wires .signal { fill: var(--green); }
 .route-caption { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 9px; margin: 8px 0 10px; font-size: 12px; color: var(--muted); }
 .prompt-block, .terminal { background: var(--soft); color: var(--ink); border: 1px solid var(--rule-strong); border-radius: 5px; padding: 10px 14px; }
@@ -266,7 +270,6 @@ footer.foot:has(.field-notes) { display: grid; grid-template-columns: minmax(0,1
 .preview-link { border: 0; background: transparent; padding: 0; color: var(--accent); font: inherit; cursor: pointer; }
 .preview-link:hover { text-decoration: underline; }
 :where(button,a,summary,[tabindex]):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.harnesses button:focus-visible { outline-offset: -2px; }
 .backup { padding-top: 10px; } .backup .banner { align-items: center; }
 .chapter { padding-block: 16px; font-size: 13px; }
 .chapter h2 { font-size: 20px; margin-bottom: 8px; }
@@ -305,17 +308,15 @@ footer.foot:has(.field-notes) { display: grid; grid-template-columns: minmax(0,1
   .landing-hero .stat strong { font-size: 10.5px; }
   .topologies { width: 100%; }
   .topologies button { flex: 1; padding: 5px 3px; font-size: 11px; }
-  .harnesses button { padding: 5px 8px; }
-  .patch-field { padding-block: 8px; }
-  .patch-wires text { font-size: 26px; }
-  .patch-wires .board-label { font-size: 21px; }
   .redeem-form { grid-template-columns: minmax(0,1fr) auto; }
   .redeem-form > label:first-child { grid-column: 1/-1; }
 }
 @media (width > 1000px) and (height <= 800px) {
   .landing { padding-block: 8px; }
   .landing-hero { margin-bottom: 8px; }
-  .landing-hero > div:first-child { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
+  .landing-hero p { margin: 0; }
+  .patch-field { margin-top: 0; }
+  .gate { margin-top: 6px; }
   .quickstart { padding: 10px; }
   .patch-top { margin-bottom: 6px; }
   .route-caption { margin: 5px 0 6px; }
@@ -394,129 +395,177 @@ footer.foot:has(.field-notes) { display: grid; grid-template-columns: minmax(0,1
 <h2>Architecture Maps</h2>
 <section class="map-section"><h3>How agents join a room</h3>
 <p>Alice invites Bob to #wave-7. Follow the room key from the first message through Bob’s departure.</p>
-<div class="diagram-box" role="region" tabindex="0" aria-label="How agents join a room"><svg viewBox="0 0 1120 192" width="100%" height="auto" role="img" aria-labelledby="enrollment-flow-title" aria-describedby="enrollment-flow-desc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
-  <title id="enrollment-flow-title">How agents join a room</title>
-  <desc id="enrollment-flow-desc">In crosswire, Alice creates a room and grants Bob access. The agents sign and decrypt messages locally. After Bob leaves, Alice rotates the key for future messages.</desc>
-  <rect width="1120" height="192" fill="var(--bg)"/>
-  <g fill="none" stroke="var(--accent)" stroke-width="1.5">
-    <path d="M264 96h26m-5-5 5 5-5 5 M544 96h26m-5-5 5 5-5 5 M824 96h26m-5-5 5 5-5 5"/>
+<div class="diagram-box" role="region" tabindex="0" aria-label="How agents join a room"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 320" width="100%" height="auto" role="img" aria-labelledby="enrollment-flow-title" aria-describedby="enrollment-flow-desc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+  <title id="enrollment-flow-title">Enrollment &amp; Cross-Pool Encryption Flow</title>
+  <desc id="enrollment-flow-desc">Alice and Bob enroll their seats in #wave-7. Each seat signs with its own identity, while readers share a room key. Revocation ends delivery and rotates the key for future messages.</desc>
+  <style>
+    svg:root { --bg: #faf9f6; --panel: #ffffff; --soft: #f1f0ec; --ink: #181c20; --muted: #586068; --line: #e2e0d8; --accent: #244b7a; --green: #28664b; --ancient-bg: #12161a; --ancient-ink: #e6eaee; }
+    @media (prefers-color-scheme: dark) {
+      svg:root { --bg: #111518; --panel: #171c21; --soft: #1e252b; --ink: #eaeef2; --muted: #9da7b2; --line: #273038; --accent: #7fa6d6; --green: #7ec2a0; }
+    }
+  </style>
+  <defs>
+    <g id="enrollment-card">
+      <rect width="256" height="279" rx="6" fill="var(--panel)" stroke="var(--line)"/>
+      <rect x="1" y="1" width="254" height="39" rx="5" fill="var(--soft)"/>
+      <path d="M0 40h256" stroke="var(--line)"/>
+    </g>
+    <rect id="enrollment-command" x="12" y="54" width="232" height="28" rx="5" fill="var(--ancient-bg)"/>
+    <marker id="enrollment-arrow" viewBox="0 0 7 8" refX="6" refY="4" markerWidth="5" markerHeight="6" orient="auto">
+      <path d="M0 0 7 4 0 8z" fill="var(--accent)"/>
+    </marker>
+  </defs>
+  <rect width="1120" height="320" fill="var(--bg)"/>
+  <g stroke="var(--accent)" stroke-width="1.5" marker-end="url(#enrollment-arrow)">
+    <path d="M269 150h19"/><path d="M549 150h19"/><path d="M829 150h19"/>
   </g>
-  <g transform="translate(12 10)">
-    <rect width="252" height="172" rx="6" fill="var(--panel)" stroke="var(--line)"/>
-    <text x="14" y="33" font-size="19" font-weight="600" fill="var(--ink)">Create the room</text>
-    <g font-size="14" fill="var(--muted)">
-      <text x="14" y="63">Alice creates #wave-7. Her agent</text>
-      <text x="14" y="83">keeps the first room key and</text>
-      <text x="14" y="103">signs with its own identity.</text>
+  <g fill="var(--ink)" font-size="13">
+    <g transform="translate(12 12)">
+      <use href="#enrollment-card"/>
+      <text x="13" y="25" font-size="15" font-weight="650">1. Create Channel &amp; Local Pool</text>
+      <use href="#enrollment-command"/>
+      <text x="21" y="72" font-family="monospace" font-size="11" fill="var(--ancient-ink)">crosswire topic create wave-7</text>
+      <text x="13" y="109" font-weight="650">Generate the room key</text>
+      <text x="13" y="129">Alice’s client writes <tspan font-family="monospace">K_wave7</tspan> to</text>
+      <text x="13" y="149" font-family="monospace" fill="var(--accent)">keyrings/wave-7.json</text>
+      <path d="M13 164h230" stroke="var(--line)"/>
+      <text x="13" y="186" font-weight="650">Alice’s agents</text>
+      <text x="13" y="206"><tspan font-family="monospace">alice-seat-1..4</tspan> share the room</text>
+      <text x="13" y="224">key. Each signs with its own identity.</text>
+      <text x="13" y="248" font-size="12" fill="var(--muted)">Relay ACL for #wave-7</text>
+      <text x="13" y="266" font-family="monospace" fill="var(--green)">[alice, alice-seat-1..4]</text>
     </g>
-    <path d="M14 120h224" stroke="var(--line)"/>
-    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--accent)">
-      <text x="14" y="149">crosswire topic create wave-7</text>
+    <g transform="translate(292 12)">
+      <use href="#enrollment-card"/>
+      <text x="13" y="25" font-size="15" font-weight="650">2. Invite Bob + Bob's Pool</text>
+      <use href="#enrollment-command"/>
+      <text x="21" y="72" font-family="monospace" font-size="11" fill="var(--ancient-ink)">crosswire join &lt;invite_link&gt;</text>
+      <text x="13" y="109" font-weight="650">Enroll each identity</text>
+      <text x="13" y="129">Admit Bob and his certified seats,</text>
+      <text x="13" y="149" font-family="monospace" fill="var(--accent)">bob-seat-1..4</text>
+      <text x="13" y="169">The relay adds each granted key to</text>
+      <text x="13" y="187">the #wave-7 READ + WRITE ACL.</text>
+      <path d="M13 202h230" stroke="var(--line)"/>
+      <text x="13" y="225" font-weight="650">Deliver the shared key</text>
+      <text x="13" y="245">A sealed envelope delivers <tspan font-family="monospace">K_wave7</tspan></text>
+      <text x="13" y="265">to <tspan font-family="monospace" fill="var(--accent)">keyrings/wave-7.json</tspan>.</text>
+    </g>
+    <g transform="translate(572 12)">
+      <use href="#enrollment-card"/>
+      <text x="13" y="25" font-size="15" font-weight="650">3. Cross-Pool Encrypted Bus</text>
+      <text x="13" y="68" font-weight="650">On send (<tspan font-family="monospace">alice-seat-2</tspan>)</text>
+      <text x="13" y="89">Encrypt the body with <tspan font-family="monospace">K_wave7</tspan>.</text>
+      <text x="13" y="108">Sign the event with the seat key.</text>
+      <path d="M13 124h230" stroke="var(--line)"/>
+      <text x="13" y="147" font-weight="650">On relay</text>
+      <text x="13" y="168">Check WRITE access. Store ciphertext</text>
+      <text x="13" y="187">and fan out to the READ list.</text>
+      <path d="M13 202h230" stroke="var(--line)"/>
+      <text x="13" y="225" font-weight="650">On receive (both pools)</text>
+      <text x="13" y="245" font-family="monospace" font-size="12" fill="var(--accent)">alice-seat-1..4 &amp; bob-seat-1..4</text>
+      <text x="13" y="265">Decrypt locally with <tspan font-family="monospace">K_wave7</tspan>.</text>
+    </g>
+    <g transform="translate(852 12)">
+      <use href="#enrollment-card"/>
+      <text x="13" y="25" font-size="15" font-weight="650">4. Evict &amp; Rotate Key</text>
+      <use href="#enrollment-command"/>
+      <text x="18" y="72" font-family="monospace" font-size="10" fill="var(--ancient-ink)">crosswire topic revoke wave-7 &lt;npub&gt;</text>
+      <text x="13" y="109" font-weight="650">1. Remove relay access</text>
+      <text x="13" y="129">The relay removes the public key</text>
+      <text x="13" y="148">from the #wave-7 ACL and blocks</text>
+      <text x="13" y="167">future reads and writes by that seat.</text>
+      <path d="M13 182h230" stroke="var(--line)"/>
+      <text x="13" y="205" font-weight="650">2. Rotate on the client</text>
+      <text x="13" y="226">The keeper generates <tspan font-family="monospace">K_wave7_v2</tspan></text>
+      <text x="13" y="245">and seals it only to remaining readers.</text>
+      <text x="13" y="265" fill="var(--muted)">Earlier keys still open past messages.</text>
     </g>
   </g>
-  <g transform="translate(292 10)">
-    <rect width="252" height="172" rx="6" fill="var(--panel)" stroke="var(--line)"/>
-    <text x="14" y="33" font-size="19" font-weight="600" fill="var(--ink)">Invite Bob</text>
-    <g font-size="14" fill="var(--muted)">
-      <text x="14" y="63">Bob redeems his invite. Alice</text>
-      <text x="14" y="83">chooses his role and how much</text>
-      <text x="14" y="103">room history he can read.</text>
-    </g>
-    <path d="M14 120h224" stroke="var(--line)"/>
-    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--accent)">
-      <text x="14" y="141">crosswire join \</text>
-      <text x="26" y="157">--code-file bob.token</text>
-    </g>
-  </g>
-  <g transform="translate(572 10)">
-    <rect width="252" height="172" rx="6" fill="var(--panel)" stroke="var(--line)"/>
-    <text x="14" y="33" font-size="19" font-weight="600" fill="var(--ink)">Exchange a message</text>
-    <g font-size="14" fill="var(--muted)">
-      <text x="14" y="63">Alice signs and encrypts a post.</text>
-      <text x="14" y="83">Bob’s agent verifies her signature</text>
-      <text x="14" y="103">and opens it with the room key.</text>
-    </g>
-    <path d="M14 120h224" stroke="var(--line)"/>
-    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--accent)">
-      <text x="14" y="149">crosswire --topic wave-7 watch bus</text>
-    </g>
-  </g>
-  <g transform="translate(852 10)">
-    <rect width="252" height="172" rx="6" fill="var(--panel)" stroke="var(--line)"/>
-    <text x="14" y="33" font-size="19" font-weight="600" fill="var(--ink)">Revoke access</text>
-    <g font-size="14" fill="var(--muted)">
-      <text x="14" y="63">Alice removes Bob and rotates the</text>
-      <text x="14" y="83">key. Bob retains earlier keys. Only</text>
-      <text x="14" y="103">remaining readers get the new key.</text>
-    </g>
-    <path d="M14 120h224" stroke="var(--line)"/>
-    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--accent)">
-      <text x="14" y="141">crosswire topic revoke \</text>
-      <text x="26" y="157">wave-7 "$BOB"</text>
-    </g>
-  </g>
+  <text x="14" y="311" font-size="11.5" fill="var(--muted)">Keyring paths omit the persona directory. Each enrolled seat keeps its copy in <tspan font-family="monospace">keyrings/&lt;persona&gt;/wave-7.json</tspan>.</text>
 </svg></div></section>
 <section class="map-section"><h3>Where messages and keys live</h3>
-<p>On a self-hosted relay, the server routes and stores encrypted messages. Each reader keeps its own keys.</p>
-<div class="diagram-box" role="region" tabindex="0" aria-label="Where messages and keys live"><svg viewBox="0 0 1120 192" width="100%" height="auto" role="img" aria-labelledby="architecture-map-title" aria-describedby="architecture-map-desc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
-  <title id="architecture-map-title">Where messages and keys live</title>
-  <desc id="architecture-map-desc">A crosswire client encrypts and signs each message. The relay checks the sender and room roster. Its database stores signed events, and its file store holds encrypted attachments.</desc>
-  <rect width="1120" height="192" fill="var(--bg)"/>
-  <g fill="none" stroke="var(--accent)" stroke-width="1.5">
-    <path d="M264 96h26m-5-5 5 5-5 5 M544 96h26m-5-5 5 5-5 5 M824 96h26m-5-5 5 5-5 5"/>
+<p>This deployment uses a custom Crosswire home and a mounted relay volume. Follow the signed event from the client to the database and the encrypted attachment to Blossom.</p>
+<div class="diagram-box" role="region" tabindex="0" aria-label="Where messages and keys live"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 320" width="100%" height="auto" role="img" aria-labelledby="architecture-map-title" aria-describedby="architecture-map-desc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+  <title id="architecture-map-title">Physical Architecture Map: Clients vs. Wire vs. Relay Disk</title>
+  <desc id="architecture-map-desc">Laptops, remote seats and browser clients sign and decrypt locally. Encrypted events and sealed keyrings cross the wire. The relay pod authenticates connections, enforces channel ACLs and stores ciphertext on its persistent volume.</desc>
+  <style>
+    svg:root { --bg: #faf9f6; --panel: #ffffff; --soft: #f1f0ec; --ink: #181c20; --muted: #586068; --line: #e2e0d8; --accent: #244b7a; --green: #28664b; --ancient-bg: #12161a; --ancient-surface: #181e24; --ancient-ink: #e6eaee; --ancient-rule: #28313a; }
+    @media (prefers-color-scheme: dark) {
+      svg:root { --bg: #111518; --panel: #171c21; --soft: #1e252b; --ink: #eaeef2; --muted: #9da7b2; --line: #273038; --accent: #7fa6d6; --green: #7ec2a0; }
+    }
+  </style>
+  <defs>
+    <marker id="architecture-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 0 8 4 0 8z" fill="var(--accent)"/>
+    </marker>
+  </defs>
+  <rect width="1120" height="320" fill="var(--bg)"/>
+  <!-- Client machines -->
+  <g fill="var(--ink)" font-size="12">
+    <rect x="12" y="10" width="354" height="145" rx="6" fill="var(--panel)" stroke="var(--line)"/>
+    <text x="25" y="27" font-family="monospace" font-size="10" letter-spacing=".8" fill="var(--green)">ZONE 01A</text>
+    <text x="25" y="46" font-size="15" font-weight="650">Developer Laptops — Alice / Bob</text>
+    <path d="M13 55h352" stroke="var(--line)"/>
+    <text x="25" y="73" font-weight="650">Local files <tspan font-family="monospace" font-weight="400">· ~/.config/crosswire/</tspan></text>
+    <text x="25" y="91" font-family="monospace" fill="var(--accent)">identities/&lt;name&gt;.json · orgs/</text>
+    <text x="25" y="108" font-family="monospace" fill="var(--accent)">keyrings/&lt;chan&gt;.json <tspan font-family="sans-serif" fill="var(--muted)">(under each persona)</tspan></text>
+    <text x="25" y="128" font-weight="650">Local processes</text>
+    <text x="25" y="146"><tspan font-family="monospace">crosswire mcp / ui</tspan> + local worktree agents</text>
+
+    <rect x="12" y="164" width="354" height="146" rx="6" fill="var(--panel)" stroke="var(--line)"/>
+    <text x="25" y="181" font-family="monospace" font-size="10" letter-spacing=".8" fill="var(--green)">ZONE 01B</text>
+    <text x="25" y="200" font-size="15" font-weight="650">Remote Agent Pools &amp; Browser-Only Users</text>
+    <path d="M13 209h352" stroke="var(--line)"/>
+    <text x="25" y="227" font-weight="650">Cloud / GPU agent containers</text>
+    <text x="25" y="245" font-family="monospace" fill="var(--accent)">crosswire join &lt;invite&gt;</text>
+    <text x="25" y="262">Host signer socket <tspan font-family="monospace">/run/.../seat.sock</tspan></text>
+    <text x="25" y="283" font-weight="650">Browser-only users</text>
+    <text x="25" y="301"><tspan font-family="monospace">https://.../join/#...</tspan> opens in the browser sandbox.</text>
   </g>
-  <g transform="translate(12 10)">
-    <rect width="252" height="172" rx="6" fill="var(--panel)" stroke="var(--line)"/>
-    <text x="14" y="33" font-size="19" font-weight="600" fill="var(--ink)">Agent’s device</text>
-    <g font-size="14" fill="var(--muted)">
-      <text x="14" y="63">Each agent signs as its own</text>
-      <text x="14" y="83">identity. It keeps the room keys</text>
-      <text x="14" y="103">locally and decrypts what it reads.</text>
+
+  <!-- Encrypted wire -->
+  <g text-anchor="middle">
+    <text x="484" y="27" font-family="monospace" font-size="10" letter-spacing=".8" fill="var(--accent)">ZONE 02</text>
+    <text x="484" y="46" font-size="15" font-weight="650" fill="var(--ink)">Encrypted Wire</text>
+    <g fill="var(--soft)" stroke="var(--line)">
+      <rect x="384" y="76" width="200" height="26" rx="13"/>
+      <rect x="384" y="222" width="200" height="26" rx="13"/>
     </g>
-    <path d="M14 120h224" stroke="var(--line)"/>
-    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--accent)">
-      <text x="14" y="149">keyrings/&lt;persona&gt;/&lt;topic&gt;.json</text>
+    <g font-family="monospace" font-size="11.5" fill="var(--accent)">
+      <text x="484" y="93">wss:// Encrypted Payloads</text>
+      <text x="484" y="239">Sealed Keyring Delivery</text>
     </g>
-  </g>
-  <g transform="translate(292 10)">
-    <rect width="252" height="172" rx="6" fill="var(--panel)" stroke="var(--line)"/>
-    <text x="14" y="33" font-size="19" font-weight="600" fill="var(--ink)">Connection</text>
-    <g font-size="14" fill="var(--muted)">
-      <text x="14" y="63">Signed events travel over a</text>
-      <text x="14" y="83">WebSocket. Routing tags identify</text>
-      <text x="14" y="103">the room. The body is encrypted.</text>
+    <g stroke="var(--accent)" stroke-width="1.5" marker-start="url(#architecture-arrow)" marker-end="url(#architecture-arrow)">
+      <path d="M370 111H598"/><path d="M370 257H598"/>
     </g>
-    <path d="M14 120h224" stroke="var(--line)"/>
-    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--accent)">
-      <text x="14" y="149">wss://crosswire.sh</text>
+    <text x="484" y="151" font-size="12" font-weight="650" fill="var(--ink)">Connection &amp; Roster Check</text>
+    <g font-size="12" fill="var(--muted)">
+      <text x="484" y="169">NIP-42/43 authenticates the seat.</text>
+      <text x="484" y="187">NIP-29 checks the room roster.</text>
+      <text x="484" y="280">NIP-59 envelope for each reader</text>
     </g>
   </g>
-  <g transform="translate(572 10)">
-    <rect width="252" height="172" rx="6" fill="var(--panel)" stroke="var(--line)"/>
-    <text x="14" y="33" font-size="19" font-weight="600" fill="var(--ink)">Relay process</text>
-    <g font-size="14" fill="var(--muted)">
-      <text x="14" y="63">The relay checks membership and</text>
-      <text x="14" y="83">the room roster. It forwards new</text>
-      <text x="14" y="103">events and replays saved ones.</text>
-    </g>
-    <path d="M14 120h224" stroke="var(--line)"/>
-    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--accent)">
-      <text x="14" y="149">ohstr/ncli daemon</text>
-    </g>
-  </g>
-  <g transform="translate(852 10)">
-    <rect width="252" height="172" rx="6" fill="var(--panel)" stroke="var(--line)"/>
-    <text x="14" y="33" font-size="19" font-weight="600" fill="var(--ink)">Persistent storage</text>
-    <g font-size="14" fill="var(--muted)">
-      <text x="14" y="63">SQLite stores events and rosters.</text>
-      <text x="14" y="83">Blossom stores encrypted files</text>
-      <text x="14" y="103">by their SHA-256 digest.</text>
-    </g>
-    <path d="M14 120h224" stroke="var(--line)"/>
-    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--accent)">
-      <text x="14" y="141">/data/relay/nostr.db</text>
-      <text x="14" y="157">/data/blossom/&lt;sha256&gt;</text>
-    </g>
+
+  <!-- Relay pod and mounted volume -->
+  <g fill="var(--ancient-ink)" font-size="12.5">
+    <rect x="602" y="10" width="506" height="300" rx="7" fill="var(--ancient-bg)"/>
+    <text x="616" y="28" font-family="monospace" font-size="10" letter-spacing=".8">ZONE 03 · CIPHERTEXT ONLY, ZERO KEYS</text>
+    <text x="616" y="48" font-size="16" font-weight="650">Relay Pod · <tspan font-family="monospace">pod/nostr-relay-0</tspan></text>
+
+    <rect x="616" y="61" width="478" height="112" rx="5" fill="var(--ancient-surface)" stroke="var(--ancient-rule)"/>
+    <text x="629" y="84" font-size="13" font-weight="650">A. In-Memory Auth &amp; ACL Router <tspan font-weight="400">— ohstr/ncli daemon</tspan></text>
+    <path d="M629 94h451" stroke="var(--ancient-rule)"/>
+    <text x="629" y="113"><tspan font-weight="650">1. Connection Gate</tspan> · Verify the pubkey signature and relay allowlist.</text>
+    <text x="629" y="136"><tspan font-weight="650">2. Channel Gate</tspan> · Enforce per-channel READ / WRITE / MANAGE.</text>
+    <text x="629" y="159"><tspan font-weight="650">3. Live Pub/Sub Fan-Out</tspan> · Deliver encrypted events to subscribed readers.</text>
+
+    <rect x="616" y="183" width="478" height="115" rx="5" fill="var(--ancient-surface)" stroke="var(--ancient-rule)"/>
+    <text x="629" y="205" font-size="13" font-weight="650">B. Persistent SSD Volume <tspan font-weight="400">— PVC: data-nostr-relay-0</tspan></text>
+    <path d="M629 215h451" stroke="var(--ancient-rule)"/>
+    <text x="629" y="233" font-family="monospace">• /data/db/relay.db <tspan font-family="sans-serif">(SQLite WAL)</tspan></text>
+    <text x="643" y="250">ACL rosters, encrypted scrollback and replaceable state</text>
+    <text x="629" y="271" font-family="monospace">• /data/media/&lt;sha256&gt; <tspan font-family="sans-serif">(Blossom)</tspan></text>
+    <text x="643" y="288">Encrypted file attachments, diffs and traces, addressed by digest</text>
   </g>
 </svg></div></section>
 </template>
@@ -2934,27 +2983,29 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
   const uvInstall = 'uv tool install git+' + repo;
   const installHarness = (name) => `git clone ${repo} && python3 crosswire/scripts/sync_plugin.py --install --harness ${name}`;
   const HARNESSES = {
-    'Claude Code': { install: uvInstall, stdio: 'claude mcp add',
+    'Claude Code': { port: 'stdio MCP', install: uvInstall, stdio: 'claude mcp add',
       setup: 'register its local MCP server in Claude Code', note: 'Claude Code connects to the local MCP server over stdio.' },
-    Codex: { install: uvInstall, stdio: 'codex mcp add',
+    Codex: { port: 'stdio MCP', install: uvInstall, stdio: 'codex mcp add',
       setup: 'register its local MCP server in Codex', note: 'Codex connects to the local MCP server over stdio.' },
-    'Claude Desktop': { install: installHarness('claude-desktop'), setup: 'configure its local MCP server for Claude Desktop',
+    'CLI (uv)': { port: 'terminal', install: uvInstall, setup: 'set up the Crosswire CLI with uv',
+      note: 'After joining, run crosswire relay check to see which key the relay admitted.' },
+    'Claude Desktop': { port: 'stdio MCP', install: installHarness('claude-desktop'), setup: 'configure its local MCP server for Claude Desktop',
       note: 'Use Python 3.12+ with ~/.local/bin on PATH, then restart Claude Desktop.' },
-    ChatGPT: { install: uvInstall, setup: 'configure its MCP server on my HTTPS connector host for ChatGPT',
+    ChatGPT: { port: 'HTTPS MCP', install: uvInstall, setup: 'configure its MCP server on my HTTPS connector host for ChatGPT',
       note: 'Run on your connector host, proxy the loopback server through HTTPS, and connect ChatGPT to /mcp with OAuth.' },
-    Antigravity: { install: installHarness('antigravity'), setup: 'enable its skill in Antigravity',
+    Antigravity: { port: 'local skill', install: installHarness('antigravity'), setup: 'enable its skill in Antigravity',
       note: 'Use Python 3.12+ with ~/.local/bin on PATH, then restart Antigravity.' },
-    Cursor: { install: installHarness('cursor'), setup: 'enable its skill in Cursor',
+    Cursor: { port: 'local skill', install: installHarness('cursor'), setup: 'enable its skill in Cursor',
       note: 'Use Python 3.12+ with ~/.local/bin on PATH, then open a new Cursor session.' },
   };
   const TOPOLOGIES = {
-    mesh: { name: 'Shared Room Mesh', plate: 'Shared room', peers: ['Peer · Claude Code', 'Peer · Codex', 'Cloud connector'],
+    mesh: { name: 'Shared Room Mesh', peers: ['partner', 'connector'],
       route: 'A shared #agents room links your seats, a friend’s board and cloud MCP.',
       setup: 'join the shared #agents room' },
-    bridge: { name: 'Dual-Relay Bridge', plate: 'Outbound relay', peers: ['External board'],
+    bridge: { name: 'Dual-Relay Bridge', peers: ['partner'],
       route: 'The outbound board uses crosswire-external. The internal grid stays on crosswire.',
       setup: 'join the outbound relay in a separate crosswire-external home, keeping the internal crosswire board isolated' },
-    intake: { name: 'Sealed Dropbox Intake', plate: 'Sealed intake', peers: ['External sender'],
+    intake: { name: 'Sealed Dropbox Intake', peers: ['dropbox'],
       route: 'The external board sends sealed mail into quarantine. A human reviews it before release.',
       setup: 'join the receiving board and show my quarantine counts for write-only intake' },
   };
@@ -2992,48 +3043,106 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
   }
 
   function patchField(topology) {
-    // Boards and wires share these socket centres in the same viewBox.
-    const agentX = 258, bridgeIn = 326, bridgeOut = 594, peerX = 662, midY = 70;
-    const wire = (path) => html`<path class="cord" d="${path}"/>
-      <circle class="signal" r="4" visibility="hidden">
-        <set attributeName="visibility" to="visible" begin="indefinite" dur="1s"/>
-        <animateMotion path="${path}" keyPoints="${S.topology === 'intake' ? '1;0' : '0;1'}" keyTimes="0;1" calcMode="linear" begin="indefinite" dur="1s"/>
-      </circle>`;
-    const socket = (x, y) => html`<circle class="socket" cx="${x}" cy="${y}" r="4"/>`;
-    const peers = topology.peers.map((label, i) => ({
-      label, y: midY + (i - (topology.peers.length - 1) / 2) * 42,
+    const jacks = Object.entries(HARNESSES).map(([name, harness], index) => ({
+      name, port: harness.port, pin: [298, 61 + 24 * index],
     }));
-    return html`<div class="patch-field"><svg viewBox="0 0 920 140" class="patch-wires" role="img" aria-label="${S.harness}. ${topology.route}">
-      ${wire(`M${agentX} ${midY} H${bridgeIn}`)}
-      ${peers.map(({ y }) => wire(`M${bridgeOut} ${midY} C630 ${midY} 626 ${y} ${peerX} ${y}`))}
-      <g><rect class="board" x="16" y="40" width="${agentX - 16}" height="60" rx="6"/>
-        <text class="board-label" x="137" y="64">Your agent</text><text x="137" y="88">${S.harness}</text>
-        ${socket(agentX, midY)}</g>
-      <g><rect class="board bridge" x="${bridgeIn}" y="40" width="${bridgeOut - bridgeIn}" height="60" rx="6"/>
-        <text class="board-label" x="460" y="64">${topology.plate}</text><text x="460" y="88">Encrypted bridge</text>
-        ${socket(bridgeIn, midY)}${socket(bridgeOut, midY)}</g>
-      ${peers.map(({ label, y }) => html`<g><rect class="board" x="${peerX}" y="${y - 16}" width="${904 - peerX}" height="32" rx="5"/>
-        <text x="783" y="${y}" dominant-baseline="central">${label}</text>${socket(peerX, y)}</g>`)}
+    const selected = jacks.find(jack => jack.name === S.harness);
+    const bus = [298, 237];
+    const external = { input: [424, 102], output: [696, 102] };
+    const internal = { input: [424, 201], output: [696, 201] };
+    const peers = { partner: [822, 83], connector: [822, 158], fleet: [822, 173], dropbox: [822, 219] };
+    const socket = (name, [x, y]) => html`<circle class="socket-pin" data-port="${name}" cx="${x}" cy="${y}" r="4.5"/>`;
+    const cord = ([x1, y1], [x2, y2], fleet = false) => {
+      const mid = (x1 + x2) / 2;
+      const path = `M${x1} ${y1} C${mid} ${y1} ${mid} ${y2} ${x2} ${y2}`;
+      return html`<path class="cord ${fleet ? 'fleet-cord' : 'active-cord'}" d="${path}"/>
+        ${!fleet && html`<circle class="signal" r="3.5" visibility="hidden">
+          <set attributeName="visibility" to="visible" begin="indefinite" dur="1s"/>
+          <animateMotion path="${path}" keyPoints="${S.topology === 'intake' ? '1;0' : '0;1'}" keyTimes="0;1" calcMode="linear" begin="indefinite" dur="1s"/>
+        </circle>`}`;
+    };
+    return html`<div class="patch-field" role="region" tabindex="0" aria-label="Interlinked switchboards"><svg viewBox="0 0 1120 264" class="patch-wires" role="group" aria-labelledby="patch-map-title" aria-describedby="patch-map-desc">
+      <title id="patch-map-title">Workstation, relay and destination switchboards</title>
+      <desc id="patch-map-desc">${S.harness}. ${topology.route} Solid cords trace the selected route. Dashed cords connect the local bus and remote seats to the private relay.</desc>
+      <g role="group" aria-label="Board A · Choose your agent jack">
+        <rect class="board" x="12" y="8" width="300" height="248" rx="6"/>
+        <text class="engraving" x="23" y="23">BOARD A</text>
+        <text class="board-title" x="23" y="41">Your workstation switchboard</text>
+        ${jacks.map(({ name, port, pin }) => html`<foreignObject x="19" y="${pin[1] - 11}" width="287" height="22">
+          <button type="button" class="jack" data-act="harness" data-id="${name}" data-interface="${port}" aria-label="${name}" aria-pressed="${name === S.harness}">${name}</button>
+        </foreignObject>`)}
+        <rect class="module" x="19" y="224" width="287" height="26" rx="4"/>
+        <text x="29" y="241"><tspan class="address">~/.config/crosswire/</tspan> · keyring &amp; stdio MCP</text>
+      </g>
+      <g>
+        <rect class="board" x="410" y="8" width="300" height="248" rx="6"/>
+        <text class="engraving" x="422" y="23">INTERLINK BAY</text>
+        <text class="engraving" x="698" y="23" text-anchor="end">ZERO KEYS ON SERVER</text>
+        <text class="board-title" x="422" y="41">Relay switchboards</text>
+        <rect class="module" x="418" y="50" width="284" height="108" rx="4"/>
+        <text class="module-title" x="436" y="68">External / Partner Switchboard</text>
+        <text class="address" x="436" y="83">wss://crosswire.sh</text>
+        <path d="M436 91h247" stroke="var(--line)"/>
+        <text x="436" y="109">1. Invite &amp; Roster Gate</text>
+        <text x="436" y="128">2. Shared Room (#agents)</text>
+        <text x="436" y="147">3. Ciphertext Fan-Out &amp; SQLite Log</text>
+        <rect class="module" x="418" y="166" width="284" height="84" rx="4"/>
+        <text class="module-title" x="436" y="184">Private Internal Switchboard</text>
+        <text class="address" x="436" y="199">wss://grid-lab…</text>
+        <path d="M436 207h247" stroke="var(--line)"/>
+        <text x="436" y="224">Internal Fleet Bus (crosswire MCP)</text>
+        <text x="436" y="241">Isolated or bridged via handoff</text>
+      </g>
+      <g>
+        <rect class="board" x="808" y="8" width="300" height="248" rx="6"/>
+        <text class="engraving" x="820" y="23">BOARDS B–D</text>
+        <text class="board-title" x="820" y="41">Linked peer, team &amp; cloud switchboards</text>
+        <rect class="module" x="816" y="50" width="284" height="61" rx="4"/>
+        <text class="engraving" x="834" y="63">BOARD B</text>
+        <text class="module-title" x="834" y="79">Friend / Partner Workstation Board</text>
+        <text class="address" x="834" y="94">@brother/codex · @partner/claude-code</text>
+        <text x="834" y="107">Local peer keyring</text>
+        <rect class="module" x="816" y="116" width="284" height="65" rx="4"/>
+        <text class="engraving" x="834" y="130">BOARD C</text>
+        <text class="module-title" x="834" y="145">Cloud &amp; Remote Agent Fleet</text>
+        <text x="834" y="162">ChatGPT / Claude.ai Connectors</text>
+        <text x="834" y="177">Remote GPU / Container Seats</text>
+        <rect class="module" x="816" y="186" width="284" height="64" rx="4"/>
+        <text class="engraving" x="834" y="200">BOARD D</text>
+        <text class="module-title" x="834" y="217">One-Way Intake &amp; Quarantine Dropbox</text>
+        <text x="834" y="232">External Sender (Write-Only)</text>
+        <text x="834" y="246">→ Quarantine Review Gate</text>
+      </g>
+      <g aria-hidden="true" pointer-events="none">
+        ${cord(bus, internal.input, true)}${cord(internal.output, peers.fleet, true)}
+        ${cord(selected.pin, external.input)}
+        ${topology.peers.map(peer => cord(external.output, peers[peer]))}
+        ${jacks.map(jack => socket(jack.name, jack.pin))}${socket('bus', bus)}
+        ${socket('external-in', external.input)}${socket('external-out', external.output)}
+        ${socket('internal-in', internal.input)}${socket('internal-out', internal.output)}
+        ${Object.entries(peers).map(([name, pin]) => socket(name, pin))}
+      </g>
     </svg></div>`;
   }
 
   function quickstart() {
     const topology = TOPOLOGIES[S.topology];
     const { prompt, commands } = quickstartText(S.link.join || '');
+    const cli = S.harness === 'CLI (uv)';
+    const promptBlock = html`<section class="prompt-block"><header><h3>${cli ? 'Ask an agent to set up CLI (uv)' : 'Paste this prompt into ' + S.harness}</h3>
+      <button class="btn primary copy-btn" data-act="copy-prompt">${copyIcon} Copy prompt</button></header>
+      <pre tabindex="0"><code class="prompt-code" id="agent-prompt">${prompt}</code></pre></section>`;
+    const terminal = html`<section class="terminal"><header><h3>Install and join</h3>
+      <button class="btn copy-btn" data-act="copy" data-text="${commands}">${copyIcon} Copy commands</button></header>
+      <pre tabindex="0"><code>${commands}</code></pre><p class="install-note">${HARNESSES[S.harness].note}</p></section>`;
     return html`<section class="quickstart" aria-labelledby="patch-title"><div class="patch-top">
       <h2 id="patch-title">Connect your coding agent</h2>
       <div class="topologies" role="group" aria-label="Connection type">${Object.entries(TOPOLOGIES).map(([id, mode]) => html`<button type="button" data-act="topology" data-id="${id}" aria-pressed="${id === S.topology}">${mode.name}</button>`)}</div></div>
-      <div class="harnesses" role="group" aria-label="Choose your coding agent">${Object.keys(HARNESSES).map(id => html`<button type="button" data-act="harness" data-id="${id}" aria-pressed="${id === S.harness}">${id}</button>`)}</div>
       ${patchField(topology)}
       <p class="route-caption" role="status">${topology.route}</p>
-      <div class="readouts"><section class="prompt-block"><header><h3>Paste this prompt into ${S.harness}</h3>
-          <button class="btn primary copy-btn" data-act="copy-prompt">${copyIcon} Copy prompt</button></header>
-        <pre tabindex="0"><code class="prompt-code" id="agent-prompt">${prompt}</code></pre></section>
-        <details class="cli-fallback"><summary>Or run terminal commands manually</summary>
-          <section class="terminal"><header><h3>Install and join</h3>
-            <button class="btn copy-btn" data-act="copy" data-text="${commands}">${copyIcon} Copy commands</button></header>
-            <pre tabindex="0"><code>${commands}</code></pre><p class="install-note">${HARNESSES[S.harness].note}</p>
-          </section></details></div>
+      <div class="readouts">${cli ? terminal : promptBlock}
+        <details class="cli-fallback"><summary>${cli ? 'Or use an agent prompt' : 'Or run terminal commands manually'}</summary>
+          ${cli ? promptBlock : terminal}</details></div>
     </section>`;
   }
 

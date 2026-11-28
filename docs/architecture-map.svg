@@ -1,67 +1,83 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 192" width="100%" height="auto" role="img" aria-labelledby="architecture-map-title" aria-describedby="architecture-map-desc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
-  <title id="architecture-map-title">Where messages and keys live</title>
-  <desc id="architecture-map-desc">A crosswire client encrypts and signs each message. The relay checks the sender and room roster. Its database stores signed events, and its file store holds encrypted attachments.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 320" width="100%" height="auto" role="img" aria-labelledby="architecture-map-title" aria-describedby="architecture-map-desc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+  <title id="architecture-map-title">Physical Architecture Map: Clients vs. Wire vs. Relay Disk</title>
+  <desc id="architecture-map-desc">Laptops, remote seats and browser clients sign and decrypt locally. Encrypted events and sealed keyrings cross the wire. The relay pod authenticates connections, enforces channel ACLs and stores ciphertext on its persistent volume.</desc>
   <style>
-    :root { --bg: #faf9f6; --panel: #ffffff; --ink: #181c20; --muted: #586068; --line: #e2e0d8; --accent: #244b7a; }
+    svg:root { --bg: #faf9f6; --panel: #ffffff; --soft: #f1f0ec; --ink: #181c20; --muted: #586068; --line: #e2e0d8; --accent: #244b7a; --green: #28664b; --ancient-bg: #12161a; --ancient-surface: #181e24; --ancient-ink: #e6eaee; --ancient-rule: #28313a; }
     @media (prefers-color-scheme: dark) {
-      :root { --bg: #111518; --panel: #171c21; --ink: #eaeef2; --muted: #9da7b2; --line: #273038; --accent: #7fa6d6; }
+      svg:root { --bg: #111518; --panel: #171c21; --soft: #1e252b; --ink: #eaeef2; --muted: #9da7b2; --line: #273038; --accent: #7fa6d6; --green: #7ec2a0; }
     }
   </style>
-  <rect width="1120" height="192" fill="var(--bg)"/>
-  <g fill="none" stroke="var(--accent)" stroke-width="1.5">
-    <path d="M264 96h26m-5-5 5 5-5 5 M544 96h26m-5-5 5 5-5 5 M824 96h26m-5-5 5 5-5 5"/>
+  <defs>
+    <marker id="architecture-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 0 8 4 0 8z" fill="var(--accent)"/>
+    </marker>
+  </defs>
+  <rect width="1120" height="320" fill="var(--bg)"/>
+  <!-- Client machines -->
+  <g fill="var(--ink)" font-size="12">
+    <rect x="12" y="10" width="354" height="145" rx="6" fill="var(--panel)" stroke="var(--line)"/>
+    <text x="25" y="27" font-family="monospace" font-size="10" letter-spacing=".8" fill="var(--green)">ZONE 01A</text>
+    <text x="25" y="46" font-size="15" font-weight="650">Developer Laptops — Alice / Bob</text>
+    <path d="M13 55h352" stroke="var(--line)"/>
+    <text x="25" y="73" font-weight="650">Local files <tspan font-family="monospace" font-weight="400">· ~/.config/crosswire/</tspan></text>
+    <text x="25" y="91" font-family="monospace" fill="var(--accent)">identities/&lt;name&gt;.json · orgs/</text>
+    <text x="25" y="108" font-family="monospace" fill="var(--accent)">keyrings/&lt;chan&gt;.json <tspan font-family="sans-serif" fill="var(--muted)">(under each persona)</tspan></text>
+    <text x="25" y="128" font-weight="650">Local processes</text>
+    <text x="25" y="146"><tspan font-family="monospace">crosswire mcp / ui</tspan> + local worktree agents</text>
+
+    <rect x="12" y="164" width="354" height="146" rx="6" fill="var(--panel)" stroke="var(--line)"/>
+    <text x="25" y="181" font-family="monospace" font-size="10" letter-spacing=".8" fill="var(--green)">ZONE 01B</text>
+    <text x="25" y="200" font-size="15" font-weight="650">Remote Agent Pools &amp; Browser-Only Users</text>
+    <path d="M13 209h352" stroke="var(--line)"/>
+    <text x="25" y="227" font-weight="650">Cloud / GPU agent containers</text>
+    <text x="25" y="245" font-family="monospace" fill="var(--accent)">crosswire join &lt;invite&gt;</text>
+    <text x="25" y="262">Host signer socket <tspan font-family="monospace">/run/.../seat.sock</tspan></text>
+    <text x="25" y="283" font-weight="650">Browser-only users</text>
+    <text x="25" y="301"><tspan font-family="monospace">https://.../join/#...</tspan> opens in the browser sandbox.</text>
   </g>
-  <g transform="translate(12 10)">
-    <rect width="252" height="172" rx="6" fill="var(--panel)" stroke="var(--line)"/>
-    <text x="14" y="33" font-size="19" font-weight="600" fill="var(--ink)">Agent’s device</text>
-    <g font-size="14" fill="var(--muted)">
-      <text x="14" y="63">Each agent signs as its own</text>
-      <text x="14" y="83">identity. It keeps the room keys</text>
-      <text x="14" y="103">locally and decrypts what it reads.</text>
+
+  <!-- Encrypted wire -->
+  <g text-anchor="middle">
+    <text x="484" y="27" font-family="monospace" font-size="10" letter-spacing=".8" fill="var(--accent)">ZONE 02</text>
+    <text x="484" y="46" font-size="15" font-weight="650" fill="var(--ink)">Encrypted Wire</text>
+    <g fill="var(--soft)" stroke="var(--line)">
+      <rect x="384" y="76" width="200" height="26" rx="13"/>
+      <rect x="384" y="222" width="200" height="26" rx="13"/>
     </g>
-    <path d="M14 120h224" stroke="var(--line)"/>
-    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--accent)">
-      <text x="14" y="149">keyrings/&lt;persona&gt;/&lt;topic&gt;.json</text>
+    <g font-family="monospace" font-size="11.5" fill="var(--accent)">
+      <text x="484" y="93">wss:// Encrypted Payloads</text>
+      <text x="484" y="239">Sealed Keyring Delivery</text>
     </g>
-  </g>
-  <g transform="translate(292 10)">
-    <rect width="252" height="172" rx="6" fill="var(--panel)" stroke="var(--line)"/>
-    <text x="14" y="33" font-size="19" font-weight="600" fill="var(--ink)">Connection</text>
-    <g font-size="14" fill="var(--muted)">
-      <text x="14" y="63">Signed events travel over a</text>
-      <text x="14" y="83">WebSocket. Routing tags identify</text>
-      <text x="14" y="103">the room. The body is encrypted.</text>
+    <g stroke="var(--accent)" stroke-width="1.5" marker-start="url(#architecture-arrow)" marker-end="url(#architecture-arrow)">
+      <path d="M370 111H598"/><path d="M370 257H598"/>
     </g>
-    <path d="M14 120h224" stroke="var(--line)"/>
-    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--accent)">
-      <text x="14" y="149">wss://crosswire.sh</text>
+    <text x="484" y="151" font-size="12" font-weight="650" fill="var(--ink)">Connection &amp; Roster Check</text>
+    <g font-size="12" fill="var(--muted)">
+      <text x="484" y="169">NIP-42/43 authenticates the seat.</text>
+      <text x="484" y="187">NIP-29 checks the room roster.</text>
+      <text x="484" y="280">NIP-59 envelope for each reader</text>
     </g>
   </g>
-  <g transform="translate(572 10)">
-    <rect width="252" height="172" rx="6" fill="var(--panel)" stroke="var(--line)"/>
-    <text x="14" y="33" font-size="19" font-weight="600" fill="var(--ink)">Relay process</text>
-    <g font-size="14" fill="var(--muted)">
-      <text x="14" y="63">The relay checks membership and</text>
-      <text x="14" y="83">the room roster. It forwards new</text>
-      <text x="14" y="103">events and replays saved ones.</text>
-    </g>
-    <path d="M14 120h224" stroke="var(--line)"/>
-    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--accent)">
-      <text x="14" y="149">ohstr/ncli daemon</text>
-    </g>
-  </g>
-  <g transform="translate(852 10)">
-    <rect width="252" height="172" rx="6" fill="var(--panel)" stroke="var(--line)"/>
-    <text x="14" y="33" font-size="19" font-weight="600" fill="var(--ink)">Persistent storage</text>
-    <g font-size="14" fill="var(--muted)">
-      <text x="14" y="63">SQLite stores events and rosters.</text>
-      <text x="14" y="83">Blossom stores encrypted files</text>
-      <text x="14" y="103">by their SHA-256 digest.</text>
-    </g>
-    <path d="M14 120h224" stroke="var(--line)"/>
-    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--accent)">
-      <text x="14" y="141">/data/relay/nostr.db</text>
-      <text x="14" y="157">/data/blossom/&lt;sha256&gt;</text>
-    </g>
+
+  <!-- Relay pod and mounted volume -->
+  <g fill="var(--ancient-ink)" font-size="12.5">
+    <rect x="602" y="10" width="506" height="300" rx="7" fill="var(--ancient-bg)"/>
+    <text x="616" y="28" font-family="monospace" font-size="10" letter-spacing=".8">ZONE 03 · CIPHERTEXT ONLY, ZERO KEYS</text>
+    <text x="616" y="48" font-size="16" font-weight="650">Relay Pod · <tspan font-family="monospace">pod/nostr-relay-0</tspan></text>
+
+    <rect x="616" y="61" width="478" height="112" rx="5" fill="var(--ancient-surface)" stroke="var(--ancient-rule)"/>
+    <text x="629" y="84" font-size="13" font-weight="650">A. In-Memory Auth &amp; ACL Router <tspan font-weight="400">— ohstr/ncli daemon</tspan></text>
+    <path d="M629 94h451" stroke="var(--ancient-rule)"/>
+    <text x="629" y="113"><tspan font-weight="650">1. Connection Gate</tspan> · Verify the pubkey signature and relay allowlist.</text>
+    <text x="629" y="136"><tspan font-weight="650">2. Channel Gate</tspan> · Enforce per-channel READ / WRITE / MANAGE.</text>
+    <text x="629" y="159"><tspan font-weight="650">3. Live Pub/Sub Fan-Out</tspan> · Deliver encrypted events to subscribed readers.</text>
+
+    <rect x="616" y="183" width="478" height="115" rx="5" fill="var(--ancient-surface)" stroke="var(--ancient-rule)"/>
+    <text x="629" y="205" font-size="13" font-weight="650">B. Persistent SSD Volume <tspan font-weight="400">— PVC: data-nostr-relay-0</tspan></text>
+    <path d="M629 215h451" stroke="var(--ancient-rule)"/>
+    <text x="629" y="233" font-family="monospace">• /data/db/relay.db <tspan font-family="sans-serif">(SQLite WAL)</tspan></text>
+    <text x="643" y="250">ACL rosters, encrypted scrollback and replaceable state</text>
+    <text x="629" y="271" font-family="monospace">• /data/media/&lt;sha256&gt; <tspan font-family="sans-serif">(Blossom)</tspan></text>
+    <text x="643" y="288">Encrypted file attachments, diffs and traces, addressed by digest</text>
   </g>
 </svg>

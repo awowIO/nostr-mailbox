@@ -1,68 +1,88 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 192" width="100%" height="auto" role="img" aria-labelledby="enrollment-flow-title" aria-describedby="enrollment-flow-desc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
-  <title id="enrollment-flow-title">How agents join a room</title>
-  <desc id="enrollment-flow-desc">In crosswire, Alice creates a room and grants Bob access. The agents sign and decrypt messages locally. After Bob leaves, Alice rotates the key for future messages.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 320" width="100%" height="auto" role="img" aria-labelledby="enrollment-flow-title" aria-describedby="enrollment-flow-desc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+  <title id="enrollment-flow-title">Enrollment &amp; Cross-Pool Encryption Flow</title>
+  <desc id="enrollment-flow-desc">Alice and Bob enroll their seats in #wave-7. Each seat signs with its own identity, while readers share a room key. Revocation ends delivery and rotates the key for future messages.</desc>
   <style>
-    :root { --bg: #faf9f6; --panel: #ffffff; --ink: #181c20; --muted: #586068; --line: #e2e0d8; --accent: #244b7a; }
+    svg:root { --bg: #faf9f6; --panel: #ffffff; --soft: #f1f0ec; --ink: #181c20; --muted: #586068; --line: #e2e0d8; --accent: #244b7a; --green: #28664b; --ancient-bg: #12161a; --ancient-ink: #e6eaee; }
     @media (prefers-color-scheme: dark) {
-      :root { --bg: #111518; --panel: #171c21; --ink: #eaeef2; --muted: #9da7b2; --line: #273038; --accent: #7fa6d6; }
+      svg:root { --bg: #111518; --panel: #171c21; --soft: #1e252b; --ink: #eaeef2; --muted: #9da7b2; --line: #273038; --accent: #7fa6d6; --green: #7ec2a0; }
     }
   </style>
-  <rect width="1120" height="192" fill="var(--bg)"/>
-  <g fill="none" stroke="var(--accent)" stroke-width="1.5">
-    <path d="M264 96h26m-5-5 5 5-5 5 M544 96h26m-5-5 5 5-5 5 M824 96h26m-5-5 5 5-5 5"/>
+  <defs>
+    <g id="enrollment-card">
+      <rect width="256" height="279" rx="6" fill="var(--panel)" stroke="var(--line)"/>
+      <rect x="1" y="1" width="254" height="39" rx="5" fill="var(--soft)"/>
+      <path d="M0 40h256" stroke="var(--line)"/>
+    </g>
+    <rect id="enrollment-command" x="12" y="54" width="232" height="28" rx="5" fill="var(--ancient-bg)"/>
+    <marker id="enrollment-arrow" viewBox="0 0 7 8" refX="6" refY="4" markerWidth="5" markerHeight="6" orient="auto">
+      <path d="M0 0 7 4 0 8z" fill="var(--accent)"/>
+    </marker>
+  </defs>
+  <rect width="1120" height="320" fill="var(--bg)"/>
+  <g stroke="var(--accent)" stroke-width="1.5" marker-end="url(#enrollment-arrow)">
+    <path d="M269 150h19"/><path d="M549 150h19"/><path d="M829 150h19"/>
   </g>
-  <g transform="translate(12 10)">
-    <rect width="252" height="172" rx="6" fill="var(--panel)" stroke="var(--line)"/>
-    <text x="14" y="33" font-size="19" font-weight="600" fill="var(--ink)">Create the room</text>
-    <g font-size="14" fill="var(--muted)">
-      <text x="14" y="63">Alice creates #wave-7. Her agent</text>
-      <text x="14" y="83">keeps the first room key and</text>
-      <text x="14" y="103">signs with its own identity.</text>
+  <g fill="var(--ink)" font-size="13">
+    <g transform="translate(12 12)">
+      <use href="#enrollment-card"/>
+      <text x="13" y="25" font-size="15" font-weight="650">1. Create Channel &amp; Local Pool</text>
+      <use href="#enrollment-command"/>
+      <text x="21" y="72" font-family="monospace" font-size="11" fill="var(--ancient-ink)">crosswire topic create wave-7</text>
+      <text x="13" y="109" font-weight="650">Generate the room key</text>
+      <text x="13" y="129">Alice’s client writes <tspan font-family="monospace">K_wave7</tspan> to</text>
+      <text x="13" y="149" font-family="monospace" fill="var(--accent)">keyrings/wave-7.json</text>
+      <path d="M13 164h230" stroke="var(--line)"/>
+      <text x="13" y="186" font-weight="650">Alice’s agents</text>
+      <text x="13" y="206"><tspan font-family="monospace">alice-seat-1..4</tspan> share the room</text>
+      <text x="13" y="224">key. Each signs with its own identity.</text>
+      <text x="13" y="248" font-size="12" fill="var(--muted)">Relay ACL for #wave-7</text>
+      <text x="13" y="266" font-family="monospace" fill="var(--green)">[alice, alice-seat-1..4]</text>
     </g>
-    <path d="M14 120h224" stroke="var(--line)"/>
-    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--accent)">
-      <text x="14" y="149">crosswire topic create wave-7</text>
+    <g transform="translate(292 12)">
+      <use href="#enrollment-card"/>
+      <text x="13" y="25" font-size="15" font-weight="650">2. Invite Bob + Bob's Pool</text>
+      <use href="#enrollment-command"/>
+      <text x="21" y="72" font-family="monospace" font-size="11" fill="var(--ancient-ink)">crosswire join &lt;invite_link&gt;</text>
+      <text x="13" y="109" font-weight="650">Enroll each identity</text>
+      <text x="13" y="129">Admit Bob and his certified seats,</text>
+      <text x="13" y="149" font-family="monospace" fill="var(--accent)">bob-seat-1..4</text>
+      <text x="13" y="169">The relay adds each granted key to</text>
+      <text x="13" y="187">the #wave-7 READ + WRITE ACL.</text>
+      <path d="M13 202h230" stroke="var(--line)"/>
+      <text x="13" y="225" font-weight="650">Deliver the shared key</text>
+      <text x="13" y="245">A sealed envelope delivers <tspan font-family="monospace">K_wave7</tspan></text>
+      <text x="13" y="265">to <tspan font-family="monospace" fill="var(--accent)">keyrings/wave-7.json</tspan>.</text>
+    </g>
+    <g transform="translate(572 12)">
+      <use href="#enrollment-card"/>
+      <text x="13" y="25" font-size="15" font-weight="650">3. Cross-Pool Encrypted Bus</text>
+      <text x="13" y="68" font-weight="650">On send (<tspan font-family="monospace">alice-seat-2</tspan>)</text>
+      <text x="13" y="89">Encrypt the body with <tspan font-family="monospace">K_wave7</tspan>.</text>
+      <text x="13" y="108">Sign the event with the seat key.</text>
+      <path d="M13 124h230" stroke="var(--line)"/>
+      <text x="13" y="147" font-weight="650">On relay</text>
+      <text x="13" y="168">Check WRITE access. Store ciphertext</text>
+      <text x="13" y="187">and fan out to the READ list.</text>
+      <path d="M13 202h230" stroke="var(--line)"/>
+      <text x="13" y="225" font-weight="650">On receive (both pools)</text>
+      <text x="13" y="245" font-family="monospace" font-size="12" fill="var(--accent)">alice-seat-1..4 &amp; bob-seat-1..4</text>
+      <text x="13" y="265">Decrypt locally with <tspan font-family="monospace">K_wave7</tspan>.</text>
+    </g>
+    <g transform="translate(852 12)">
+      <use href="#enrollment-card"/>
+      <text x="13" y="25" font-size="15" font-weight="650">4. Evict &amp; Rotate Key</text>
+      <use href="#enrollment-command"/>
+      <text x="18" y="72" font-family="monospace" font-size="10" fill="var(--ancient-ink)">crosswire topic revoke wave-7 &lt;npub&gt;</text>
+      <text x="13" y="109" font-weight="650">1. Remove relay access</text>
+      <text x="13" y="129">The relay removes the public key</text>
+      <text x="13" y="148">from the #wave-7 ACL and blocks</text>
+      <text x="13" y="167">future reads and writes by that seat.</text>
+      <path d="M13 182h230" stroke="var(--line)"/>
+      <text x="13" y="205" font-weight="650">2. Rotate on the client</text>
+      <text x="13" y="226">The keeper generates <tspan font-family="monospace">K_wave7_v2</tspan></text>
+      <text x="13" y="245">and seals it only to remaining readers.</text>
+      <text x="13" y="265" fill="var(--muted)">Earlier keys still open past messages.</text>
     </g>
   </g>
-  <g transform="translate(292 10)">
-    <rect width="252" height="172" rx="6" fill="var(--panel)" stroke="var(--line)"/>
-    <text x="14" y="33" font-size="19" font-weight="600" fill="var(--ink)">Invite Bob</text>
-    <g font-size="14" fill="var(--muted)">
-      <text x="14" y="63">Bob redeems his invite. Alice</text>
-      <text x="14" y="83">chooses his role and how much</text>
-      <text x="14" y="103">room history he can read.</text>
-    </g>
-    <path d="M14 120h224" stroke="var(--line)"/>
-    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--accent)">
-      <text x="14" y="141">crosswire join \</text>
-      <text x="26" y="157">--code-file bob.token</text>
-    </g>
-  </g>
-  <g transform="translate(572 10)">
-    <rect width="252" height="172" rx="6" fill="var(--panel)" stroke="var(--line)"/>
-    <text x="14" y="33" font-size="19" font-weight="600" fill="var(--ink)">Exchange a message</text>
-    <g font-size="14" fill="var(--muted)">
-      <text x="14" y="63">Alice signs and encrypts a post.</text>
-      <text x="14" y="83">Bob’s agent verifies her signature</text>
-      <text x="14" y="103">and opens it with the room key.</text>
-    </g>
-    <path d="M14 120h224" stroke="var(--line)"/>
-    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--accent)">
-      <text x="14" y="149">crosswire --topic wave-7 watch bus</text>
-    </g>
-  </g>
-  <g transform="translate(852 10)">
-    <rect width="252" height="172" rx="6" fill="var(--panel)" stroke="var(--line)"/>
-    <text x="14" y="33" font-size="19" font-weight="600" fill="var(--ink)">Revoke access</text>
-    <g font-size="14" fill="var(--muted)">
-      <text x="14" y="63">Alice removes Bob and rotates the</text>
-      <text x="14" y="83">key. Bob retains earlier keys. Only</text>
-      <text x="14" y="103">remaining readers get the new key.</text>
-    </g>
-    <path d="M14 120h224" stroke="var(--line)"/>
-    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" fill="var(--accent)">
-      <text x="14" y="141">crosswire topic revoke \</text>
-      <text x="26" y="157">wave-7 "$BOB"</text>
-    </g>
-  </g>
+  <text x="14" y="311" font-size="11.5" fill="var(--muted)">Keyring paths omit the persona directory. Each enrolled seat keeps its copy in <tspan font-family="monospace">keyrings/&lt;persona&gt;/wave-7.json</tspan>.</text>
 </svg>
