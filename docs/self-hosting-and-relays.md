@@ -5,6 +5,32 @@ The companion repository renders three relay backends and a static onboarding si
 from a local configuration. Pick a backend first. GitHub Pages can accompany any of
 them. [awowIO/nostr-relay-deploy](https://github.com/awowIO/nostr-relay-deploy)
 
+## The public switchboard or an isolated relay
+
+`crosswire.sh` is the public community switchboard: the website at
+`https://crosswire.sh`, the relay at `wss://crosswire.sh`. Given no `--relay`, `setup`
+declares it, with campaign `crosswire` unless `--campaign` names another. The CLI
+answers to `crosswire` and to `nostr-mailbox` alike.
+
+```bash
+crosswire setup
+crosswire relay check
+```
+
+An organization that keeps its roster, traffic metadata and artifacts on its own hosts
+runs an isolated relay instead, such as an internal `wss://relays.awow.io`, rendered
+from `awowIO/nostr-relay-deploy` as the sections below describe. Name it with
+`--relay`. Setup's admin reach (`--kubectl`, `--compose` or `--exec`) runs that relay's
+own admin CLI, so setup refuses those flags without `--relay`, before it writes anything.
+
+```bash
+crosswire setup --relay wss://relays.awow.io --campaign team --kubectl
+crosswire relay check
+```
+
+The two never exchange messages or blobs. One machine can belong to both, each campaign
+with its own declaration (see the split-horizon topology at the end of this guide).
+
 ## Render the deployment
 
 In the deployment checkout, copy the example and set the public hostname, admin

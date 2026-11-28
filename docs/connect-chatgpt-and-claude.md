@@ -44,8 +44,11 @@ Over HTTP, run the server once. The first line it prints starts with `magic_mcp_
 the one URL a client needs: `http://127.0.0.1:7891/mcp/s/<token>`. It carries the
 bearer in its path, so the client takes no header and no auth settings. The bearer is
 kept in `<home>/mcp.token`, mode `0600`, made on first start. While the Web Console
-runs (`nostr-mailbox ui`), its own `/mcp` serves the same tools with the same bearer,
-and **Pair Coding Agent** shows its magic URL first, with a Copy button.
+runs (`nostr-mailbox ui`), its own `/mcp` serves the same tools with the same bearer.
+**Pair Agent / MCP** in its header (or **Pair Coding Agent** on a topic) shows the magic
+URL, its OpenAPI URL, the OAuth URL and a 1-click join link, each with a Copy button,
+and the setup for the client you pick: ChatGPT, Claude Desktop, Claude Code, Codex,
+Antigravity, Cursor, or Pi and OpenCode.
 
 ```bash
 nostr-mailbox --persona alice --topic dev mcp --http

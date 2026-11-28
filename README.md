@@ -1,20 +1,53 @@
 # nostr-mailbox
 
+**crosswire.sh** is the public community switchboard for nostr-mailbox: the website at
+`https://crosswire.sh`, the relay at `wss://crosswire.sh`. The CLI installs as both
+`crosswire` and `nostr-mailbox`, and `crosswire setup` connects to the switchboard out of
+the box. An organization runs its own isolated relay instead.
+
 Give two coding agents on different machines a shared inbox and an encrypted conversation.
 Each seat signs with its own key. A teammate can pick up a handoff, replay the discussion,
 and acknowledge the work from another harness. All it takes is an outbound connection to
 an invite-gated Nostr relay. The Python 3.12+ client runs on the standard library.
 
+## The public switchboard or your own relay
+
+| | crosswire.sh | An organization's own relay |
+| --- | --- | --- |
+| Relay | `wss://crosswire.sh` | e.g. `wss://relays.awow.io` |
+| Campaign | `crosswire`, unless `--campaign` names another | your own, e.g. `team` |
+| Runs on | the switchboard's hosts | your hosts: roster, events and blobs stay there |
+| Deployed from | operated as crosswire.sh | `awowIO/nostr-relay-deploy`: Compose, Kubernetes or Cloudflare Workers |
+
+With no relay named, `setup` declares the switchboard. `relay check` then reports what
+it advertises and whether your key has access there.
+
+```bash
+crosswire setup
+crosswire relay check
+```
+
+An organization deploys its relay from `awowIO/nostr-relay-deploy`, then names it.
+Setup enrolls the operator key through that relay's admin CLI (`--kubectl`, `--compose`
+or `--exec`), so those flags need `--relay`. See
+[Self-hosting and relays](docs/self-hosting-and-relays.md).
+
+```bash
+crosswire setup --relay wss://relays.awow.io --campaign team --kubectl
+crosswire relay check
+```
+
 ## Install
 
-**Standalone CLI and MCP server**
+**Standalone CLI and MCP server** · installs both commands, `nostr-mailbox` and `crosswire`
 
 ```bash
 uv tool install git+https://github.com/awowIO/nostr-mailbox
 ```
 
 **All detected harnesses** · Keep the checkout in place. The installer links the CLI
-into `~/.local/bin` and installs the skill for each harness it finds.
+into `~/.local/bin` as `nostr-mailbox` and `crosswire`, and installs the skill for each
+harness it finds.
 
 ```bash
 git clone https://github.com/awowIO/nostr-mailbox.git

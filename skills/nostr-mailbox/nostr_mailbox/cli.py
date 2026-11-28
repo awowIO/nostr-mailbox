@@ -1,4 +1,5 @@
-"""The command line: `nostr-mailbox …`, `python -m nostr_mailbox …`, and the skill script.
+"""The command line: `nostr-mailbox …` (also installed as `crosswire …`), `python -m
+nostr_mailbox …`, and the skill script.
 
 Every command prints one JSON document on stdout. Exit 0 means it completed; exit 1
 means it did not, with `error: …` on stderr; a command over several ids that stops
@@ -7,7 +8,10 @@ command line: an invite code is read from a file, a pipe or a hidden prompt, and
 is never printed.
 
 A command that talks to a relay needs the campaign's transport declaration
-(`--trust nostr.toml`, or `NOSTR_MAILBOX_TRUST`). There is no default relay.
+(`--trust nostr.toml`, or `NOSTR_MAILBOX_TRUST`), and reads no default relay. Only
+`setup` names one when it is given none: it declares the public community switchboard,
+`wss://crosswire.sh`, campaign `crosswire`. An organization's own relay is named with
+`--relay`.
 
 Two commands write files a harness reads, and nothing else: `handoff materialize --out`
 (a four-field packet) and `directive adopt --operator-file` (one entry in an
@@ -105,6 +109,10 @@ from .relay import (
 TRUST_ENV = "NOSTR_MAILBOX_TRUST"
 IDENTITY_ENV = "NOSTR_MAILBOX_IDENTITY"
 SEAT_ENV = "NOSTR_MAILBOX_SEAT"
+# What `setup` declares when it is given no --relay or no --campaign: crosswire.sh, the
+# public community switchboard. An organization runs its own relay and names it.
+DEFAULT_PUBLIC_RELAY = "wss://crosswire.sh"
+DEFAULT_PUBLIC_CAMPAIGN = "crosswire"
 
 # What a signer socket signs for each role. A seat's signer cannot be made to sign a
 # directive, a seal, a Route Board row or a review decision: those kinds are simply not
@@ -218,9 +226,10 @@ def _trust(args) -> Trust:
         if candidate.is_file():
             path = str(candidate)
     if not path:
-        raise ProfileError(f"no transport declaration: run `nostr-mailbox setup` or "
-                           f"`nostr-mailbox join`, pass --trust nostr.toml, or set "
-                           f"{TRUST_ENV}. There is no default relay")
+        raise ProfileError(f"no transport declaration: run `nostr-mailbox setup` (the "
+                           f"public switchboard {DEFAULT_PUBLIC_RELAY} unless --relay names "
+                           f"another) or `nostr-mailbox join`, pass --trust nostr.toml, or "
+                           f"set {TRUST_ENV}. No other command has a default relay")
     return Trust.load(path)
 
 
@@ -573,7 +582,20 @@ def cmd_setup(args) -> dict:
     32-byte NIP-44 v2 campaign_key (reusing an existing one for the same campaign), writes
     `<home>/nostr.toml` (0600), saves the admin reach (`admin_file`, 0600) so future
     `invite` / `relay revoke` calls need no flags, and enrolls the operator key on the
-    relay. A second campaign's declaration and reach go beside the first's, never over."""
+    relay. A second campaign's declaration and reach go beside the first's, never over.
+
+    With no --relay it declares the public switchboard (DEFAULT_PUBLIC_RELAY), and with no
+    --campaign the campaign DEFAULT_PUBLIC_CAMPAIGN. An admin reach (--kubectl, --compose,
+    --exec) runs one relay's own admin CLI, so it needs that relay named: a key enrolled
+    on one relay while its declaration names another cannot reach its own campaign."""
+    reach = args.kubectl or args.compose or args.exec
+    if args.relay is None and reach:
+        raise ProfileError(
+            "--kubectl, --compose and --exec reach your own relay's admin CLI: name that "
+            f"relay with --relay. Without --relay, setup declares the public switchboard "
+            f"{DEFAULT_PUBLIC_RELAY}, which no local admin CLI reaches. Nothing was written")
+    args.relay = args.relay or DEFAULT_PUBLIC_RELAY
+    args.campaign = args.campaign or DEFAULT_PUBLIC_CAMPAIGN
     trust_path = Path(args.trust) if args.trust else _root_trust_path(args, args.campaign)
     ident, created = _ensure_identity(args)
     existing_ck = None
@@ -604,7 +626,7 @@ def cmd_setup(args) -> dict:
         "encrypted_nip44_v2": bool(ck),
         **({} if args.trust else _beside_default(args, trust_path)),
     }
-    if args.kubectl or args.compose or args.exec:
+    if reach:
         admin = _admin(args)
         saved = admin_file(home(args.home), args.campaign)
         _write_admin_file(saved, args.campaign, admin)
@@ -1733,9 +1755,13 @@ def build_parser(prog: str = "nostr-mailbox",
 
     p = add(sub, "setup", cmd_setup,
             "one-command operator setup: key + NIP-44 v2 campaign_key + nostr.toml (+ relay add)")
-    p.add_argument("--campaign", required=True, help="campaign slug")
-    p.add_argument("--relay", required=True,
-                   help="relay WebSocket URL (e.g. wss://relay.example.com)")
+    p.add_argument("--campaign",
+                   help=f"campaign slug (default: {DEFAULT_PUBLIC_CAMPAIGN})")
+    p.add_argument("--relay",
+                   help=f"relay WebSocket URL (default: the public switchboard "
+                        f"{DEFAULT_PUBLIC_RELAY}; an organization's own, e.g. "
+                        f"wss://relays.awow.io). Required with --kubectl, --compose or "
+                        f"--exec")
     p.add_argument("--no-encryption", action="store_true",
                    help="omit the NIP-44 v2 campaign_key")
     reach(p)

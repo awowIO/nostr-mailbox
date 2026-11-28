@@ -2073,11 +2073,12 @@ def test_every_command_line_in_the_skill_document_parses():
 
 
 def test_every_command_line_in_the_documentation_parses():
-    """Commands copied from the README and the linked guides must still parse."""
+    """Commands copied from the README and the linked guides must still parse, under
+    either of the CLI's names."""
     guides = [REPO / "README.md", *sorted((REPO / "docs").glob("*.md"))]
     text = "\n".join(path.read_text() for path in guides).replace("\\\n", " ")
-    lines = [line.split("nostr-mailbox", 1)[1] for line in text.splitlines()
-             if line.startswith("nostr-mailbox ")]
+    lines = [line.split(" ", 1)[1] for line in text.splitlines()
+             if line.startswith(("nostr-mailbox ", "crosswire "))]
     parser, seen = cli.build_parser(), set()
     for line in lines:
         command = re.sub(r"<[^>]+>", "placeholder", line.split("  #")[0])

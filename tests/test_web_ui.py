@@ -177,11 +177,25 @@ def _session(ws, *, trust: Trust | None = None) -> ui.TopicSession:
 
 
 # =============================================================== the page itself
+# The weights.fyi design system crosswire.sh's console is drawn in: its light tokens, and
+# the dark ones under both the ◐ toggle and the system's preference.
+LIGHT = {"bg": "#f6f7f9", "panel": "#fff", "ink": "#18212f", "muted": "#596677",
+         "line": "#e0e5eb", "soft": "#f0f3f7", "accent": "#335ade", "green": "#137657",
+         "red": "#b14439", "amber": "#956014", "head": "#eef1f5", "hover": "#f4f7ff",
+         "shadow": "0 16px 70px #14243c26"}
+DARK = {"bg": "#10151c", "panel": "#171e28", "ink": "#f0f4fb", "muted": "#b5c0d0",
+        "line": "#2c3644", "soft": "#212b38", "accent": "#92acff", "green": "#78d1aa",
+        "red": "#ec9990", "amber": "#dfb472", "head": "#1d2734", "hover": "#243045",
+        "shadow": "0 16px 70px #0008"}
+
+
 def test_the_page_is_one_self_contained_full_width_html_file():
     """One file that runs from the relay's origin or from loopback with nothing fetched:
     no external URL, no script or stylesheet by reference, no font or CDN. Full width:
-    the page wrapper spans the viewport behind fluid gutters, and no declaration caps a
-    width with a fixed length."""
+    the page wrapper and `main` span the viewport behind fluid gutters, and no
+    declaration caps a width with a fixed length. Drawn in the weights.fyi design
+    system: its tokens in both themes, its type, a 61px header with the crosswire.sh
+    wordmark, and a ◐ toggle that flips <html data-theme>."""
     page = PAGE.read_text()
     assert page.startswith("<!doctype html>\n<html lang=\"en\"")
     for needed in ('<meta charset="utf-8">',
@@ -195,16 +209,29 @@ def test_the_page_is_one_self_contained_full_width_html_file():
     style = re.search(r"<style>(.*?)</style>", page, re.S).group(1)
     assert not re.search(r"@import|url\(|@font-face", style), "no font, image or sheet fetched"
     assert re.search(r"\.page \{[^}]*width: 100%; max-width: none; "
-                     r"padding-inline: clamp\(20px, 4vw, 64px\);", style)
+                     r"padding-inline: clamp\(20px, 3vw, 48px\);", style)
+    assert re.search(r"(?m)^main \{[^}]*width: 100%; max-width: none;", style)
     caps = re.findall(r"max-width\s*:\s*([^;}\n]+)", style)
     assert caps and all(value.strip() in ("none", "100%") for value in caps), caps
     assert "@media (max-width" not in style, "breakpoints use range syntax, never a max-width"
-    for light in ("--paper: #faf9f6", "--stone: #f0eee9", "--ink: #16181d", "--hair: #d8d5ce",
-                  "--teal: #3f5e63", "--sage: #4a6b53", "--amber: #78683a",
-                  "--terracotta: #35547a", "--plum: #6d4c5c"):
-        assert light in style, light
-    assert '[data-theme="dark"]' in style and "--paper: #14171c" in style
-    assert "● Ancient Sound" in page and "☀ Paper Light" in page
+    flat = re.sub(r"\s+", "", style)
+    for selector, tokens in ((":root", LIGHT), (':root[data-theme="dark"]', DARK),
+                             ('@media(prefers-color-scheme:dark){:root:not([data-theme="light"])',
+                              DARK)):
+        block = re.search(re.escape(selector) + r"\{([^}]*)\}", flat)
+        assert block, selector
+        held = set(block.group(1).split(";"))
+        for name, value in tokens.items():
+            assert f"--{name}:{value.replace(' ', '')}" in held, (selector, name)
+    assert ('font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+            in style)
+    assert "ui-monospace, SFMono-Regular, Consolas, monospace" in style
+    assert "font-variant-numeric: tabular-nums" in style
+    assert re.search(r"\.top \{[^}]*height: 61px;[^}]*border-bottom: 1px solid var\(--line\);"
+                     r"[^}]*background: var\(--panel\);", style)
+    assert '<span class="mark" aria-hidden="true">⨉</span> crosswire.sh</a>' in page
+    assert '<button id="theme"' in page and 'aria-label="Switch color theme">◐</button>' in page
+    assert "document.documentElement.dataset.theme = next" in page
     assert not re.search(r"""\son(?:click|load|error|submit|change|input|mouse\w*|key\w*)=["']""",
                          page, re.I), "no inline handlers: the bridge's CSP admits two scripts"
     assert "javascript:" not in page.lower()

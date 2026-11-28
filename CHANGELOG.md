@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- crosswire.sh is the public community switchboard. `setup` with no `--relay` declares
+  `wss://crosswire.sh`, and with no `--campaign` the campaign `crosswire`; an admin reach
+  (`--kubectl`, `--compose`, `--exec`) still needs `--relay`, and is refused without one
+  before anything is written. The CLI is installed as `crosswire` as well as
+  `nostr-mailbox` (`[project.scripts]`, and both links in `~/.local/bin` from
+  `sync_plugin.py --install`).
+- The Web Console is drawn in the weights.fyi design system, full width: a 61px header
+  with the crosswire.sh wordmark, the relay, the persona switcher and a ◐ theme toggle
+  that follows the system until chosen; an overview strip of tabular counters (rooms,
+  personas, seats, epoch, held messages, MCP); and a Pair Agent / MCP configurator that
+  takes a client, a room and a role and gives the magic MCP and OpenAPI URLs, the OAuth
+  URL, a 1-click join link minted with that role, and that client's own setup.
 - HTTP MCP clients sign in by themselves: a 401 from `/mcp` names OAuth 2.1 metadata
   (RFC 9728, RFC 8414), and clients register (RFC 7591), get a one-click consent card,
   and exchange a PKCE-bound code for a token that acts as the one Persona picked there.

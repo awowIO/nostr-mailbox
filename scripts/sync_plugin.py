@@ -14,6 +14,8 @@ plugin.json is the single source of truth. Generated:
   .agents/plugins/marketplace.json  Codex marketplace
   .agents/skills/<skill>            relative symlinks to skills/<skill>: repo-root skill discovery
 Antigravity (and Gemini CLI) load the package from ~/.gemini/config/plugins/<name>.
+Every --install links the CLI into ~/.local/bin under both of its names, `nostr-mailbox`
+and `crosswire`.
 Claude Desktop launches the MCP server named in its claude_desktop_config.json: --install
 merges `nostr-mailbox` into its `mcpServers`, run as this machine's default persona, the
 one the terminal CLI and every other local harness act as.
@@ -49,6 +51,10 @@ PAYLOAD = (
     "LICENSE",
 )
 PACKAGE_INIT = "skills/nostr-mailbox/nostr_mailbox/__init__.py"
+LAUNCHER = "skills/nostr-mailbox/scripts/nostr_mailbox.py"
+# The CLI's names on PATH, each a link to LAUNCHER: the package's own, then crosswire.sh's
+# (pyproject.toml's [project.scripts] installs the same two).
+COMMANDS = ("nostr-mailbox", "crosswire")
 SKILL_BODY_LIMIT = 24_000  # Gemini/Antigravity truncate SKILL.md bodies above this many bytes
 MARKET = "org.nostr-mailbox.marketplace"
 
@@ -222,6 +228,25 @@ def copy_package(target: Path, dry_run: bool) -> None:
 
 
 GITHUB_REPO = "awowIO/nostr-mailbox"
+
+
+def link_commands(bin_dir: Path, dry_run: bool) -> list[Path]:
+    """Link every name in COMMANDS, in `bin_dir`, to LAUNCHER, which runs the CLI under
+    the name it was started by. A file or link already at one of those names is
+    replaced."""
+    script = ROOT / LAUNCHER
+    links = [bin_dir / name for name in COMMANDS]
+    if not dry_run:
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        script.chmod(0o755)
+    for link in links:
+        print(f"ln -sf {script} {link}", flush=True)
+        if dry_run:
+            continue
+        if link.is_symlink() or link.exists():
+            link.unlink()
+        link.symlink_to(script)
+    return links
 
 
 def install_claude(name: str, dry_run: bool) -> None:
@@ -461,24 +486,15 @@ def main() -> int:
             copy_package(args.antigravity_dir / meta["name"], args.dry_run)
         elif harness != "claude-desktop":   # after the binary it launches is linked, below
             copy_skill_dir(skill_harness_dirs()[harness] / meta["name"], args.dry_run)
-    bin_dir = Path.home() / ".local/bin"
-    bin_target = bin_dir / "nostr-mailbox"
-    script_src = ROOT / "skills/nostr-mailbox/scripts/nostr_mailbox.py"
-    if args.dry_run:
-        print(f"ln -sf {script_src} {bin_target}")
-    else:
-        bin_dir.mkdir(parents=True, exist_ok=True)
-        script_src.chmod(0o755)
-        if bin_target.is_symlink() or bin_target.exists():
-            bin_target.unlink()
-        bin_target.symlink_to(script_src)
+    bin_target, *_ = link_commands(Path.home() / ".local/bin", args.dry_run)
     if "claude-desktop" in harnesses:
         install_claude_desktop(args.claude_desktop_config or claude_desktop_config(), bin_target,
                                args.dry_run)
+    names = " and ".join(f"~/.local/bin/{name}" for name in COMMANDS)
     print(
         "Install planned (dry run)."
         if args.dry_run
-        else "Installed plugin and ~/.local/bin/nostr-mailbox. Restart sessions to load the skill."
+        else f"Installed plugin, {names}. Restart sessions to load the skill."
     )
     return 0
 

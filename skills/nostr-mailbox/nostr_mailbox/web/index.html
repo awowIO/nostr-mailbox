@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="light">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,129 +9,192 @@
 <meta name="color-scheme" content="light dark">
 <title>nostr-mailbox · Web Console</title>
 <style>
-/* AWOW design system: Paper Light by default, Ancient Sound after dark. Full width:
-   every wrapper spans the viewport and breathes through fluid gutters, never a fixed cap. */
+/* crosswire.sh on the weights.fyi design system: dense and functional, 13px system type,
+   tabular numerals for every counter, key, epoch and timestamp. Light by default; dark by
+   the system's preference or the ◐ toggle (data-theme on <html>). Full width: every
+   wrapper spans the viewport and breathes through fluid gutters, never a fixed cap. */
 :root {
-  --paper: #faf9f6; --stone: #f0eee9; --card: #fffefb; --ink: #16181d; --ink-2: #4b4f58;
-  --ink-3: #7a7d84; --hair: #d8d5ce;
-  --teal: #3f5e63; --sage: #4a6b53; --amber: #78683a; --terracotta: #35547a; --plum: #6d4c5c;
-  --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
-  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-  --gutter: clamp(20px, 4vw, 64px);
   color-scheme: light;
+  --bg: #f6f7f9; --panel: #fff; --ink: #18212f; --muted: #596677; --line: #e0e5eb;
+  --soft: #f0f3f7; --accent: #335ade; --green: #137657; --red: #b14439; --amber: #956014;
+  --head: #eef1f5; --hover: #f4f7ff; --shadow: 0 16px 70px #14243c26; --violet: #6d28d9;
+  --mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+  --gutter: clamp(20px, 3vw, 48px);
 }
-[data-theme="dark"] {
-  --paper: #14171c; --stone: #1b1f26; --card: #181c22; --ink: #e9e5dc; --ink-2: #b9b5ab;
-  --ink-3: #8a877f; --hair: #2c313a;
-  --teal: #86aab0; --sage: #93b79c; --amber: #cdb97f; --terracotta: #8eabd3; --plum: #c49aae;
+:root[data-theme="dark"] {
   color-scheme: dark;
+  --bg: #10151c; --panel: #171e28; --ink: #f0f4fb; --muted: #b5c0d0; --line: #2c3644;
+  --soft: #212b38; --accent: #92acff; --green: #78d1aa; --red: #ec9990; --amber: #dfb472;
+  --head: #1d2734; --hover: #243045; --shadow: 0 16px 70px #0008; --violet: #c4a7ff;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #10151c; --panel: #171e28; --ink: #f0f4fb; --muted: #b5c0d0; --line: #2c3644;
+    --soft: #212b38; --accent: #92acff; --green: #78d1aa; --red: #ec9990; --amber: #dfb472;
+    --head: #1d2734; --hover: #243045; --shadow: 0 16px 70px #0008; --violet: #c4a7ff;
+  }
 }
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; width: 100%; max-width: none; }
-body { background: var(--paper); color: var(--ink); font: 15px/1.55 var(--sans); -webkit-font-smoothing: antialiased; }
-.page { width: 100%; max-width: none; padding-inline: clamp(20px, 4vw, 64px); }
-h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.01em; margin: 0; }
-h1 { font-size: 1.25rem; } h2 { font-size: 1.35rem; } h3 { font-size: 1.05rem; }
-a { color: var(--teal); }
-code, .mono, pre { font-family: var(--mono); font-size: 0.86em; }
-.muted { color: var(--ink-3); } .small { font-size: 0.85rem; }
-.hair { border: 1px solid var(--hair); }
+body { background: var(--bg); color: var(--ink); font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
+.page { width: 100%; max-width: none; padding-inline: clamp(20px, 3vw, 48px); }
+main { width: 100%; max-width: none; min-width: 0; }
+h1, h2, h3 { font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+h1 { font-size: 14px; } h2 { font-size: 16px; } h3 { font-size: 13px; }
+a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+code, .mono, pre, kbd { font-family: var(--mono); font-size: 0.92em; }
+time, .chip, .kv dd, .num, .pill, .count, .badge, .stat strong, .links td > code { font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); } .small { font-size: 11px; }
+.hair { border: 1px solid var(--line); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-/* header */
-.top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding-block: 14px; border-bottom: 1px solid var(--hair); background: var(--paper); position: sticky; top: 0; z-index: 5; }
-.brand { display: flex; align-items: baseline; gap: 10px; }
-.brand .mark { font-family: var(--mono); color: var(--teal); }
-.top .spacer { flex: 1; }
-.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); margin-right: 6px; vertical-align: middle; }
-.dot.ready { background: var(--sage); } .dot.connecting { background: var(--amber); } .dot.failed, .dot.closed { background: var(--plum); }
+/* header: wordmark left; relay, persona, pairing and theme right */
+.top { position: sticky; top: 0; z-index: 5; height: 61px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.brand { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
+.wordmark { color: var(--ink); font-size: 17px; font-weight: 650; letter-spacing: -0.55px; white-space: nowrap; }
+.wordmark:hover { text-decoration: none; }
+.mark { color: var(--accent); margin-right: 9px; font-size: 22px; vertical-align: -1px; }
+.tagline { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.header-right { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; min-width: 0; }
+.header-right select { width: auto; max-width: 100%; font-size: 12px; padding: 5px 8px; }
+#theme { font-size: 19px; padding: 1px 9px; line-height: 1.3; }
+.pill { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; font: 11px/1.4 var(--mono); color: var(--ink); background: var(--soft); white-space: nowrap; }
+.dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
+.dot.ready { background: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 22%, transparent); }
+.dot.connecting { background: var(--amber); } .dot.failed, .dot.closed { background: var(--red); }
+@media (width <= 1180px) { .top .mode, .tagline { display: none; } }
+@media (width <= 760px) {
+  .top { height: auto; min-height: 53px; flex-wrap: wrap; padding-block: 8px; }
+  .wordmark { font-size: 15px; } .header-right { flex-wrap: wrap; gap: 6px; font-size: 10px; }
+}
 
-/* shell */
-.shell { display: grid; grid-template-columns: minmax(240px, 21%) minmax(0, 1fr); gap: clamp(16px, 2.4vw, 40px); width: 100%; padding-block: 20px 48px; }
+/* the overview strip: one tabular counter per fact */
+.overview { display: flex; gap: 14px 32px; padding-block: 20px 18px; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
+.stat { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.stat strong { font-size: 25px; letter-spacing: -0.8px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat span { color: var(--muted); font-size: 12px; }
+.stat.warning strong { color: var(--amber); } .stat.good strong { color: var(--green); }
+@media (width <= 760px) { .overview { gap: 12px 22px; padding-block: 16px; } .stat strong { font-size: 21px; } .stat span { font-size: 10px; } }
+
+/* shell: rooms beside the selected room */
+.shell { display: grid; grid-template-columns: minmax(230px, 19%) minmax(0, 1fr); gap: clamp(16px, 2.2vw, 36px); width: 100%; padding-block: 16px 40px; }
 @media (width <= 900px) { .shell { grid-template-columns: minmax(0, 1fr); } }
-aside.side { border-right: 1px solid var(--hair); padding-right: clamp(12px, 1.6vw, 28px); min-width: 0; }
-@media (width <= 900px) { aside.side { border-right: 0; border-bottom: 1px solid var(--hair); padding: 0 0 16px; } }
-main { min-width: 0; }
-.side h3 { font-family: var(--sans); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); margin: 20px 0 8px; display: flex; justify-content: space-between; align-items: center; }
+aside.side { border-right: 1px solid var(--line); padding-right: clamp(12px, 1.4vw, 24px); min-width: 0; }
+@media (width <= 900px) { aside.side { border-right: 0; border-bottom: 1px solid var(--line); padding: 0 0 14px; } }
+.side h3 { font-size: 10px; font-weight: 550; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); margin: 18px 0 6px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.side h3:first-of-type { margin-top: 14px; }
 .nav { list-style: none; margin: 0; padding: 0; }
 .nav li { margin: 0; }
-.nav button { all: unset; box-sizing: border-box; cursor: pointer; display: flex; width: 100%; gap: 8px; align-items: center; padding: 7px 10px; border-radius: 6px; color: var(--ink); }
-.nav button:hover { background: var(--stone); }
-.nav button.on { background: var(--stone); box-shadow: inset 2px 0 0 var(--teal); }
+.nav button { all: unset; box-sizing: border-box; cursor: pointer; display: flex; width: 100%; gap: 6px; align-items: center; padding: 6px 9px; border-radius: 5px; color: var(--ink); font-size: 12px; }
+.nav button:hover { background: var(--hover); }
+.nav button.on { background: var(--hover); box-shadow: inset 2px 0 0 var(--accent); color: var(--accent); font-weight: 550; }
 .nav .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nav button:focus-visible, .btn:focus-visible, .tab:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
 
 /* controls */
-.btn { font: inherit; font-size: 0.88rem; cursor: pointer; border: 1px solid var(--hair); background: var(--card); color: var(--ink); padding: 6px 12px; border-radius: 6px; line-height: 1.3; }
-.btn:hover { border-color: var(--ink-3); }
-.btn.primary { background: var(--teal); border-color: var(--teal); color: var(--paper); }
-.btn.sage { background: var(--sage); border-color: var(--sage); color: var(--paper); }
-.btn.warn { color: var(--plum); border-color: var(--plum); }
-.btn.ghost { background: transparent; }
-.btn.tiny { padding: 2px 8px; font-size: 0.78rem; }
-.btn[disabled] { opacity: 0.5; cursor: not-allowed; }
-input, textarea, select { font: inherit; color: var(--ink); background: var(--card); border: 1px solid var(--hair); border-radius: 6px; padding: 7px 9px; width: 100%; }
+.btn { font: inherit; font-size: 12px; cursor: pointer; border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 6px 10px; border-radius: 5px; line-height: 1.3; white-space: nowrap; }
+.btn:hover { background: var(--soft); border-color: var(--muted); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--panel); font-weight: 550; }
+.btn.primary:hover { background: color-mix(in srgb, var(--accent) 86%, var(--ink)); }
+.btn.sage { background: var(--green); border-color: var(--green); color: var(--panel); font-weight: 550; }
+.btn.warn { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, var(--line)); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.btn.ghost:hover { background: var(--soft); color: var(--ink); }
+.btn.tiny { padding: 3px 8px; font-size: 11px; }
+.btn[disabled] { opacity: 0.35; cursor: default; }
+input, textarea, select { font: inherit; font-size: 12px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; width: 100%; outline: none; }
+select { cursor: pointer; }
 textarea { min-height: 5.5em; resize: vertical; }
-input:focus, textarea:focus, select:focus { outline: 2px solid var(--teal); outline-offset: 0; border-color: var(--teal); }
-label { display: block; font-size: 0.8rem; color: var(--ink-2); margin-bottom: 3px; }
+input:focus, textarea:focus, select:focus { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn:focus-visible, .tab:focus-visible, .nav button:focus-visible, .wordmark:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 3px; }
 .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
 .row > * { flex: 1 1 180px; min-width: 0; }
 .row > .fit { flex: 0 0 auto; }
-.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 16px; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 12px; }
 .stack > * + * { margin-top: 10px; }
-.radio { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--hair); border-radius: 8px; cursor: pointer; font-size: 0.9rem; color: var(--ink); margin: 0; }
-.radio input { width: auto; margin-top: 3px; }
-.radio.on { border-color: var(--teal); background: var(--stone); }
+.radio { display: flex; gap: 10px; align-items: flex-start; padding: 9px 11px; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; font-size: 12px; color: var(--ink); margin: 0; background: var(--panel); }
+.radio input { width: auto; margin-top: 2px; accent-color: var(--accent); }
+.radio.on { border-color: var(--accent); background: var(--hover); }
 
 /* surfaces */
-.card { background: var(--card); border: 1px solid var(--hair); border-radius: 10px; padding: 16px 18px; }
-.card + .card { margin-top: 14px; }
-.card.hero { padding: clamp(18px, 2.6vw, 32px); }
-.card.hero h2 { font-size: 1.6rem; margin-bottom: 6px; }
-.section-title { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 22px 0 10px; flex-wrap: wrap; }
-.topic-head { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--hair); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; }
+.card + .card { margin-top: 12px; }
+.card.hero { padding: clamp(16px, 2vw, 26px); }
+.card.hero h2 { font-size: 18px; letter-spacing: -0.4px; margin-bottom: 6px; }
+.card > h3 { margin-bottom: 4px; }
+.card p { margin: 6px 0 10px; }
+.section-title { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 20px 0 8px; flex-wrap: wrap; }
+.section-title h3 { font-size: 10px; font-weight: 550; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); }
+.topic-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding-bottom: 6px; }
 .topic-head .grow { flex: 1 1 260px; min-width: 0; }
-.tabs { display: flex; gap: 2px; flex-wrap: wrap; border-bottom: 1px solid var(--hair); margin: 14px 0 18px; }
-.tab { all: unset; cursor: pointer; padding: 9px 14px; font-size: 0.9rem; color: var(--ink-2); border-bottom: 2px solid transparent; margin-bottom: -1px; }
-.tab.on { color: var(--ink); border-bottom-color: var(--teal); }
-.badge { display: inline-flex; align-items: center; gap: 4px; font-size: 0.72rem; line-height: 1; padding: 3px 7px; border-radius: 999px; border: 1px solid var(--hair); color: var(--ink-2); white-space: nowrap; font-family: var(--sans); }
-.badge.teal { color: var(--teal); border-color: var(--teal); } .badge.sage { color: var(--sage); border-color: var(--sage); }
-.badge.amber { color: var(--amber); border-color: var(--amber); } .badge.terra { color: var(--terracotta); border-color: var(--terracotta); }
-.badge.plum { color: var(--plum); border-color: var(--plum); } .badge.solid { background: var(--teal); color: var(--paper); border-color: var(--teal); }
-.count { font-size: 0.72rem; color: var(--paper); background: var(--terracotta); border-radius: 999px; padding: 1px 7px; }
-.count.plum { background: var(--plum); }
+.topic-head h2 { font-size: 17px; letter-spacing: -0.4px; margin-bottom: 5px; overflow-wrap: anywhere; }
+.tabs { display: flex; gap: 24px; flex-wrap: wrap; border-bottom: 1px solid var(--line); margin: 8px 0 16px; }
+.tab { all: unset; cursor: pointer; padding: 11px 0; font-size: 13px; font-weight: 550; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+.tab:hover { color: var(--ink); }
+.tab.on { color: var(--accent); border-bottom-color: var(--accent); }
+.badge { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; line-height: 1.5; padding: 2px 6px; border-radius: 3px; background: var(--soft); color: var(--muted); font-weight: 500; white-space: nowrap; }
+.badge.teal { background: color-mix(in srgb, var(--accent) 12%, var(--panel)); color: var(--accent); }
+.badge.sage { background: color-mix(in srgb, var(--green) 11%, var(--panel)); color: var(--green); }
+.badge.amber { background: color-mix(in srgb, var(--amber) 11%, var(--panel)); color: var(--amber); }
+.badge.plum { background: color-mix(in srgb, var(--red) 10%, var(--panel)); color: var(--red); }
+.badge.terra { background: color-mix(in srgb, var(--violet) 11%, var(--panel)); color: var(--violet); }
+.badge.solid { background: var(--accent); color: var(--panel); }
+.count { font-size: 10px; font-weight: 600; color: var(--panel); background: var(--accent); border-radius: 3px; padding: 1px 5px; }
+.count.plum { background: var(--red); }
 .list { list-style: none; margin: 0; padding: 0; }
-.item { border: 1px solid var(--hair); border-radius: 10px; padding: 12px 14px; background: var(--card); }
-.item + .item { margin-top: 10px; }
+.item { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; background: var(--panel); }
+.item + .item { margin-top: 8px; }
 .item.held { border-style: dashed; }
 .item.dim { opacity: 0.6; }
-.meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 0.82rem; color: var(--ink-2); }
-.meta .who { font-weight: 600; color: var(--ink); }
-.body { white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0 6px; }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.chip { font-family: var(--mono); font-size: 0.76rem; background: var(--stone); border: 1px solid var(--hair); border-radius: 5px; padding: 1px 6px; color: var(--ink-2); overflow-wrap: anywhere; }
-button.chip { cursor: pointer; } button.chip:hover { border-color: var(--teal); color: var(--teal); }
-.actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
-.actions input, .actions select { width: auto; flex: 1 1 150px; padding: 4px 8px; font-size: 0.85rem; }
-pre.doc { background: var(--stone); border: 1px solid var(--hair); border-radius: 8px; padding: 12px 14px; white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0; max-height: 60vh; overflow: auto; }
-.trip { border-left: 3px solid var(--terracotta); padding-left: 10px; }
-.trip.due { border-left-color: var(--plum); }
-.kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; font-size: 0.88rem; }
-.kv dt { color: var(--ink-3); } .kv dd { margin: 0; overflow-wrap: anywhere; }
-.steps { list-style: none; padding: 0; margin: 12px 0; }
-.steps li { padding: 4px 0; color: var(--ink-2); } .steps li.done { color: var(--sage); } .steps li.fail { color: var(--plum); }
-.banner { border: 1px solid var(--plum); color: var(--plum); background: var(--card); border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; display: flex; gap: 10px; align-items: flex-start; }
-.banner.info { border-color: var(--teal); color: var(--teal); }
-.banner .grow { flex: 1; white-space: pre-wrap; overflow-wrap: anywhere; }
-.toasts { position: fixed; inset-inline-end: var(--gutter); bottom: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 30; }
-.toast { background: var(--ink); color: var(--paper); padding: 9px 14px; border-radius: 8px; font-size: 0.88rem; box-shadow: 0 6px 24px rgb(0 0 0 / 0.18); }
-.backdrop { position: fixed; inset: 0; background: rgb(10 12 16 / 0.45); display: flex; align-items: flex-start; justify-content: center; padding: 6vh var(--gutter); z-index: 20; overflow: auto; }
-.modal { background: var(--paper); border: 1px solid var(--hair); border-radius: 12px; padding: clamp(16px, 2.4vw, 28px); inline-size: min(100%, 60rem); }
-.modal header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 12px; }
 .grid2 > .item + .item { margin-top: 0; }
-.empty { color: var(--ink-3); padding: 18px; border: 1px dashed var(--hair); border-radius: 10px; text-align: center; }
-img.preview { display: block; width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--hair); }
-.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 11px; color: var(--muted); }
+.meta .who { font-weight: 600; color: var(--ink); font-size: 12px; }
+.body { white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0 4px; }
+.chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.chip { font-family: var(--mono); font-size: 10.5px; background: var(--soft); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; color: var(--muted); overflow-wrap: anywhere; }
+button.chip { cursor: pointer; } button.chip:hover { border-color: var(--accent); color: var(--accent); }
+.actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+.actions input, .actions select { width: auto; flex: 1 1 150px; padding: 4px 7px; font-size: 11px; }
+pre.doc { font-size: 11px; line-height: 1.5; background: var(--soft); border: 1px solid var(--line); border-radius: 5px; padding: 10px 12px; white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0; max-height: 60vh; overflow: auto; }
+.trip { border-left: 3px solid var(--accent); }
+.trip.due { border-left-color: var(--red); }
+.kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 5px 14px; font-size: 12px; margin: 6px 0; }
+.kv dt { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; padding-top: 2px; }
+.kv dd { margin: 0; overflow-wrap: anywhere; }
+.steps { list-style: none; padding: 0; margin: 12px 0; font-size: 12px; }
+.steps li { padding: 3px 0; color: var(--muted); } .steps li.done { color: var(--green); } .steps li.fail { color: var(--red); }
+.banner { border: 1px solid color-mix(in srgb, var(--red) 40%, var(--line)); color: var(--red); background: color-mix(in srgb, var(--red) 7%, var(--panel)); border-radius: 6px; padding: 9px 12px; margin: 0 0 12px; display: flex; gap: 10px; align-items: flex-start; font-size: 12px; }
+.banner.info { border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, var(--panel)); }
+.banner .grow { flex: 1; white-space: pre-wrap; overflow-wrap: anywhere; }
+.errors:not(:empty) { padding-top: 12px; }
+.toasts { position: fixed; inset-inline-end: var(--gutter); bottom: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 30; }
+.toast { background: var(--ink); color: var(--panel); padding: 8px 13px; border-radius: 6px; font-size: 12px; box-shadow: var(--shadow); }
+.empty { color: var(--muted); padding: 28px 18px; border: 1px dashed var(--line); border-radius: 6px; text-align: center; background: var(--panel); }
+img.preview { display: block; width: 100%; height: auto; border-radius: 6px; border: 1px solid var(--line); }
+footer.foot { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 16px; border-top: 1px solid var(--line); padding-block: 13px 24px; color: var(--muted); font-size: 10px; }
+footer.foot b { font-weight: 600; color: var(--ink); }
+
+/* dialogs: the pairing configurator, new topics, blobs */
+.backdrop { position: fixed; inset: 0; background: #101a2c66; backdrop-filter: blur(2px); display: flex; align-items: flex-start; justify-content: center; padding: 6vh var(--gutter); z-index: 20; overflow: auto; }
+.modal { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 9px; box-shadow: var(--shadow); inline-size: min(100%, 80rem); }
+.modal > header { position: sticky; top: 0; z-index: 4; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel); border-radius: 9px 9px 0 0; }
+.modal-body { padding: 18px 20px; }
+.modal-body > h3, .modal-body [data-keep] > h3 { margin: 20px 0 6px; }
+.modal-body p { margin: 6px 0 10px; }
+.configurator { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: 10px 14px; padding: 12px 14px; background: var(--head); border: 1px solid var(--line); border-radius: 6px; }
+.configurator label { font-size: 10px; font-weight: 550; text-transform: uppercase; letter-spacing: 0.6px; }
+.links { width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); font-size: 12px; margin-top: 12px; }
+.links th { background: var(--head); text-align: left; font-size: 10px; font-weight: 550; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); padding: 9px 12px; border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); white-space: nowrap; width: 1%; vertical-align: top; }
+.links td { padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.links tr:first-child > th { border-top-left-radius: 6px; } .links tr:last-child > th { border-bottom-left-radius: 6px; }
+.links tr:last-child > * { border-bottom: 0; }
+.links td > code { display: block; overflow-wrap: anywhere; font-size: 11px; color: var(--ink); }
+.links .secondary { display: block; margin-top: 2px; text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--muted); font-size: 10px; white-space: normal; }
+.links td.act { width: 1%; white-space: nowrap; text-align: right; }
+.links td .small { display: block; margin-top: 3px; }
+details.more { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 10px; }
+details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent); }
 </style>
 </head>
 <body>
@@ -2124,8 +2187,16 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
   const seatSlug = (text) => (String(text || '').toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[^a-z0-9]+/, '').slice(0, 64) || 'console');
 
   // ------------------------------------------------------------------- boot
+  /** A theme chosen with ◐ is kept on this device; with none chosen, the system's
+      preference decides (the stylesheet's prefers-color-scheme block). */
+  function applyTheme() {
+    const kept = localStorage.getItem(THEME);
+    if (kept === 'light' || kept === 'dark') document.documentElement.dataset.theme = kept;
+    else delete document.documentElement.dataset.theme;
+  }
+  const themeNow = () => document.documentElement.dataset.theme || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
   async function boot() {
-    document.documentElement.dataset.theme = localStorage.getItem(THEME) || 'light';
+    applyTheme();
     S.link = readLink();
     const token = $('meta[name="nm-bridge"]').getAttribute('content');
     if (token) {
@@ -2219,6 +2290,7 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     authors.add(S.me);
     await loadProfiles([...authors]);
     if (stale()) return;
+    S.seen = authors.size;
     S.loaded = true;
     if (!S.selected || (S.selected.kind === 'scope' && !scopes.has(S.selected.id) && !access.has(S.selected.id))) {
       const want = S.link.topic && (scopes.has(S.link.topic) || access.has(S.link.topic)) ? S.link.topic : (scopes.has(S.primary) ? S.primary : [...scopes.keys()][0]);
@@ -2282,20 +2354,48 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
   }
   function drawToasts() { $('#toasts').innerHTML = out(S.toasts.map((t) => html`<div class="toast" role="status">${t.text}</div>`)); }
   function page() {
-    const dark = document.documentElement.dataset.theme === 'dark';
-    return html`
-      <header class="top page">
-        <div class="brand"><span class="mark">nm://</span><h1>nostr-mailbox · Web Console</h1></div>
-        <span class="badge ${S.mode === 'bridge' ? 'teal' : ''}">${S.mode === 'bridge' ? 'local bridge · key stays in its 0600 file' : 'standalone · ' + (S.signer ? S.signer.type + ' key' : 'no key yet')}</span>
-        <span class="spacer"></span>
-        ${S.trust ? html`<span class="small"><span class="dot ${S.status}"></span>${S.status} · ${new URL(S.trust.relay).host}</span>` : ''}
-        ${S.trust && S.status !== 'ready' && S.status !== 'connecting' ? html`<button class="btn tiny" data-act="reconnect">Reconnect</button>` : ''}
-        ${S.desk ? html`<button class="btn tiny ghost" data-act="refresh">Refresh</button>` : ''}
-        <button class="btn tiny ghost" data-act="theme" aria-label="switch theme">${dark ? '☀ Paper Light' : '● Ancient Sound'}</button>
-      </header>
-      <div class="page">${S.errors.map((e) => html`<div class="banner" role="alert"><span class="grow">${e.text}</span><button class="btn tiny ghost" data-act="dismiss" data-id="${e.id}">dismiss</button></div>`)}</div>
-      ${S.desk && S.loaded ? html`<div class="shell page">${sidebar()}<main id="main">${mainPanel()}</main></div>` : html`<div class="page" style="padding-block: 24px 48px">${onboarding()}</div>`}
+    return html`${header()}
+      <div class="page errors">${S.errors.map((e) => html`<div class="banner" role="alert"><span class="grow">${e.text}</span><button class="btn tiny ghost" data-act="dismiss" data-id="${e.id}">dismiss</button></div>`)}</div>
+      ${S.desk && S.loaded ? html`${overview()}<div class="shell page">${sidebar()}<main id="main">${mainPanel()}</main></div>` : html`<div class="page" style="padding-block: 24px 48px">${onboarding()}</div>`}
+      ${footer()}
       ${S.modal ? modal() : ''}`;
+  }
+  /** The wordmark, then what this tab is connected as: its relay, the persona it signs
+      as, pairing, and the theme. */
+  function header() {
+    const st = S.mode === 'bridge' ? S.bridge.state : null;
+    return html`<header class="top page">
+      <div class="brand"><h1 class="sr">crosswire.sh · nostr-mailbox Web Console</h1><a class="wordmark" href="#" data-act="home"><span class="mark" aria-hidden="true">⨉</span> crosswire.sh</a><span class="tagline">encrypted agent-to-agent switchboard</span></div>
+      <div class="header-right">
+        <span class="badge mode ${S.mode === 'bridge' ? 'teal' : ''}">${S.mode === 'bridge' ? 'local bridge · key stays in its 0600 file' : 'standalone · ' + (S.signer ? S.signer.type + ' key' : 'no key yet')}</span>
+        ${S.trust ? html`<span class="pill" title="${S.trust.relay}"><span class="dot ${S.status}"></span>${S.status} · ${new URL(S.trust.relay).host}</span>` : ''}
+        ${S.trust && S.status !== 'ready' && S.status !== 'connecting' ? html`<button class="btn tiny" data-act="reconnect">Reconnect</button>` : ''}
+        ${st ? html`<label class="sr" for="hp">Persona this tab signs as</label><select id="hp" data-change="persona" title="the persona this tab signs as">${personaOptions()}</select>` : ''}
+        ${S.desk && S.loaded ? html`<button class="btn tiny primary" data-act="pair">Pair Agent / MCP</button>` : ''}
+        ${S.desk ? html`<button class="btn tiny ghost" data-act="refresh">Refresh</button>` : ''}
+        <button id="theme" class="btn ghost" data-act="theme" title="Switch to the ${themeNow() === 'dark' ? 'light' : 'dark'} theme" aria-label="Switch color theme">◐</button>
+      </div></header>`;
+  }
+  /** One tabular counter per fact this tab read: rooms, personas, seats, the selected
+      room's epoch, what waits at the gate, and whether an MCP server is live here. */
+  function overview() {
+    const sel = S.selected || {};
+    const scope = S.scopes.get(sel.kind === 'scope' ? sel.id : S.primary);
+    const locked = [...S.access.keys()].filter((id) => !S.views.has(id)).length;
+    const held = [...S.views.values()].reduce((n, v) => n + v.quarantine.filter((q) => !q.ruling).length, 0) + (S.mailbox ? S.mailbox.held.filter((m) => !m.ruling).length : 0);
+    const stat = (n, label, cls) => html`<div class="stat ${cls || ''}"><strong>${n}</strong><span>${label}</span></div>`;
+    return html`<section class="overview page" aria-label="Overview">
+      ${stat(S.views.size, `rooms open${locked ? ` · ${locked} awaiting a key` : ''}`)}
+      ${stat(S.mode === 'bridge' ? S.bridge.state.personas.length : 1, S.mode === 'bridge' ? 'personas on this workstation' : 'key in this tab')}
+      ${stat(S.seen || 0, 'seats seen')}
+      ${scope && scope.current ? stat(`E${scope.current}`, `NIP-44 v2 · ${scope.kind === 'topic' ? '#' + scope.group : scope.name}`) : stat('—', 'cleartext: no epoch key', 'warning')}
+      ${stat(held, 'held at the human gate', held ? 'warning' : '')}
+      ${S.mode === 'bridge' ? stat('/mcp', 'MCP server live · magic URL · OAuth 2.1', 'good') : stat('off', 'MCP: the relay page serves none')}
+    </section>`;
+  }
+  function footer() {
+    return html`<footer class="foot page"><span><b>crosswire.sh</b> · nostr-mailbox${S.mode === 'bridge' ? ' ' + S.bridge.state.version : ''} · CLI <code>crosswire</code> or <code>nostr-mailbox</code></span>
+      <span>NIP-42 auth · NIP-43 invites · NIP-29 rooms · NIP-44 v2 payloads · every id and Schnorr signature verified in this tab</span></footer>`;
   }
 
   // -------------------------------------------------------------- onboarding
@@ -2311,7 +2411,7 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
           <div class="row"><div><label for="jt">Invite token</label><input id="jt" name="token" value="${tok}" placeholder="nm1_…" autocomplete="off" spellcheck="false"></div>
           <div><label for="jm">Your name (announced on the bus)</label><input id="jm" name="member" placeholder="e.g. roland"></div>
           <div class="fit"><button class="btn primary" data-act="bridge-join">${S.link.topic ? 'Claim Invite & Open Topic' : 'Claim Invite & Join'}</button></div></div>
-          <p class="small muted">Operators set up the campaign with <code>nostr-mailbox setup --relay wss://… --campaign … --kubectl</code> and then reload this page.</p></section>`);
+          <p class="small muted">An operator sets up a campaign with <code>crosswire setup</code> (the same CLI as <code>nostr-mailbox</code>), which declares the public crosswire.sh switchboard, or with <code>nostr-mailbox setup --relay wss://… --campaign … --kubectl</code> for an organization's own relay, and then reloads this page.</p></section>`);
       } else if (!st.identity) {
         cards.push(html`<section class="card hero"><h2>Persona ${st.active_persona} has no key</h2><p>Create it here (mode 0600), switch to another persona below, or run <code>nostr-mailbox init --name ${st.active_persona}</code> and reload.</p>
           <div class="actions"><button class="btn primary" data-act="persona-create" data-name="${st.active_persona}">Create persona ${st.active_persona}</button></div></section>`);
@@ -2382,9 +2482,12 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
   }
   /** The select is drawn from state, never kept across a redraw: after a switch it shows
       the persona this tab now signs as. Only the new-name box keeps what is typed. */
-  function personaPicker() {
+  function personaOptions() {
     const st = S.bridge.state;
-    return html`<div class="stack small"><div><label for="pp">Persona</label><select id="pp" name="persona" data-change="persona">${st.personas.map((p) => html`<option value="${p.name}" ${p.name === st.active_persona ? 'selected' : ''} ${p.error ? 'disabled' : ''}>${p.name}${p.error ? ' · unusable: ' + p.error : ' · ' + short(p.pubkey)}</option>`)}${st.personas.some((p) => p.name === st.active_persona) ? '' : html`<option value="${st.active_persona}" selected>${st.active_persona} · no key yet</option>`}</select></div>
+    return html`${st.personas.map((p) => html`<option value="${p.name}" ${p.name === st.active_persona ? 'selected' : ''} ${p.error ? 'disabled' : ''}>${p.name}${p.error ? ' · unusable: ' + p.error : ' · ' + short(p.pubkey)}</option>`)}${st.personas.some((p) => p.name === st.active_persona) ? '' : html`<option value="${st.active_persona}" selected>${st.active_persona} · no key yet</option>`}`;
+  }
+  function personaPicker() {
+    return html`<div class="stack small"><div><label for="pp">Persona</label><select id="pp" name="persona" data-change="persona">${personaOptions()}</select></div>
       <div class="row" data-keep="persona-new"><div><label for="pn">New persona</label><input id="pn" name="new_persona" placeholder="e.g. alice-work" autocomplete="off" spellcheck="false"></div><div class="fit"><button class="btn tiny" data-act="persona-create">+ New persona</button></div></div></div>`;
   }
   function claimCard() {
@@ -2712,7 +2815,7 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
   // ------------------------------------------------------------------ modals
   function modal() {
     const m = S.modal;
-    return html`<div class="backdrop" data-act="modal-close-backdrop"><div class="modal" role="dialog" aria-modal="true" aria-label="${m.title}"><header><h2>${m.title}</h2><button class="btn tiny ghost" data-act="modal-close">close</button></header>${m.body()}</div></div>`;
+    return html`<div class="backdrop" data-act="modal-close-backdrop"><div class="modal" role="dialog" aria-modal="true" aria-label="${m.title}"><header><h2>${m.title}</h2><button class="btn tiny ghost" data-act="modal-close">close</button></header><div class="modal-body">${m.body()}</div></div></div>`;
   }
   function openModal(title, body) { S.modal = { title, body }; draw(); }
   function newTopicModal() {
@@ -2724,24 +2827,76 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
         : html`<div><label>Part name (a slug; the part is topic:&lt;name&gt;)</label><input name="part" placeholder="wave-7" required></div><div><label>First peer to grant (optional npub)</label><input name="peer"></div>`}</div>
       <div class="actions"><button class="btn primary">${kind === 'topic' ? 'Create topic' : 'Create dropbox'}</button></div></form>`;
   }
-  /** Pair Coding Agent. Through the bridge, a topic is handed over the way the CLI holds
-      one (`/api/topic/export`: its declaration and this persona's own keyring, every epoch
-      under its own number), and the commands carry `--home` / `--persona` when they are
-      not the CLI's defaults. On its own, the page hands over a topic's declaration and no
-      key at all: the agent signs with its own identity, and the epochs it is granted
-      reach it as key rings, each under its own number. */
-  async function pairModal(scope) {
-    const topic = scope.kind === 'topic' ? scope.group : null, epoch = scope.current;
-    let cmd = topic ? `nostr-mailbox --topic ${topic}` : 'nostr-mailbox --trust ./nostr.toml', exported = null;
-    if (S.mode === 'bridge') {
-      if (topic) { exported = await api('/api/topic/export', { topic }); cmd = exported.cli; S.bridge.state = await api('/api/state'); draw(); }
-      else cmd = S.bridge.state.cli;
+  /** Pair an agent or an MCP client: choose the client, the room it works in and the
+      role a join link admits, and copy what that client is given. Through the bridge, a
+      room is handed over the way the CLI holds one (`/api/topic/export`: its declaration
+      and this persona's own keyring, every epoch under its own number), and the commands
+      carry `--home` / `--persona` when they are not the CLI's defaults. On its own, the
+      page hands over a topic's declaration and no key at all: the agent signs with its
+      own identity, and the epochs it is granted reach it as key rings, each under its
+      own number. The magic URLs come from `/api/pair`. A join link is minted only when
+      asked for (`/api/topics/<topic>/invite`): each one is a single-use bearer. */
+  const CLIENTS = [['chatgpt', 'ChatGPT'], ['claude-desktop', 'Claude Desktop'], ['claude-code', 'Claude Code'], ['codex', 'Codex'], ['agy', 'Antigravity (agy)'], ['cursor', 'Cursor'], ['pi-opencode', 'Pi / OpenCode']];
+  const pairRooms = () => [...S.scopes].filter(([id]) => S.views.has(id));
+  async function pairModal(id) {
+    const was = S.pair || {};
+    S.pair = { client: was.client || 'claude-code', role: was.role || 'read-write', history: was.history || 'full_history', room: null, exported: null, minted: null, info: null };
+    if (S.mode === 'bridge') S.pair.info = await api('/api/pair');
+    await pairRoom(id);
+    openModal('Pair an agent or an MCP client', pairBody);
+  }
+  /** Point the configurator at room `id` ('' is the root campaign). Through the bridge a
+      topic is exported for the CLI then, as Pair Coding Agent always did; one that
+      cannot be leaves the configurator on the room it was on. */
+  async function pairRoom(id) {
+    const scope = id === undefined || id === null ? null : S.scopes.get(id) || null;
+    let exported = null;
+    if (S.mode === 'bridge' && scope && scope.kind === 'topic') {
+      exported = await api('/api/topic/export', { topic: scope.group });
+      S.bridge.state = await api('/api/state');
     }
+    Object.assign(S.pair, { room: scope ? id : null, exported, minted: null });
+  }
+  /** The CLI prefix every command for this room starts with. */
+  function pairCmd(scope, exported) {
+    const topic = scope && scope.kind === 'topic' ? scope.group : null;
+    if (S.mode === 'bridge') return exported ? exported.cli : S.bridge.state.cli;
+    return topic ? `nostr-mailbox --topic ${topic}` : 'nostr-mailbox --trust ./nostr.toml';
+  }
+  /** argv from a command line quoted for a POSIX shell, as Python's shlex.join quotes
+      the bridge's `cli`: words, '…' and "…" spans, and backslash escapes. */
+  function shellSplit(line) {
+    const argv = [];
+    let word = null, i = 0;
+    while (i < line.length) {
+      const c = line[i];
+      if (c === "'") {
+        const end = line.indexOf("'", i + 1);
+        if (end < 0) throw new NM.NMError(`an unclosed ' in ${line}`);
+        word = (word || '') + line.slice(i + 1, end); i = end + 1;
+      } else if (c === '"') {
+        let j = i + 1, part = '';
+        while (j < line.length && line[j] !== '"') { if (line[j] === '\\' && j + 1 < line.length) j += 1; part += line[j]; j += 1; }
+        if (j >= line.length) throw new NM.NMError(`an unclosed " in ${line}`);
+        word = (word || '') + part; i = j + 1;
+      } else if (/\s/.test(c)) {
+        if (word !== null) { argv.push(word); word = null; }
+        i += 1;
+      } else if (c === '\\' && i + 1 < line.length) { word = (word || '') + line[i + 1]; i += 2; }
+      else { word = (word || '') + c; i += 1; }
+    }
+    if (word !== null) argv.push(word);
+    return argv;
+  }
+  /** The prompt a coding agent is given for `scope`: what it holds, and its first five
+      commands. */
+  function agentPrompt(scope, cmd, exported) {
+    const topic = scope.kind === 'topic' ? scope.group : null, epoch = scope.current;
     const seat = mySeat(), ctx = topic ? `topic ${topic} (epoch ${epoch})` : `campaign ${scope.campaign}`;
     const holds = exported ? [`Declaration: ${exported.trust_file}`, `Keyring: ${exported.keyring}`, `Keep both mode 0600 and never print the keyring: it holds this topic's NIP-44 v2 keys for epochs ${exported.epochs.join(', ')}, each under its own number. You write under epoch ${exported.epoch}.`]
       : topic ? ['Save the exported file as topics/' + topic + '.toml under your nostr-mailbox home (mode 0600). It holds no key.', `The topic's epoch keys reach your own identity as key rings once an admin grants your npub; \`${cmd} topic sync\` fetches them, each under its own epoch number.`]
         : [S.mode === 'bridge' ? `Transport file: ${S.bridge.state.trust_file}` : 'Transport file: ./nostr.toml', 'Keep it mode 0600 and never print it: it holds the campaign\'s NIP-44 v2 key.'];
-    const prompt = [
+    return [
       `Pair with nostr-mailbox ${ctx} on ${S.trust.relay}, campaign ${scope.campaign}.`,
       '',
       ...holds,
@@ -2757,21 +2912,79 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
       'Post findings with `post bus "<text>" --kind finding`; settle what you act on with `ack bus <id> --result-ref <PR or commit>`; resolve inbox pointers with `resolve <id> --result-ref <ref>`.',
       topic ? 'A forward-only grant or a revoke rotates the topic to a new epoch. The CLI fetches the new key itself the next time it connects: no fresh export is needed.' : '',
     ].join('\n');
-    const toml = S.mode === 'standalone' ? exportToml(scope) : null, ways = mcpWays(cmd, topic);
-    const pair = S.mode === 'bridge' ? await api('/api/pair') : null;
-    openModal('Pair a coding agent or an MCP client', () => html`${pair ? html`<h3>One URL for any MCP client</h3>
-      <p class="muted">Paste it as the whole server and choose no authentication: it carries this home's bearer in its path, so share it only as you would the token. It acts as any persona of this home.${topic ? ` Name the channel ${topic} in each call.` : ''}</p>
-      <div class="grid2" style="margin-top:8px"><div class="item"><strong>MCP URL (Streamable HTTP)</strong><pre class="doc">${pair.magic_mcp_url}</pre><div class="actions"><button class="btn primary tiny" data-act="copy" data-text="${pair.magic_mcp_url}">Copy URL</button></div></div>
-      <div class="item"><strong>OpenAPI URL (a GPT Action, Authentication: None)</strong><pre class="doc">${pair.magic_openapi_url}</pre><div class="actions"><button class="btn tiny" data-act="copy" data-text="${pair.magic_openapi_url}">Copy URL</button></div></div></div>
-      <p class="small muted">Or give a client ${pair.mcp_url} alone: it signs in by OAuth, and the consent card here picks the one persona it acts as. ChatGPT and Claude.ai call from their own servers, so they need a public HTTPS origin: serve <code>nostr-mailbox mcp --http</code> behind TLS and paste the magic URL it prints, with your host in it.</p>` : ''}
-      <h3>Connect over MCP</h3>
-      <div class="grid2" style="margin-top:8px">${ways.map((w) => html`<div class="item"><strong>${w.title}</strong><p class="small muted">${w.note}</p><pre class="doc">${w.text}</pre><div class="actions"><button class="btn tiny" data-act="copy" data-text="${w.text}">Copy</button></div></div>`)}</div>
-      <h3 style="margin-top:16px">Prompt for a coding agent (Claude Code · Codex · Antigravity)</h3>
-      <p class="muted">${exported ? html`Written <code>${exported.trust_file}</code> and <code>${exported.keyring}</code> (0600).` : S.mode === 'bridge' ? html`Uses <code>${S.bridge.state.trust_file}</code>.` : topic ? html`Download the topic's declaration and save it as <code>topics/${topic}.toml</code> under the agent's nostr-mailbox home, mode 0600. It holds no key.` : 'Download nostr.toml and save it beside the agent, mode 0600.'}</p>
-      <pre class="doc">${prompt}</pre>
-      <div class="actions"><button class="btn primary" data-act="copy" data-text="${prompt}">Copy Prompt for Claude Code / Codex</button>
-      ${toml ? html`<button class="btn" data-act="download" data-name="${topic ? topic + '.toml' : 'nostr.toml'}" data-text="${toml}">Export ${topic ? topic + '.toml' : 'nostr.toml'}</button>` : ''}
-      ${exported ? html`<span class="small muted">${exported.note}</span>` : ''}</div>`);
+  }
+  /** What one client is given: a title, why it works that way, and the text to paste or
+      run (docs/connect-chatgpt-and-claude.md). An HTTP client gets the magic URL where
+      this console serves one; the others start the server over stdio with the same CLI
+      prefix as the prompt. No command shows a bearer the magic URL does not. */
+  function clientSetup(client, cmd, topic, info) {
+    const argv = shellSplit(cmd), server = { command: argv[0], args: [...argv.slice(1), 'mcp'] };
+    const json = (o) => JSON.stringify(o, null, 2), magic = info ? info.magic_mcp_url : null;
+    const named = topic ? ` Over stdio, --topic ${topic} makes \`bus\` this room; over HTTP, name the channel ${topic} in each call.` : '';
+    const own = (persona) => `nostr-mailbox --home ~/.config/nostr-mailbox-${persona} --persona ${persona}`;
+    const watch = `${cmd} watch bus --wait-seconds ${NM.C.DEFAULT_WAIT_S}`;
+    const setups = {
+      chatgpt: () => ({ title: 'ChatGPT · a connector or a Custom GPT Action',
+        note: 'ChatGPT calls from OpenAI\'s servers, so it needs a public HTTPS origin, never this loopback one. Give it a home that holds only its own persona, since the bearer acts as any persona of the home it serves: save the join link\'s nm1_ token as chatgpt.token on that host, redeem it, serve the home behind TLS, and paste the URL it prints, with your origin in it.',
+        text: [`${own('chatgpt')} join --code-file chatgpt.token`, `${own('chatgpt')}${topic ? ' --topic ' + topic : ''} mcp --http 127.0.0.1:7891`,
+          '# behind your TLS proxy, paste one of these into ChatGPT:', '#   connector, no authentication    <your origin>/mcp/s/<token>',
+          '#   connector, OAuth 2.1            <your origin>/mcp', '#   Custom GPT Action, Auth: None   <your origin>/mcp/s/<token>/openapi.json'].join('\n') }),
+      'claude-desktop': () => ({ title: 'Claude Desktop · claude_desktop_config.json',
+        note: `Claude Desktop starts the server itself, over stdio. From a checkout, the installer merges this entry, keeps every other server, and checks that it starts; or add it by hand and restart Claude Desktop.${named}`,
+        text: ['python3 scripts/sync_plugin.py --install --harness claude-desktop', '', json({ mcpServers: { 'nostr-mailbox': server } })].join('\n') }),
+      'claude-code': () => ({ title: 'Claude Code · claude mcp add',
+        note: magic ? `Streamable HTTP through this console: the URL carries this home's bearer in its path, so the client takes no header. Or let Claude Code start the server itself, over stdio.${named}` : `Claude Code starts the server itself, over stdio.${named}`,
+        text: [...(magic ? [`claude mcp add --transport http nostr-mailbox '${magic}'`, '# or over stdio'] : []), `claude mcp add nostr-mailbox -- ${cmd} mcp`].join('\n') }),
+      codex: () => ({ title: 'Codex · codex mcp add', note: `Codex starts the server itself, over stdio, as this persona with its keyrings.${named}`, text: `codex mcp add nostr-mailbox -- ${cmd} mcp` }),
+      agy: () => ({ title: 'Antigravity (agy) · the agent skill', note: 'Antigravity works through the nostr-mailbox skill: install it from a checkout, and every command the agent runs starts with the prefix below.', text: ['python3 scripts/sync_plugin.py --install --harness antigravity', watch].join('\n') }),
+      cursor: () => ({ title: 'Cursor · ~/.cursor/mcp.json', note: magic ? `Cursor takes the magic URL as a remote server, with no header.${named}` : `Cursor starts the server itself, over stdio.${named}`, text: json({ mcpServers: { 'nostr-mailbox': magic ? { url: magic } : server } }) }),
+      'pi-opencode': () => ({ title: 'Pi / OpenCode · the skill, and opencode.json',
+        note: `Both read the nostr-mailbox skill: install it from a checkout, and their commands start with the prefix below. OpenCode can also start the MCP server itself, from its opencode.json.${named}`,
+        text: ['python3 scripts/sync_plugin.py --install --harness pi --harness opencode', watch, '', json({ mcp: { 'nostr-mailbox': { type: 'local', command: [server.command, ...server.args], enabled: true } } })].join('\n') }),
+    };
+    if (!setups[client]) throw new NM.NMError(`no setup is known for client ${client}`);
+    return setups[client]();
+  }
+  function pairBody() {
+    const p = S.pair, scope = p.room === null ? null : S.scopes.get(p.room) || null, rooms = pairRooms();
+    const topic = scope && scope.kind === 'topic' ? scope.group : null, st = S.mode === 'bridge' ? S.bridge.state : null;
+    const cmd = pairCmd(scope, p.exported), setup = clientSetup(p.client, cmd, topic, p.info), m = p.minted;
+    const canMint = !!(st && st.capabilities.invite) && (!topic || scope.admins.has(S.me));
+    const why = !st ? 'A join link is minted by a console that holds the relay\'s admin reach: nostr-mailbox ui on the operator\'s machine.'
+      : !st.capabilities.invite ? html`Minting needs this home's relay admin reach, <code>${st.admin.path}</code>, which <code>nostr-mailbox setup --relay … --kubectl</code> (or <code>--compose</code>, <code>--exec</code>) writes.`
+        : html`Only the room's admins (${[...scope.admins].map(who).join(', ')}) mint invites into it.`;
+    const row = (label, sub, value, copy, extra) => html`<tr><th scope="row">${label}<span class="secondary">${sub}</span></th>
+      <td>${value ? html`<code>${value}</code>` : ''}${extra || ''}</td><td class="act">${value ? html`<button class="btn tiny" data-act="copy" data-text="${value}">${copy}</button>` : ''}</td></tr>`;
+    const none = html`<span class="muted">—</span>`;
+    const prompt = scope ? agentPrompt(scope, cmd, p.exported) : null, toml = S.mode === 'standalone' && scope ? exportToml(scope) : null;
+    return html`<div data-keep="pair">
+      <div class="configurator">
+        <div><label for="pcl">Client</label><select id="pcl" data-change="pair-client">${CLIENTS.map(([k, l]) => html`<option value="${k}" ${k === p.client ? 'selected' : ''}>${l}</option>`)}</select></div>
+        <div><label for="prm">Room / topic</label><select id="prm" data-change="pair-room" ${rooms.length ? '' : 'disabled'}>${rooms.length ? rooms.map(([id, s]) => html`<option value="${id}" ${id === p.room ? 'selected' : ''}>${id === '' ? '◆ ' + s.name + ' · campaign bus' : '# ' + (s.name || id)}${s.current ? ' · E' + s.current : ''}</option>`) : html`<option>no readable room yet</option>`}</select></div>
+        <div><label for="prl">Role · join link</label><select id="prl" data-change="pair-role" ${topic ? '' : 'disabled'}>${NM.ROLES.map((r) => html`<option value="${r}" ${r === p.role ? 'selected' : ''}>${r}</option>`)}</select></div>
+        <div><label for="phs">History · join link</label><select id="phs" data-change="pair-history" ${topic && p.role !== 'write-only' ? '' : 'disabled'}><option value="full_history" ${p.history === 'full_history' ? 'selected' : ''}>full history</option><option value="forward_only" ${p.history === 'forward_only' ? 'selected' : ''}>forward-only from now</option></select></div>
+        <div><label for="pnm">Name on the invite</label><input id="pnm" name="member" placeholder="e.g. chatgpt" autocomplete="off" spellcheck="false"></div>
+      </div>
+      <p class="small muted">${topic ? html`Choosing a room hands it to the coding agents on this workstation${st ? ' (its declaration and this persona\'s keyring, mode 0600)' : ''}. Role and history are what a join link admits a newcomer as: <strong>${p.role}</strong> ${ROLE_NOTE[p.role]}. The magic URL is not limited by role: it acts as any persona of this home.` : 'The campaign bus: a join link into it is a campaign invite, with no topic role.'}</p>
+      <table class="links"><tbody>
+        ${row('Magic MCP URL', '/mcp/s/<token> · Streamable HTTP, no auth settings', p.info && p.info.magic_mcp_url, 'Copy URL', p.info ? html`<span class="small muted">The bearer rides in the path: share it only as you would the token in ${p.info.token_file}.</span>` : html`<span class="muted">This page is served by the relay and runs no MCP server. On the agent's machine, <code>nostr-mailbox ui</code> serves one at its own /mcp, and <code>nostr-mailbox mcp --http</code> at 127.0.0.1:7891/mcp; each prints these URLs.</span>`)}
+        ${row('Magic OpenAPI URL', '/mcp/s/<token>/openapi.json · a GPT Action, Authentication: None', p.info && p.info.magic_openapi_url, 'Copy URL', p.info ? '' : none)}
+        ${row('OAuth 2.1 URL', '/mcp · the client signs in itself (PKCE)', p.info && p.info.mcp_url, 'Copy URL', p.info ? html`<span class="small muted">The consent card on this console picks the one persona the client acts as.</span>` : none)}
+        ${row('1-Click Join Link', '/join/#nm1_… · a single-use bearer', m && m.join_url, 'Copy link', m ? html`<span class="small muted">minted ${m.role ? 'as ' + m.role + (m.history ? ', ' + m.history.replace('_', ' ') : '') + ' · ' : ''}expires ${NM.isoStamp(m.expires_at)}</span>
+            <div class="actions"><button class="btn tiny" data-act="copy" data-text="${m.token}">Copy nm1_ token</button><button class="btn tiny ghost" data-act="copy" data-text="${m.one_liner}">Copy CLI one-liner</button><button class="btn tiny ghost" data-act="pair-mint">Mint another</button></div>`
+          : canMint ? html`<button class="btn tiny primary" data-act="pair-mint">Mint join link${topic ? ' · ' + p.role : ''}</button>` : html`<span class="small muted">${why}</span>`)}
+      </tbody></table>
+      <h3>${setup.title}</h3><p class="small muted">${setup.note}</p><pre class="doc">${setup.text}</pre>
+      <div class="actions"><button class="btn primary tiny" data-act="copy" data-text="${setup.text}">Copy setup</button></div>
+      ${prompt ? html`<h3>Prompt for a coding agent (Claude Code · Codex · Antigravity)</h3>
+        <p class="small muted">${p.exported ? html`Written <code>${p.exported.trust_file}</code> and <code>${p.exported.keyring}</code> (0600).` : st ? html`Uses <code>${st.trust_file}</code>.` : topic ? html`Download the topic's declaration and save it as <code>topics/${topic}.toml</code> under the agent's nostr-mailbox home, mode 0600. It holds no key.` : 'Download nostr.toml and save it beside the agent, mode 0600.'}</p>
+        <pre class="doc">${prompt}</pre>
+        <div class="actions"><button class="btn primary" data-act="copy" data-text="${prompt}">Copy Prompt for Claude Code / Codex</button>
+        ${toml ? html`<button class="btn" data-act="download" data-name="${topic ? topic + '.toml' : 'nostr.toml'}" data-text="${toml}">Export ${topic ? topic + '.toml' : 'nostr.toml'}</button>` : ''}
+        ${p.exported ? html`<span class="small muted">${p.exported.note}</span>` : ''}</div>` : ''}
+      <details class="more"><summary>Every way to connect over MCP</summary>
+        <div class="grid2" style="margin-top:10px">${mcpWays(cmd, topic).map((w) => html`<div class="item"><strong>${w.title}</strong><p class="small muted">${w.note}</p><pre class="doc">${w.text}</pre><div class="actions"><button class="btn tiny" data-act="copy" data-text="${w.text}">Copy</button></div></div>`)}</div></details>
+    </div>`;
   }
   /** The four ways an MCP client reaches this persona (docs/connect-chatgpt-and-claude.md):
       Streamable HTTP at this console's own /mcp, a ChatGPT Custom GPT Action served by a
@@ -2904,7 +3117,12 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     saveStore(); draw();
   }
   const acts = {
-    theme() { const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = next; localStorage.setItem(THEME, next); draw(); },
+    theme() { const next = themeNow() === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = next; localStorage.setItem(THEME, next); draw(); },
+    home() {
+      S.modal = null;
+      if (S.loaded) { const id = S.views.has(S.primary) ? S.primary : [...S.scopes.keys()][0]; S.selected = id === undefined ? { kind: 'mail', part: 'inbox' } : { kind: 'scope', id }; S.tab = 'bus'; }
+      draw();
+    },
     dismiss(d) { S.errors = S.errors.filter((e) => e.id !== d.id); draw(); },
     async reconnect() { await connect(); },
     async refresh() { await refresh(); },
@@ -2920,7 +3138,17 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     'modal-close'() { S.modal = null; draw(); },
     'modal-close-backdrop'(d, el, ev) { if (ev.target === el) { S.modal = null; draw(); } },
     'new-topic'() { openModal('+ New Topic', newTopicModal); },
-    async pair() { await pairModal(scopeNow()); },
+    async pair() {
+      const sel = S.selected || {};
+      await pairModal(sel.kind === 'scope' && S.views.has(sel.id) ? sel.id : S.views.has(S.primary) ? S.primary : [...S.views.keys()][0]);
+    },
+    async 'pair-mint'() {
+      const p = S.pair, scope = p.room === null ? null : S.scopes.get(p.room), topic = scope && scope.kind === 'topic' ? scope.group : null;
+      const box = $('[data-keep="pair"] [name=member]'), member = box && box.value.trim() ? box.value.trim() : null;
+      p.minted = topic ? await api(`/api/topics/${topic}/invite`, { member, role: p.role, history: p.history }) : await api('/api/invite', { member });
+      if (topic) S.invites = await api('/api/invites');
+      toast(topic ? `Minted a single-use join link into ${topic} as ${p.role}` : 'Minted a single-use campaign join link'); draw();
+    },
     'show-rejected'() {
       const all = [...S.rejected, ...[...S.views.values()].flatMap((v) => v.rejected), ...(S.mailbox ? S.mailbox.rejected : [])];
       openModal('Records not shown, and why', () => html`<ul class="list">${all.map((r) => html`<li class="small"><span class="chip">${String(r.id).slice(0, 12)}</span> ${r.reason}</li>`)}</ul>`);
@@ -3098,6 +3326,10 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     'grant-mode'(el) { S.grantMode = el.value; draw(); },
     'new-kind'(el) { S.newKind = el.value; draw(); },
     async persona(el) { if (el.value !== S.bridge.state.active_persona) await switchPersona(el.value, false); },
+    'pair-client'(el) { S.pair.client = el.value; draw(); },
+    async 'pair-room'(el) { await pairRoom(el.value); draw(); },
+    'pair-role'(el) { S.pair.role = el.value; draw(); },
+    'pair-history'(el) { S.pair.history = el.value; draw(); },
   };
   async function run(name, fn) {
     try { await fn(); } catch (e) { report(e, name); }
@@ -3121,6 +3353,7 @@ img.preview { display: block; width: 100%; height: auto; border-radius: 8px; bor
     const el = ev.target.closest('[data-change]');
     if (el && changes[el.dataset.change]) run(el.dataset.change, () => changes[el.dataset.change](el));
   });
+  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && S.modal) { S.modal = null; draw(); } });
   boot().catch((e) => report(e, 'starting the console'));
 })();
 </script>

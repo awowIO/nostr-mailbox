@@ -16,6 +16,8 @@ nostr = ["coincurve>=21,<22"]
 
 [project.scripts]
 nostr-mailbox = "nostr_mailbox.cli:main"
+# the same CLI under crosswire.sh's name
+crosswire = "nostr_mailbox.cli:main"
 
 [dependency-groups]
 dev = [

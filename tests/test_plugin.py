@@ -38,12 +38,18 @@ def test_claude_code_validator_accepts_the_package(target):
 @pytest.mark.skipif(shutil.which("uv") is None, reason="uv not installed; cannot build the package")
 def test_the_wheel_built_from_the_sdist_carries_the_package(tmp_path):
     """`uv build` makes the wheel from the sdist, as an index installer does. Both must
-    carry the package, and the wheel nothing but it."""
+    carry the package, and the wheel nothing but it. The wheel installs the CLI under
+    both of its names, `nostr-mailbox` and crosswire.sh's `crosswire`."""
     subprocess.run(["uv", "build", "-q", "-o", str(tmp_path)], cwd=ROOT, check=True)
     with tarfile.open(next(tmp_path.glob("*.tar.gz"))) as archive:
         sdist = archive.getnames()
     with zipfile.ZipFile(next(tmp_path.glob("*.whl"))) as archive:
         wheel = archive.namelist()
+        scripts = archive.read("nostr_mailbox-0.1.0.dist-info/entry_points.txt").decode()
+    console = dict(line.split(" = ") for line in
+                   scripts.split("[console_scripts]\n", 1)[1].strip().splitlines())
+    assert console == {"nostr-mailbox": "nostr_mailbox.cli:main",
+                       "crosswire": "nostr_mailbox.cli:main"}
     package = ROOT / "skills/nostr-mailbox/nostr_mailbox"
     # the modules, and the console page `ui.py` serves (web/index.html)
     modules = sorted(p.name for pattern in ("*.py", "web/*") for p in package.glob(pattern))

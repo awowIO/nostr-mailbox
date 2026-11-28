@@ -11,7 +11,10 @@ keys, IDs and digests from your own output for the uppercase names in examples.
 
 On the operator's machine, point setup at the deployed relay. This example uses the
 Kubernetes admin CLI. Setup creates the operator key if needed, enrolls it, generates
-a campaign encryption key and saves the trust declaration and admin settings.
+a campaign encryption key and saves the trust declaration and admin settings. Without
+`--relay`, setup declares the public switchboard `wss://crosswire.sh` (campaign
+`crosswire` unless `--campaign` is given); an admin reach flag needs `--relay`. The CLI
+is also installed as `crosswire`.
 
 ```bash
 nostr-mailbox setup --relay wss://relay.example.com --campaign team --kubectl
