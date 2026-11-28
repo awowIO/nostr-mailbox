@@ -1871,6 +1871,173 @@ def _browser(tmp_path, page_url, *, read_clipboard=False):
             browser.terminate()
 
 
+def _check_session_locations(js):
+    # Physical hosts contain sessions. The two central hubs sit between the six
+    # separate host clusters, with the mobile/cloud pair above the devbox/intake pair.
+    locations = js("""[...document.querySelectorAll('.location')].map(g => {
+        const box = g.getBBox();
+        return [g.getAttribute('aria-label'), box.x, box.y, box.width, box.height,
+                [...g.querySelectorAll('button.session')].map(b => b.textContent)];
+    })""")
+    assert [loc[0] for loc in locations] == [
+        "Mobile / On the Go — iPhone & Safari", "Your Laptop — MacBook",
+        "Your Devbox & GPU Host — Headless VM", "Cloud AI Connectors — Hosted MCP",
+        "Brother / Friend's Laptop — Remote Peer", "External Partner & Intake Dropbox",
+    ]
+    assert [loc[-1] for loc in locations] == [
+        ["@you/iphone · ChatGPT App", "Mobile Web Session"],
+        ["@you/macbook · Claude Code", "Cursor (UI)", "Claude Desktop", "CLI (uv)", "Codex CLI"],
+        ["@you/devbox · Codex Worker", "@you/gpu · Antigravity"],
+        ["OpenAI Cloud · ChatGPT Web", "Anthropic Cloud · Claude.ai"],
+        ["@brother/laptop · Codex", "@brother/laptop · Claude Code"],
+        ["@partner/cursor · Shared Room", "@external/sender · Write-Only Dropbox"],
+    ]
+    hubs = js("""[...document.querySelectorAll('button.hub')].map(b => {
+        const box = b.parentNode.getBBox(); return [b.innerText, box.x, box.width];
+    })""")
+    assert len(hubs) == 2
+    assert "wss://crosswire.sh (#agents)" in hubs[0][0] and "External Room Hub" in hubs[0][0]
+    assert "wss://internal-relay (#ops)" in hubs[1][0] and "Private Internal Hub" in hubs[1][0]
+    for _, x, width in hubs:
+        assert all(loc[1] + loc[3] < x for loc in locations[:3])
+        assert all(loc[1] > x + width for loc in locations[3:])
+    for top, middle, bottom in (locations[:3], locations[3:]):
+        assert top[2] + top[4] < middle[2] and middle[2] + middle[4] < bottom[2]
+        assert top[1] != middle[1] != bottom[1]
+
+
+def _exercise_session_graph(js):
+    # Match rendered path endpoints to rendered pin centres, including all SVG transforms.
+    js("""window.patchRoutes = (selector) => {
+        const svg = document.querySelector('.patch-wires');
+        const pins = [...svg.querySelectorAll('circle.socket-pin')].map(pin => ({
+            name: pin.parentElement.dataset.port,
+            centre: new DOMPoint(pin.cx.baseVal.value, pin.cy.baseVal.value)
+                .matrixTransform(pin.getScreenCTM())
+        }));
+        return [...svg.querySelectorAll(selector)].map(cord =>
+            [0, cord.getTotalLength()].map(length => {
+                const p = cord.getPointAtLength(length).matrixTransform(cord.getScreenCTM());
+                const atPoint = ({centre}) => Math.hypot(p.x-centre.x, p.y-centre.y) < 0.01;
+                return pins.find(atPoint)?.name;
+            }));
+    }""")
+
+    def click(action, key):
+        js(f"document.querySelector('button[data-act={action}][data-id={key}]').click();"
+           "document.querySelector('.patch-wires').pauseAnimations()")
+        assert js("document.activeElement.dataset.id") == key
+
+    modes = js("[...document.querySelectorAll('[data-act=topology]')]"
+               ".map(b=>[b.dataset.id,b.textContent])")
+    assert modes == [
+        ["mobile-cloud", "01 · Phone & Cloud → Laptop & Devbox"],
+        ["mesh", "02 · Your Agent ↔ Brother's Agent"],
+        ["local-swarm", "03 · 3-Repo Local Swarm"],
+        ["bridge", "04 · Internal Fleet + External Bridge"],
+        ["compute-swarm", "05 · GPU Compute Swarm + Referee"],
+        ["intake", "06 · One-Way Dropbox → Quarantine"],
+    ]
+    # For each delivery compare the animated, directed hop to actual rendered
+    # sockets, including when a connector receives and then sends on the same cord.
+    scenarios = {
+        "mobile-cloud": [("phone", "external", ["openai"]),
+                         ("openai", "external", ["mac", "worker"])],
+        "mesh": [("mac", "external", ["brother-codex"])],
+        "local-swarm": [("mac", "internal", ["terminal", "cli"])],
+        "bridge": [("worker", "internal", ["mac"]), ("mac", "external", ["partner"])],
+        "compute-swarm": [("desktop", "internal", ["worker", "gpu"])],
+        "intake": [("sender", "external", ["cli"])],
+    }
+    labels = js("Object.fromEntries([...document.querySelectorAll('button.session')]"
+                ".map(b=>[b.dataset.id,b.textContent]))")
+    variants = {}
+    for mode, legs in scenarios.items():
+        click("topology", mode)
+        assert js("document.querySelector('.specimen').open")
+        routes = js("patchRoutes('.cord')")
+        assert len(routes) == len(set(map(tuple, routes)))
+        assert {seat for seat, _ in routes} == set(labels)
+        assert all(hub in ("external-left", "external-right", "internal-left", "internal-right")
+                   for _, hub in routes)
+        assert js("[...document.querySelectorAll('.socket-pin')].every(p=>p.r.baseVal.value===3.5)")
+        pulses = js("""(() => {
+            const svg = document.querySelector('.patch-wires');
+            const paths = [...svg.querySelectorAll('.cord')], routes = patchRoutes('.cord');
+            return [...svg.querySelectorAll('.signal animateMotion')].map(a => {
+                const path = paths.find(p => p.getAttribute('d') === a.getAttribute('path'));
+                const [seat, pin] = routes[paths.indexOf(path)], hub = pin.split('-')[0];
+                const hop = a.getAttribute('keyPoints') === '0;1' ? [seat,hub] : [hub,seat];
+                return [a.getStartTime(), a.getSimpleDuration(), ...hop];
+            });
+        })()""")
+        expected = [(2 * i, source, hub) for i, (source, hub, _) in enumerate(legs)]
+        expected.extend((2 * i + 1, hub, target) for i, (_, hub, targets) in enumerate(legs)
+                        for target in targets)
+        start = min(t for t, _, _, _ in pulses)
+        assert sorted((round((t - start) / duration, 2), a, b)
+                      for t, duration, a, b in pulses) == sorted(expected)
+        # Advance the SVG clock to the middle of each hop. Only that stage's
+        # travellers are visible, including every recipient of a fan-out.
+        for stage in sorted({stage for stage, _, _ in expected}):
+            instant = start + (stage + 0.5) * pulses[0][1]
+            visible = js(f"document.querySelector('.patch-wires').setCurrentTime({instant});"
+                         "[...document.querySelectorAll('.signal')]"
+                         ".filter(p => getComputedStyle(p).visibility === 'visible')"
+                         ".map(p => Number(p.dataset.stage))")
+            assert visible == [phase for phase, _, _ in expected if phase == stage]
+        active = {(seat, pin.split("-")[0]) for seat, pin in js("patchRoutes('.active-cord')")}
+        assert active == {(seat, hub) for source, hub, targets in legs
+                          for seat in [source, *targets]}
+        participants = {seat for seat, _ in active}
+        highlighted = js("[...document.querySelectorAll('.session.participating')]"
+                         ".map(b=>b.dataset.id)")
+        assert set(highlighted) == participants
+        transcript = js("document.querySelector('.specimen-panel').innerText")
+        assert all(labels[seat] in transcript for seat in participants)
+        assert ("Quarantine" if mode == "intake" else "Acknowledged") in transcript
+        if mode == "compute-swarm":
+            assert "Route Board" in transcript and "rejected" in transcript
+        variants[mode] = (js("document.querySelector('.prompt-code').textContent"),
+                          js("document.querySelector('.terminal code').textContent"))
+    assert len({p for p, _ in variants.values()}) == 6
+    assert len({variants[key][1] for key in ("mesh", "bridge", "intake")}) == 3
+    assert "crosswire-external" in variants["bridge"][1]
+    assert "status --hook" in variants["intake"][1]
+
+    # A click on each socket reaches its own chip. Selecting it redraws the
+    # scenario, prompt and sample transcript with the same seat in focus.
+    for seat, label in labels.items():
+        hit = js(f"""(() => {{
+            const p = document.querySelector('[data-port="{seat}"] circle');
+            p.scrollIntoView({{block:'center',inline:'nearest'}});
+            const centre = new DOMPoint(p.cx.baseVal.value,p.cy.baseVal.value)
+                .matrixTransform(p.getScreenCTM());
+            const button = document.elementFromPoint(centre.x,centre.y);
+            button.click(); return button.dataset.id;
+        }})()""")
+        assert hit == seat
+        assert js("document.activeElement.matches('.session.participating[aria-pressed=true]')")
+        assert js("document.querySelector('.specimen-panel > p strong').textContent") == label
+        assert label in js("[...document.querySelectorAll('.specimen-message .who')]"
+                           ".map(el=>el.textContent).join('\\n')")
+        assert label in js("document.querySelector('#agent-prompt').textContent")
+        if seat == "sender":
+            assert "write-only invite" in js("document.querySelector('#agent-prompt').textContent")
+    click("location", "laptop")
+    assert js("document.querySelector('[data-act=topology][aria-pressed=true]').dataset.id") == (
+        "intake")
+    for loc in ("mobile", "laptop", "devbox", "cloud", "brother", "partner"):
+        click("location", loc)
+        assert js("document.activeElement.closest('.location').classList.contains('participating')")
+    for hub, room in (("internal", "#ops"), ("external", "#agents")):
+        click("hub", hub)
+        assert js("document.activeElement.matches('.hub.participating[aria-pressed=true]')")
+        assert room in js("document.querySelector('.specimen summary').innerText")
+    click("topology", "mesh")
+    return variants["mesh"][0]
+
+
 def test_public_harness_switcher_and_docs_chapters(tmp_path):
     with ConsoleRelay() as relay, _browser(tmp_path, relay.http_url, read_clipboard=True) as js:
         assert js("document.querySelector('.landing h1').textContent") == "Interlinked switchboards"
@@ -1886,30 +2053,17 @@ def test_public_harness_switcher_and_docs_chapters(tmp_path):
         assert js("document.querySelector('.cli-fallback summary').textContent") == (
             "Or run terminal commands manually")
         assert not js("document.querySelector('.cli-fallback').open")
-        assert js("document.querySelector('.patch-wires').getAttribute('viewBox')") == "0 0 1120 264"
+        assert js("document.querySelector('.patch-wires').getAttribute('viewBox')") == (
+            "0 0 1120 280")
         assert js("document.querySelectorAll('.patch-field svg').length") == 1
         assert js("document.querySelector('.quickstart h2').textContent") == (
             "Connect your coding agent")
         assert not js("document.querySelector('.returning').open")
         js("document.querySelector('[name=handle]').value='alice'")
-        harnesses = js("[...document.querySelectorAll('.patch-wires button[data-act=harness]')]"
+        harnesses = js("[...document.querySelectorAll('.harnesses button[data-act=harness]')]"
                        ".map(b=>b.textContent.trim())")
         assert harnesses == ["Claude Code", "Codex", "CLI (uv)", "Claude Desktop", "ChatGPT",
                              "Antigravity", "Cursor"]
-        # Match rendered path endpoints to rendered pin centres, including all SVG transforms.
-        js("""window.patchRoutes = (selector) => {
-            const svg = document.querySelector('.patch-wires');
-            const pins = [...svg.querySelectorAll('circle.socket-pin')].map(pin => ({
-                name: pin.dataset.port,
-                centre: new DOMPoint(pin.cx.baseVal.value, pin.cy.baseVal.value)
-                    .matrixTransform(pin.getScreenCTM())
-            }));
-            return [...svg.querySelectorAll(selector)].map(cord =>
-                [0, cord.getTotalLength()].map(length => {
-                    const p = cord.getPointAtLength(length).matrixTransform(cord.getScreenCTM());
-                    return pins.find(({centre}) => Math.hypot(p.x-centre.x, p.y-centre.y) < 0.01)?.name;
-                }));
-        }""")
         js("document.querySelector('.cli-fallback summary').click()")
         assert js("document.querySelector('.terminal code').getBoundingClientRect().height > 0")
         if js("getComputedStyle(document.documentElement).colorScheme") == "dark":
@@ -1926,16 +2080,7 @@ def test_public_harness_switcher_and_docs_chapters(tmp_path):
             assert "awowIO/crosswire" in prompt and "ask me for my invite link or code" in prompt
             prompts.add(prompt)
             assert js("document.activeElement.dataset.id") == harness
-            assert js("patchRoutes('.active-cord')[0]") == [harness, "external-in"]
-            assert js("""(() => {
-                const button = document.activeElement, b = button.getBoundingClientRect();
-                const pin = [...document.querySelectorAll('.socket-pin')]
-                    .find(p => p.dataset.port === button.dataset.id);
-                const centre = new DOMPoint(pin.cx.baseVal.value, pin.cy.baseVal.value)
-                    .matrixTransform(pin.getScreenCTM());
-                return pin.cx.baseVal.value === 298 && Math.abs(centre.y - (b.y+b.height/2)) < .02
-                    && document.elementFromPoint(centre.x, centre.y) === button;
-            })()""")
+            assert js("document.activeElement.getAttribute('aria-pressed')") == "true"
             assert harness in js("document.querySelector('.prompt-block h3').textContent")
             assert js("document.querySelector('.cli-fallback').open")
             shown = js("document.querySelector('.terminal code').textContent")
@@ -1943,32 +2088,15 @@ def test_public_harness_switcher_and_docs_chapters(tmp_path):
             install, join = shown.splitlines()
             assert "github.com/awowIO/crosswire" in install and "crosswire join" in join
             if harness == "CLI (uv)":
-                assert js("document.querySelector('.readouts').firstElementChild.className") == "terminal"
+                assert js("document.querySelector('.readouts').firstElementChild.className") == (
+                    "terminal")
         assert len(prompts) == len(harnesses)
-        modes = js("[...document.querySelectorAll('[data-act=topology]')].map(b=>b.textContent)")
-        assert modes == ["Shared Room Mesh", "Dual-Relay Bridge", "Sealed Dropbox Intake"]
-        variants = []
-        for mode, peers, direction in (("bridge", ["partner"], "0;1"), ("intake", ["dropbox"], "1;0"),
-                                       ("mesh", ["partner", "connector"], "0;1")):
-            js(f"document.querySelector('[data-act=topology][data-id={mode}]').click()")
-            fleet = [["bus", "internal-in"], ["internal-out", "fleet"]]
-            active = [["Cursor", "external-in"]] + [["external-out", peer] for peer in peers]
-            assert sorted(js("patchRoutes('.cord')")) == sorted(fleet + active)
-            assert sorted(js("patchRoutes('.fleet-cord')")) == sorted(fleet)
-            labels = js("document.querySelector('.patch-wires').textContent")
-            assert all(label in labels for label in ("External / Partner Switchboard",
-                       "Private Internal Switchboard", "Friend / Partner Workstation Board",
-                       "Cloud & Remote Agent Fleet", "One-Way Intake & Quarantine Dropbox"))
-            assert js("document.querySelector('.signal animateMotion')"
-                      ".getAttribute('keyPoints')") == direction
-            variants.append((js("document.querySelector('.prompt-code').textContent"),
-                             js("document.querySelector('.terminal code').textContent")))
-        assert len({p for p, _ in variants}) == len({c for _, c in variants}) == 3
-        assert "crosswire-external" in variants[0][1] and "status --hook" in variants[1][1]
+        _check_session_locations(js)
+        mesh_prompt = _exercise_session_graph(js)
         js("document.querySelector('[data-act=copy-prompt]').click()")
         _until(lambda: js("document.querySelector('.toast')?.textContent === 'Copied'"))
         js("navigator.clipboard.readText().then(text => window.copiedPrompt = text)")
-        assert _until(lambda: js("window.copiedPrompt")) == variants[-1][0]
+        assert _until(lambda: js("window.copiedPrompt")) == mesh_prompt
         assert not relay.members
         trust = Trust.from_mapping({"schema": "cf.transport/1", "relay": relay.url,
                                     "campaign": "camp", "operator_pubkeys": [_npub(_pub(PEER_SK))]})
@@ -1985,10 +2113,10 @@ def test_public_harness_switcher_and_docs_chapters(tmp_path):
         assert not js("document.querySelector('[name=token]').value")
         assert token not in js("document.querySelector('#agent-prompt').textContent")
         assert token not in js("document.querySelector('.terminal code').textContent")
-        js("document.querySelector('.specimen summary').click()")
+        assert js("document.querySelector('.specimen').open")
         specimen = "document.querySelector('.specimen [role=tabpanel]').innerText"
         bus = js(specimen)
-        assert all(text in bus for text in ("@alice", "alice/claude-code", "@bob/codex",
+        assert all(text in bus for text in ("@you/macbook", "#agents", "@brother/laptop",
                                            "Acknowledged", "signed · E2 · NIP-44 v2"))
         js("document.querySelector('[data-act=specimen][data-id=handoff]').click()")
         assert js("[...document.querySelectorAll('.specimen dt')].map(d=>d.textContent)") == [
@@ -1996,7 +2124,7 @@ def test_public_harness_switcher_and_docs_chapters(tmp_path):
         js("document.activeElement.dispatchEvent(new KeyboardEvent('keydown', "
            "{key:'ArrowRight', bubbles:true}))")
         assert js("document.activeElement.textContent") == "Write-Only Dropbox"
-        assert "Sealed to Alice’s dropbox" in js(specimen)
+        assert "sealed to keeper" in js(specimen) and "Quarantine" in js(specimen)
         assert js("document.querySelector('[name=handle]').value") == "alice"
         assert js("document.querySelectorAll('.previews article').length") == 3
         chapters = [

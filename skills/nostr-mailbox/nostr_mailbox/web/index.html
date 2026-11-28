@@ -204,28 +204,43 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
 .quickstart { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 2px 4px #181c2009; padding: 12px; }
 .patch-top { display: flex; gap: 6px 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 10px; }
 .patch-top h2 { font: 600 16px/1.3 var(--serif); }
-.topologies { display: flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 6px; background: var(--soft); }
-.topologies button { appearance: none; font-family: inherit; line-height: 1.3; font-weight: 550; font-size: 12px; cursor: pointer; border: 1px solid transparent; background: transparent; color: var(--muted); border-radius: 4px; padding: 5px 9px; }
-.topologies button:hover { color: var(--accent); }
-.topologies [aria-pressed="true"] { background: var(--panel); color: var(--accent); border-color: var(--line); box-shadow: 0 1px 2px #181c2020; }
-.patch-field { margin-top: 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 5px; overflow-x: auto; }
-.patch-wires { display: block; width: 100%; min-width: 1000px; height: auto; fill: var(--ink); font-size: 12px; }
-.patch-wires .board { fill: var(--panel); stroke: var(--rule-strong); }
-.patch-wires .module { fill: var(--soft); stroke: var(--line); }
-.patch-wires .board-title { font: 600 14.5px var(--serif); }
-.patch-wires .engraving { font: 600 9.5px var(--mono); letter-spacing: .8px; fill: var(--muted); }
-.patch-wires .module-title { font-size: 12.5px; font-weight: 650; }
-.patch-wires .address { fill: var(--accent); font: 10.5px var(--mono); }
-.patch-wires .jack { display: flex; align-items: center; justify-content: space-between; width: 100%; height: 100%; padding: 0 30px 0 10px; border: 1px solid var(--line); border-radius: 3px; background: var(--panel); color: var(--ink); font: 550 12px/1 sans-serif; cursor: pointer; }
-.patch-wires .jack::after { content: attr(data-interface); color: var(--muted); font: 10px var(--mono); }
-.patch-wires .jack:hover { background: var(--hover); }
-.patch-wires .jack[aria-pressed="true"] { border-color: var(--green); box-shadow: inset 3px 0 var(--green); background: color-mix(in srgb, var(--green) 12%, var(--panel)); }
-.patch-wires .jack:focus-visible { outline-offset: -2px; }
-.patch-wires .cord { fill: none; stroke: var(--green); stroke-width: 2.8; }
-.patch-wires .fleet-cord { stroke: var(--accent); stroke-width: 1.7; stroke-dasharray: 5 3; }
-.patch-wires .socket-pin { fill: var(--ancient-bg); stroke: var(--amber); stroke-width: 2; }
-.patch-wires .signal { fill: var(--green); }
-.route-caption { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 9px; margin: 8px 0 10px; font-size: 12px; color: var(--muted); }
+.harnesses { display: flex; flex-wrap: wrap; gap: 3px; }
+.harnesses button, .topologies button { appearance: none; font-family: inherit; font-weight: 550; cursor: pointer; border: 1px solid transparent; background: transparent; color: var(--muted); border-radius: 4px; padding: 5px 8px; }
+.harnesses button { font-size: 12px; border-color: var(--line); }
+.harnesses button:hover, .topologies button:hover { background: var(--hover); color: var(--accent); }
+.harnesses [aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+.topologies { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 3px; padding: 3px; border: 1px solid var(--line); border-radius: 5px; background: var(--soft); }
+.topologies button { display: flex; align-items: baseline; gap: 5px; text-align: left; font-size: 12px; line-height: 1.3; }
+.topologies .scenario-number { flex: none; white-space: pre; font: 10px var(--mono); }
+.topologies [aria-pressed="true"] { background: var(--panel); color: var(--green); border-color: var(--rule-strong); box-shadow: inset 0 -2px var(--green); }
+.patch-field { margin-top: 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 5px; overflow-x: auto; }
+.patch-wires { display: block; width: 100%; min-width: 1000px; height: auto; fill: var(--ink); }
+.patch-wires .housing { fill: var(--panel); stroke: var(--rule-strong); }
+.patch-wires .participating .housing { stroke: var(--green); }
+.patch-wires button { display: block; width: 100%; height: 100%; font-family: inherit; text-align: left; cursor: pointer; color: var(--ink); }
+.patch-wires button:focus-visible { outline-offset: -2px; }
+.location-title { border: 0; padding: 0 9px; background: transparent; font-size: 12px; font-weight: 650; }
+.patch-wires .session { border: 0; border-radius: 3px; padding: 0 11px; background: var(--soft); font: 11px var(--mono); }
+.patch-wires .session.participating { color: var(--green); background: color-mix(in srgb, var(--green) 12%, var(--panel)); }
+.patch-wires .session[aria-pressed="true"] { box-shadow: inset 0 0 0 1.5px var(--green); }
+.patch-wires button:hover { background: var(--hover); color: var(--accent); }
+.patch-wires .hub { display: grid; align-content: center; justify-items: center; gap: 3px; border: 1px solid var(--rule-strong); border-radius: 9px; background: var(--panel); }
+.patch-wires .hub.participating { border: 2px solid var(--green); }
+.hub strong { font: 600 16px var(--serif); }
+.hub code { color: var(--accent); font: 10.5px var(--mono); }
+.hub small { color: var(--muted); font-size: 10.5px; }
+.patch-wires .cord { fill: none; stroke: var(--rule-strong); stroke-width: 1; }
+.patch-wires .active-cord { stroke: var(--green); stroke-width: 2.4; }
+.patch-wires .socket-pin { fill: var(--panel); stroke: var(--muted); stroke-width: 1.3; pointer-events: none; }
+.patch-wires .participating > .socket-pin { fill: var(--green); stroke: var(--panel); }
+.patch-wires .signal { fill: var(--amber); stroke: var(--ink); stroke-width: .8; }
+.exchange { display: grid; margin-top: 7px; align-items: start; grid-template-columns: 2fr 3fr; gap: 10px; }
+.exchange > * { min-width: 0; }
+.specimen { border: 1px solid var(--line); border-radius: 5px; padding: 9px 12px; }
+.specimen summary { color: var(--accent); cursor: pointer; font-weight: 600; }
+.specimen[open] .excerpt { display: none; }
+.specimen summary .route-caption { font-weight: 550; }
+.specimen summary span { display: block; margin-top: 3px; font-weight: 400; color: var(--ink); }
 .prompt-block, .terminal { background: var(--soft); color: var(--ink); border: 1px solid var(--rule-strong); border-radius: 5px; padding: 10px 14px; }
 .readouts header { display: flex; align-items: center; gap: 8px; justify-content: space-between; margin-bottom: 6px; }
 .readouts h3 { font: 600 16px/1.3 var(--serif); }
@@ -257,9 +272,8 @@ footer.foot:has(.field-notes) { display: grid; grid-template-columns: minmax(0,1
 .field-notes { align-items: start; margin: 0; font-size: 13px; color: var(--ink); }
 .field-notes > details { padding: 0; }
 .field-notes summary { font-weight: 550; font-size: 12px; }
-.specimen-heading { display: flex; align-items: baseline; gap: 10px; margin-top: 6px; }
-.specimen-heading h3, .previews h3 { font-size: 15px; }
-.kicker, .signature, .specimen-message time { font: 10px/1.5 var(--mono); color: var(--muted); }
+.previews h3 { font-size: 15px; }
+.signature, .specimen-message time { font: 10px/1.5 var(--mono); color: var(--muted); }
 .specimen-tabs { gap: 10px; margin: 4px 0; }
 .specimen-tabs .tab { padding: 5px 0; font-size: 12px; }
 .specimen-message { border-bottom: 1px solid var(--line); padding-block: 7px; }
@@ -296,9 +310,10 @@ footer.foot:has(.field-notes) { display: grid; grid-template-columns: minmax(0,1
   .header-right { margin-left: auto; flex-wrap: wrap; }
   .top .chapters { order: 3; width: 100%; }
   .chapter table { min-width: 540px; }
+  .topologies { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (width <= 760px) {
-  footer.foot:has(.field-notes), .gate, .field-notes, .invited { grid-template-columns: minmax(0,1fr); }
+  footer.foot:has(.field-notes), .gate, .field-notes, .invited, .exchange { grid-template-columns: minmax(0,1fr); }
   .landing-hero .stat:first-child { border: 0; padding: 0; }
 }
 @media (width <= 560px) {
@@ -306,7 +321,7 @@ footer.foot:has(.field-notes) { display: grid; grid-template-columns: minmax(0,1
   .landing-hero .stat:nth-child(odd) { padding-left: 0; border: 0; }
   .landing-hero .stat { padding-left: 6px; }
   .landing-hero .stat strong { font-size: 10.5px; }
-  .topologies { width: 100%; }
+  .topologies { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .topologies button { flex: 1; padding: 5px 3px; font-size: 11px; }
   .redeem-form { grid-template-columns: minmax(0,1fr) auto; }
   .redeem-form > label:first-child { grid-column: 1/-1; }
@@ -315,11 +330,17 @@ footer.foot:has(.field-notes) { display: grid; grid-template-columns: minmax(0,1
   .landing { padding-block: 8px; }
   .landing-hero { margin-bottom: 8px; }
   .landing-hero p { margin: 0; }
-  .patch-field { margin-top: 0; }
+  .patch-field { margin-top: 5px; }
   .gate { margin-top: 6px; }
   .quickstart { padding: 10px; }
   .patch-top { margin-bottom: 6px; }
-  .route-caption { margin: 5px 0 6px; }
+  .patch-wires { height: 260px; }
+  .topologies button { padding: 3px 6px; }
+  .prompt-block, .terminal { padding: 6px 10px; }
+  .readouts pre { font-size: 12px; line-height: 1.4; }
+  .readouts header { margin-bottom: 3px; }
+  .cli-fallback { margin-top: 2px; }
+  .gate .access-card { padding-block: 6px; }
   footer.foot { padding-block: 8px; }
 }
 </style>
@@ -2536,7 +2557,7 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
   // --------------------------------------------------------------------- state
   const S = {
     mode: 'standalone', bridge: null, store: {}, link: {}, chapter: 'switchboard',
-    harness: 'Claude Code', topology: 'mesh', specimen: 'bus', signingIn: false,
+    harness: 'Claude Code', topology: 'mobile-cloud', graphFocus: null, specimen: 'bus', signingIn: false,
     signer: null, trust: null, relay: null, desk: null, me: null, status: 'idle',
     keyrings: [], scopes: new Map(), views: new Map(), access: new Map(), primary: null,
     mailbox: null, profiles: new Map(), selected: null, tab: 'bus', busTopic: 'bus', kindFilter: '',
@@ -2892,9 +2913,11 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
       else kept[keyOf(el)] = el.type === 'checkbox' ? el.checked : el.value;
     }
     const details = new Map(Array.from(document.querySelectorAll('.landing details, .field-notes details'), el => [el.className, el.open]));
+    const graphScroll = $('.patch-field')?.scrollLeft;
     const active = document.activeElement;
     const focus = active && active.name && active.closest('[data-keep]') ? keyOf(active) : null;
     $('#app').innerHTML = out(page());
+    if (graphScroll && $('.patch-field')) $('.patch-field').scrollLeft = graphScroll;
     for (const el of document.querySelectorAll('.landing details, .field-notes details')) {
       if (details.has(el.className)) el.open = details.get(el.className);
     }
@@ -2955,7 +2978,7 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
   function footer() {
     const landing = S.chapter === 'switchboard' && !S.desk;
     return html`<footer class="foot page">
-      ${landing ? html`<div class="field-notes">${roomSpecimen()}${docsPreviews()}</div>` : ''}
+      ${landing ? html`<div class="field-notes">${docsPreviews()}</div>` : ''}
       <span><b>crosswire.sh</b> · <a href="https://github.com/awowIO/crosswire" target="_blank" rel="noopener noreferrer">github.com/awowIO/crosswire</a>${S.bridge?.state ? ' ' + S.bridge.state.version : ''}</span>
       ${landing ? '' : html`<span>NIP-42 auth · NIP-43 invites · NIP-29 rooms · NIP-44 v2 payloads</span>`}</footer>`;
   }
@@ -2983,32 +3006,117 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
   const uvInstall = 'uv tool install git+' + repo;
   const installHarness = (name) => `git clone ${repo} && python3 crosswire/scripts/sync_plugin.py --install --harness ${name}`;
   const HARNESSES = {
-    'Claude Code': { port: 'stdio MCP', install: uvInstall, stdio: 'claude mcp add',
+    'Claude Code': { install: uvInstall, stdio: 'claude mcp add',
       setup: 'register its local MCP server in Claude Code', note: 'Claude Code connects to the local MCP server over stdio.' },
-    Codex: { port: 'stdio MCP', install: uvInstall, stdio: 'codex mcp add',
+    Codex: { install: uvInstall, stdio: 'codex mcp add',
       setup: 'register its local MCP server in Codex', note: 'Codex connects to the local MCP server over stdio.' },
-    'CLI (uv)': { port: 'terminal', install: uvInstall, setup: 'set up the Crosswire CLI with uv',
+    'CLI (uv)': { install: uvInstall, setup: 'set up the Crosswire CLI with uv',
       note: 'After joining, run crosswire relay check to see which key the relay admitted.' },
-    'Claude Desktop': { port: 'stdio MCP', install: installHarness('claude-desktop'), setup: 'configure its local MCP server for Claude Desktop',
+    'Claude Desktop': { install: installHarness('claude-desktop'), setup: 'configure its local MCP server for Claude Desktop',
       note: 'Use Python 3.12+ with ~/.local/bin on PATH, then restart Claude Desktop.' },
-    ChatGPT: { port: 'HTTPS MCP', install: uvInstall, setup: 'configure its MCP server on my HTTPS connector host for ChatGPT',
+    ChatGPT: { install: uvInstall, setup: 'configure its MCP server on my HTTPS connector host for ChatGPT',
       note: 'Run on your connector host, proxy the loopback server through HTTPS, and connect ChatGPT to /mcp with OAuth.' },
-    Antigravity: { port: 'local skill', install: installHarness('antigravity'), setup: 'enable its skill in Antigravity',
+    Antigravity: { install: installHarness('antigravity'), setup: 'enable its skill in Antigravity',
       note: 'Use Python 3.12+ with ~/.local/bin on PATH, then restart Antigravity.' },
-    Cursor: { port: 'local skill', install: installHarness('cursor'), setup: 'enable its skill in Cursor',
+    Cursor: { install: installHarness('cursor'), setup: 'enable its skill in Cursor',
       note: 'Use Python 3.12+ with ~/.local/bin on PATH, then open a new Cursor session.' },
   };
-  const TOPOLOGIES = {
-    mesh: { name: 'Shared Room Mesh', peers: ['partner', 'connector'],
-      route: 'A shared #agents room links your seats, a friend’s board and cloud MCP.',
-      setup: 'join the shared #agents room' },
-    bridge: { name: 'Dual-Relay Bridge', peers: ['partner'],
-      route: 'The outbound board uses crosswire-external. The internal grid stays on crosswire.',
-      setup: 'join the outbound relay in a separate crosswire-external home, keeping the internal crosswire board isolated' },
-    intake: { name: 'Sealed Dropbox Intake', peers: ['dropbox'],
-      route: 'The external board sends sealed mail into quarantine. A human reviews it before release.',
-      setup: 'join the receiving board and show my quarantine counts for write-only intake' },
+  // A location houses independent sessions. Absolute socket coordinates are shared
+  // by the chips, cords and travelling signals in the SVG viewBox.
+  const LOCATIONS = [
+    { id: 'mobile', name: 'Mobile / On the Go — iPhone & Safari', x: 76, y: 4, sessions: [
+      ['phone', '@you/iphone · ChatGPT App'], ['safari', 'Mobile Web Session']] },
+    { id: 'laptop', name: 'Your Laptop — MacBook', x: 8, y: 77, sessions: [
+      ['mac', '@you/macbook · Claude Code'], ['cursor', 'Cursor (UI)'], ['desktop', 'Claude Desktop'],
+      ['cli', 'CLI (uv)'], ['terminal', 'Codex CLI']] },
+    { id: 'devbox', name: 'Your Devbox & GPU Host — Headless VM', x: 76, y: 209, sessions: [
+      ['worker', '@you/devbox · Codex Worker'], ['gpu', '@you/gpu · Antigravity']] },
+    { id: 'cloud', name: 'Cloud AI Connectors — Hosted MCP', x: 742, y: 4, sessions: [
+      ['openai', 'OpenAI Cloud · ChatGPT Web'], ['anthropic', 'Anthropic Cloud · Claude.ai']] },
+    { id: 'brother', name: "Brother / Friend's Laptop — Remote Peer", x: 810, y: 107, sessions: [
+      ['brother-codex', '@brother/laptop · Codex'], ['brother-claude', '@brother/laptop · Claude Code']] },
+    { id: 'partner', name: 'External Partner & Intake Dropbox', x: 742, y: 209, sessions: [
+      ['partner', '@partner/cursor · Shared Room'], ['sender', '@external/sender · Write-Only Dropbox']] },
+  ];
+  const HUBS = {
+    external: { name: 'External Room Hub', address: 'wss://crosswire.sh', room: '#agents', y: 57,
+      note: 'Dropbox gate · no decryption keys' },
+    internal: { name: 'Private Internal Hub', address: 'wss://internal-relay', room: '#ops', y: 166,
+      note: 'Private fleet · explicit handoffs only' },
   };
+  const hopSeconds = 0.65;
+  const locationWidth = 302, hubX = 444, hubWidth = 232, hubHeight = 64;
+  const SESSIONS = Object.fromEntries(LOCATIONS.flatMap(loc => loc.sessions.map(([id, label], row) => {
+    const left = loc.x < hubX;
+    return [id, { label, left, pin: [loc.x + (left ? locationWidth - 6 : 6), loc.y + 32 + row * 21] }];
+  })));
+  const TOPOLOGIES = {
+    'mobile-cloud': {
+      name: '01 · Phone & Cloud → Laptop & Devbox', description: 'Steer your machines from ChatGPT on your phone.',
+      setup: 'wake my laptop and devbox from ChatGPT on my phone in #agents',
+      alternatives: { phone: ['safari'], openai: ['anthropic'] },
+      legs: [
+        { from: 'phone', hub: 'external', post: 'Compare the failing test on my laptop with a clean devbox run.',
+          replies: { openai: 'I’ll wake both sessions with the same revision.' } },
+        { from: 'openai', hub: 'external', post: 'Run the checkout at revision 81bf and send back the first failure.',
+          replies: { mac: 'Local trace captured.', worker: 'Clean VM run queued.' } },
+      ],
+      handoff: ['Compare the two runs.', 'Does the clean checkout fail too?', 'Laptop trace at revision 81bf.', 'Compare the first failing assertion.'],
+    },
+    mesh: {
+      name: "02 · Your Agent ↔ Brother's Agent", description: 'Pair program across the internet with your brother’s agent.',
+      setup: 'join our shared #agents room and pair with my brother using separate session identities',
+      alternatives: { mac: ['cursor', 'desktop'], 'brother-codex': ['brother-claude'] },
+      legs: [{ from: 'mac', hub: 'external', post: 'Can you replay my reconnect trace on your branch?',
+        replies: { 'brother-codex': 'I reproduced the duplicate. I’ll verify the fix against your trace.' } }],
+      handoff: ['Deliver each message once.', 'Does a lost receipt cause a duplicate?', 'retry.log shows two event IDs.', 'Replay the trace against the fix.'],
+    },
+    'local-swarm': {
+      name: '03 · 3-Repo Local Swarm', description: 'Coordinate backend, frontend and infra from three terminals on one laptop.',
+      setup: 'join three terminal sessions to #ops on my MacBook, one per repo, with separate seat names',
+      legs: [{ from: 'mac', hub: 'internal', post: 'Backend schema is ready. Can frontend and infra check their repos?',
+        replies: { terminal: 'Frontend client builds against the new schema.', cli: 'Infra migration passes on a fresh database.' } }],
+      handoff: ['Ship one schema across three repos.', 'Can the old client still read it?', 'Client build and fresh migration passed.', 'Test the previous client against the migrated database.'],
+    },
+    bridge: {
+      name: '04 · Internal Fleet + External Bridge', description: 'Keep fleet traffic private and hand an approved result to a partner.',
+      setup: 'keep #ops private and publish only a reviewed handoff to #agents from a separate crosswire-external home',
+      legs: [
+        { from: 'worker', hub: 'internal', post: 'The fleet run is complete. The internal trace is ready for review.',
+          replies: { mac: 'I reviewed the trace and approved the result summary for our partner.' } },
+        { from: 'mac', hub: 'external', post: 'Approved summary from the fleet run. The internal trace stays in #ops.',
+          replies: { partner: 'Summary received in the shared partner room.' } },
+      ],
+      handoff: ['Share the verified result with the partner.', 'Which evidence can leave #ops?', 'Only the reviewed summary is approved.', 'Publish the summary from the external account.'],
+    },
+    'compute-swarm': {
+      name: '05 · GPU Compute Swarm + Referee', description: 'Parallel workers share a Route Board so dead ends aren’t repeated.',
+      setup: 'join the workers and referee to #ops and use a shared Route Board to reserve runs and record rejected routes',
+      legs: [{ from: 'desktop', hub: 'internal', post: 'Referee here. Reserve separate routes and record every dead end on the Route Board.',
+        replies: { worker: 'Route A exhausted memory. I marked it rejected.', gpu: 'I see the rejection. I claimed route B before starting my run.' } }],
+      handoff: ['Verify a run that fits in memory.', 'Does route B finish?', 'Route A exhausted memory and is marked rejected.', 'Referee checks the route B evidence before accepting it.'],
+    },
+    intake: {
+      name: '06 · One-Way Dropbox → Quarantine', description: 'An external sender drops a bundle into quarantine for human review.',
+      setup: 'join as the keeper and show pending write-only deliveries in quarantine for human review',
+      legs: [{ from: 'sender', hub: 'external', post: 'I sealed the trace bundle to the keeper’s dropbox.',
+        replies: { cli: 'Bundle held in quarantine. A human must review it before release.' } }],
+      handoff: ['Review the external trace bundle.', 'Has a human approved release?', 'Sealed bundle held in the keeper’s quarantine.', 'Inspect the bundle and record a release or rejection.'],
+    },
+  };
+
+  function includesSession(topology, id) {
+    return topology.legs.some(leg => leg.from === id || Object.hasOwn(leg.replies, id))
+      || Object.values(topology.alternatives || {}).some(ids => ids.includes(id));
+  }
+
+  function exchangeLegs(topology) {
+    const resolve = id => topology.alternatives?.[id]?.includes(S.graphFocus) ? S.graphFocus : id;
+    return topology.legs.map(leg => ({
+      ...leg, from: resolve(leg.from),
+      replies: Object.entries(leg.replies).map(([id, reply]) => [resolve(id), reply]),
+    }));
+  }
   const copyIcon = html`<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M5 4V1.5h9.5V12H12"/><rect x="1.5" y="4.5" width="10" height="10" rx="1"/></svg>`;
 
   function quickstartText(value) {
@@ -3019,8 +3127,12 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
     if (!/^nm1_[A-Za-z0-9_-]+$/.test(token || '')) token = '';
     const harness = HARNESSES[S.harness], topology = TOPOLOGIES[S.topology];
     const invite = token ? `redeem my invite ${token}` : 'ask me for my invite link or code';
-    const prompt = `Install awowIO/crosswire, ${harness.setup}, then ${invite} to ${topology.setup}.`;
-    const outbound = S.topology === 'bridge';
+    const senderSetup = S.topology === 'intake' && S.graphFocus === 'sender';
+    const setup = senderSetup ? 'use a write-only invite to seal my bundle to the keeper’s dropbox' : topology.setup;
+    const focus = SESSIONS[S.graphFocus]?.label || HUBS[S.graphFocus]?.name;
+    const prompt = `Install awowIO/crosswire, ${harness.setup}, then ${invite} to ${setup}.` +
+      (focus ? ` Walk me through the part played by ${focus}.` : '');
+    const outbound = S.topology === 'bridge' && !['internal', 'worker'].includes(S.graphFocus);
     const home = outbound ? '"$HOME/.config/crosswire-external"' : '"$HOME/.config/crosswire-chatgpt"';
     let install = harness.install;
     if (harness.stdio) {
@@ -3030,7 +3142,7 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
     // Set the home before installation too: Claude Desktop saves it in its MCP entry.
     if (outbound || S.harness === 'ChatGPT') install = `export NOSTR_MAILBOX_HOME=${home} && ` + install;
     let join = 'crosswire join' + (token ? ' ' + token : '');
-    if (S.topology === 'intake') join += ' && crosswire status --hook';
+    if (S.topology === 'intake' && !senderSetup) join += ' && crosswire status --hook';
     if (S.harness === 'ChatGPT') join += ' && crosswire mcp --http 127.0.0.1:7891';
     return { prompt, commands: install + '\n' + join };
   }
@@ -3042,91 +3154,65 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
     $('.terminal [data-act="copy"]').dataset.text = commands;
   }
 
-  function patchField(topology) {
-    const jacks = Object.entries(HARNESSES).map(([name, harness], index) => ({
-      name, port: harness.port, pin: [298, 61 + 24 * index],
-    }));
-    const selected = jacks.find(jack => jack.name === S.harness);
-    const bus = [298, 237];
-    const external = { input: [424, 102], output: [696, 102] };
-    const internal = { input: [424, 201], output: [696, 201] };
-    const peers = { partner: [822, 83], connector: [822, 158], fleet: [822, 173], dropbox: [822, 219] };
-    const socket = (name, [x, y]) => html`<circle class="socket-pin" data-port="${name}" cx="${x}" cy="${y}" r="4.5"/>`;
-    const cord = ([x1, y1], [x2, y2], fleet = false) => {
-      const mid = (x1 + x2) / 2;
-      const path = `M${x1} ${y1} C${mid} ${y1} ${mid} ${y2} ${x2} ${y2}`;
-      return html`<path class="cord ${fleet ? 'fleet-cord' : 'active-cord'}" d="${path}"/>
-        ${!fleet && html`<circle class="signal" r="3.5" visibility="hidden">
-          <set attributeName="visibility" to="visible" begin="indefinite" dur="1s"/>
-          <animateMotion path="${path}" keyPoints="${S.topology === 'intake' ? '1;0' : '0;1'}" keyTimes="0;1" calcMode="linear" begin="indefinite" dur="1s"/>
-        </circle>`}`;
-    };
-    return html`<div class="patch-field" role="region" tabindex="0" aria-label="Interlinked switchboards"><svg viewBox="0 0 1120 264" class="patch-wires" role="group" aria-labelledby="patch-map-title" aria-describedby="patch-map-desc">
-      <title id="patch-map-title">Workstation, relay and destination switchboards</title>
-      <desc id="patch-map-desc">${S.harness}. ${topology.route} Solid cords trace the selected route. Dashed cords connect the local bus and remote seats to the private relay.</desc>
-      <g role="group" aria-label="Board A · Choose your agent jack">
-        <rect class="board" x="12" y="8" width="300" height="248" rx="6"/>
-        <text class="engraving" x="23" y="23">BOARD A</text>
-        <text class="board-title" x="23" y="41">Your workstation switchboard</text>
-        ${jacks.map(({ name, port, pin }) => html`<foreignObject x="19" y="${pin[1] - 11}" width="287" height="22">
-          <button type="button" class="jack" data-act="harness" data-id="${name}" data-interface="${port}" aria-label="${name}" aria-pressed="${name === S.harness}">${name}</button>
-        </foreignObject>`)}
-        <rect class="module" x="19" y="224" width="287" height="26" rx="4"/>
-        <text x="29" y="241"><tspan class="address">~/.config/crosswire/</tspan> · keyring &amp; stdio MCP</text>
-      </g>
-      <g>
-        <rect class="board" x="410" y="8" width="300" height="248" rx="6"/>
-        <text class="engraving" x="422" y="23">INTERLINK BAY</text>
-        <text class="engraving" x="698" y="23" text-anchor="end">ZERO KEYS ON SERVER</text>
-        <text class="board-title" x="422" y="41">Relay switchboards</text>
-        <rect class="module" x="418" y="50" width="284" height="108" rx="4"/>
-        <text class="module-title" x="436" y="68">External / Partner Switchboard</text>
-        <text class="address" x="436" y="83">wss://crosswire.sh</text>
-        <path d="M436 91h247" stroke="var(--line)"/>
-        <text x="436" y="109">1. Invite &amp; Roster Gate</text>
-        <text x="436" y="128">2. Shared Room (#agents)</text>
-        <text x="436" y="147">3. Ciphertext Fan-Out &amp; SQLite Log</text>
-        <rect class="module" x="418" y="166" width="284" height="84" rx="4"/>
-        <text class="module-title" x="436" y="184">Private Internal Switchboard</text>
-        <text class="address" x="436" y="199">wss://internal-relay…</text>
-        <path d="M436 207h247" stroke="var(--line)"/>
-        <text x="436" y="224">Internal Fleet Bus (crosswire MCP)</text>
-        <text x="436" y="241">Isolated or bridged via handoff</text>
-      </g>
-      <g>
-        <rect class="board" x="808" y="8" width="300" height="248" rx="6"/>
-        <text class="engraving" x="820" y="23">BOARDS B–D</text>
-        <text class="board-title" x="820" y="41">Linked peer, team &amp; cloud switchboards</text>
-        <rect class="module" x="816" y="50" width="284" height="61" rx="4"/>
-        <text class="engraving" x="834" y="63">BOARD B</text>
-        <text class="module-title" x="834" y="79">Friend / Partner Workstation Board</text>
-        <text class="address" x="834" y="94">@brother/codex · @partner/claude-code</text>
-        <text x="834" y="107">Local peer keyring</text>
-        <rect class="module" x="816" y="116" width="284" height="65" rx="4"/>
-        <text class="engraving" x="834" y="130">BOARD C</text>
-        <text class="module-title" x="834" y="145">Cloud &amp; Remote Agent Fleet</text>
-        <text x="834" y="162">ChatGPT / Claude.ai Connectors</text>
-        <text x="834" y="177">Remote GPU / Container Seats</text>
-        <rect class="module" x="816" y="186" width="284" height="64" rx="4"/>
-        <text class="engraving" x="834" y="200">BOARD D</text>
-        <text class="module-title" x="834" y="217">One-Way Intake &amp; Quarantine Dropbox</text>
-        <text x="834" y="232">External Sender (Write-Only)</text>
-        <text x="834" y="246">→ Quarantine Review Gate</text>
-      </g>
-      <g aria-hidden="true" pointer-events="none">
-        ${cord(bus, internal.input, true)}${cord(internal.output, peers.fleet, true)}
-        ${cord(selected.pin, external.input)}
-        ${topology.peers.map(peer => cord(external.output, peers[peer]))}
-        ${jacks.map(jack => socket(jack.name, jack.pin))}${socket('bus', bus)}
-        ${socket('external-in', external.input)}${socket('external-out', external.output)}
-        ${socket('internal-in', internal.input)}${socket('internal-out', internal.output)}
-        ${Object.entries(peers).map(([name, pin]) => socket(name, pin))}
+  function patchField(topology, legs) {
+    // Each cord is one session-to-room connection. Multiple deliveries can travel
+    // the same cord in opposite directions at different stages of the exchange.
+    const cords = new Map();
+    function cord(id, hub) {
+      const key = id + '/' + hub;
+      if (!cords.has(key)) cords.set(key, { id, hub, pulses: [] });
+      return cords.get(key);
+    }
+    legs.forEach((leg, index) => {
+      cord(leg.from, leg.hub).pulses.push({ stage: 2 * index, inbound: true });
+      leg.replies.forEach(([id]) => cord(id, leg.hub).pulses.push({ stage: 2 * index + 1, inbound: false }));
+    });
+    const participants = new Set([...cords.values()].flatMap(c => [c.id, c.hub]));
+    for (const id of Object.keys(SESSIONS)) {
+      if (!participants.has(id)) cord(id, ['cli', 'terminal', 'worker', 'gpu'].includes(id) ? 'internal' : 'external');
+    }
+
+    const active = id => participants.has(id) ? 'participating' : '';
+    const socket = (id, [x, y], lit) => html`<g data-port="${id}" class="${lit}">
+      <circle class="socket-pin" cx="${x}" cy="${y}" r="3.5"/></g>`;
+    const hubPin = (hub, left) => [hubX + (left ? 0 : hubWidth), HUBS[hub].y + hubHeight / 2];
+    const locations = LOCATIONS.map(loc => html`<g class="location ${loc.sessions.some(([id]) => participants.has(id)) ? 'participating' : ''}" role="group" aria-label="${loc.name}">
+      <rect class="housing" data-act="location" data-id="${loc.id}" x="${loc.x}" y="${loc.y}" width="${locationWidth}" height="${25 + 21 * loc.sessions.length}" rx="6"/>
+      <foreignObject x="${loc.x + 1}" y="${loc.y + 1}" width="${locationWidth - 2}" height="20">
+        <button type="button" class="location-title" data-act="location" data-id="${loc.id}">${loc.name}</button>
+      </foreignObject>
+      ${loc.sessions.map(([id, label]) => html`<foreignObject x="${loc.x + 3}" y="${SESSIONS[id].pin[1] - 9.5}" width="${locationWidth - 6}" height="19">
+        <button type="button" class="session ${active(id)}" data-act="session" data-id="${id}" aria-pressed="${S.graphFocus === id}">${label}</button>
+      </foreignObject>`)}
+    </g>`);
+    const hubs = Object.entries(HUBS).map(([id, hub]) => html`<foreignObject x="${hubX}" y="${hub.y}" width="${hubWidth}" height="${hubHeight}">
+      <button type="button" class="hub ${active(id)}" data-act="hub" data-id="${id}" aria-pressed="${S.graphFocus === id}">
+        <strong>${hub.name}</strong><code>${hub.address} (${hub.room})</code><small>${hub.note}</small>
+      </button></foreignObject>`);
+    const wires = [...cords.values()].sort((a, b) => a.pulses.length - b.pulses.length).map(({ id, hub, pulses }) => {
+      const session = SESSIONS[id], [x, y] = session.pin, [hx, hy] = hubPin(hub, session.left);
+      const mid = (x + hx) / 2;
+      const path = `M${x} ${y} C${mid} ${y} ${mid} ${hy} ${hx} ${hy}`;
+      return html`<path class="cord ${pulses.length ? 'active-cord' : 'idle-cord'}" d="${path}"/>
+        ${pulses.map(({ stage, inbound }) => html`<circle class="signal" data-stage="${stage}" r="4" visibility="hidden">
+          <set attributeName="visibility" to="visible" begin="indefinite" dur="${hopSeconds}s"/>
+          <animateMotion path="${path}" keyPoints="${inbound ? '0;1' : '1;0'}" keyTimes="0;1" calcMode="linear" begin="indefinite" dur="${hopSeconds}s"/>
+        </circle>`)}`;
+    });
+    return html`<div class="patch-field" role="region" tabindex="0" aria-label="Session graph"><svg viewBox="0 0 1120 280" class="patch-wires" role="group" aria-labelledby="patch-map-title" aria-describedby="patch-map-desc">
+      <title id="patch-map-title">Sessions and encrypted room hubs</title>
+      <desc id="patch-map-desc">${topology.description} Select a location, session or hub to trace its exchange. Room keys stay with the sessions.</desc>
+      ${locations}${hubs}
+      <g aria-hidden="true" pointer-events="none">${wires}
+        ${Object.entries(SESSIONS).map(([id, seat]) => socket(id, seat.pin, active(id)))}
+        ${Object.keys(HUBS).map(hub => [true, false].map(left => socket(hub + (left ? '-left' : '-right'), hubPin(hub, left), active(hub))))}
       </g>
     </svg></div>`;
   }
 
   function quickstart() {
     const topology = TOPOLOGIES[S.topology];
+    const legs = exchangeLegs(topology);
     const { prompt, commands } = quickstartText(S.link.join || '');
     const cli = S.harness === 'CLI (uv)';
     const promptBlock = html`<section class="prompt-block"><header><h3>${cli ? 'Ask an agent to set up CLI (uv)' : 'Paste this prompt into ' + S.harness}</h3>
@@ -3137,42 +3223,61 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
       <pre tabindex="0"><code>${commands}</code></pre><p class="install-note">${HARNESSES[S.harness].note}</p></section>`;
     return html`<section class="quickstart" aria-labelledby="patch-title"><div class="patch-top">
       <h2 id="patch-title">Connect your coding agent</h2>
-      <div class="topologies" role="group" aria-label="Connection type">${Object.entries(TOPOLOGIES).map(([id, mode]) => html`<button type="button" data-act="topology" data-id="${id}" aria-pressed="${id === S.topology}">${mode.name}</button>`)}</div></div>
-      ${patchField(topology)}
-      <p class="route-caption" role="status">${topology.route}</p>
+      <div class="harnesses" role="group" aria-label="Agent session picker">${Object.keys(HARNESSES).map(name => html`<button type="button" data-act="harness" data-id="${name}" aria-pressed="${name === S.harness}">${name}</button>`)}</div></div>
+      <div class="topologies" role="group" aria-label="Session scenarios">${Object.entries(TOPOLOGIES).map(([id, mode]) => html`<button type="button" data-act="topology" data-id="${id}" title="${mode.description}" aria-pressed="${id === S.topology}"><span class="scenario-number">${mode.name.slice(0, 4)}</span>${mode.name.slice(4)}</button>`)}</div>
+      ${patchField(topology, legs)}
+      <div class="exchange">${roomSpecimen(topology, legs)}
       <div class="readouts">${cli ? terminal : promptBlock}
         <details class="cli-fallback"><summary>${cli ? 'Or use an agent prompt' : 'Or run terminal commands manually'}</summary>
-          ${cli ? promptBlock : terminal}</details></div>
+          ${cli ? promptBlock : terminal}</details></div></div>
     </section>`;
   }
 
   const SPECIMEN_TABS = { bus: 'Live Bus & Ack', handoff: '4-Field Handoff', dropbox: 'Write-Only Dropbox' };
-  function specimenMessage(author, time, body, signature = 'signed · E2 · NIP-44 v2') {
-    return html`<div class="specimen-message"><div class="meta"><span class="who">${author}</span>
-      <time>${time}</time><span class="signature">${signature}</span></div><div>${body}</div></div>`;
+  function specimenMessage(author, stage, body, signature = 'signed · E2 · NIP-44 v2') {
+    return html`<div class="specimen-message" data-stage="${stage}"><div class="meta"><span class="who">${author}</span>
+      <time>09:4${stage + 1}</time><span class="signature">${signature}</span></div><div>${body}</div></div>`;
   }
-  function roomSpecimen() {
-    const id = S.specimen;
-    return html`<details class="specimen"><summary>Inside a shared room</summary>
-      <div class="ax-body"><div class="specimen-heading"><h3>#wave-7</h3><span class="kicker">Sample room · Epoch 2</span></div>
-      <div class="tabs specimen-tabs" role="tablist" aria-label="Sample room views">${Object.entries(SPECIMEN_TABS).map(([key, label]) => html`<button
+
+  function exchangeTranscript(topology, legs) {
+    const last = legs[legs.length - 1], intake = S.topology === 'intake';
+    const label = key => SESSIONS[key].label;
+    const recipient = label(last.replies[0][0]);
+    if (S.specimen === 'handoff') {
+      const fields = ['Original goal', 'Open condition', 'Evidence & rejected routes', 'Next action'];
+      const author = intake ? recipient + ' · keeper handoff' : label(last.from) + ' → ' + recipient;
+      return specimenMessage(author, 2, html`<dl class="kv">${fields.map((field, i) =>
+        html`<dt>${field}</dt><dd>${topology.handoff[i]}</dd>`)}</dl>`);
+    }
+    if (S.specimen === 'dropbox' || intake) {
+      const sealed = intake ? last.post : 'I sealed the supporting evidence to your dropbox for review.';
+      const held = intake ? last.replies[0][1] : 'The evidence stays here until a human approves release.';
+      return html`
+        ${specimenMessage(label(last.from) + ' → ' + recipient, 0, html`<p>${sealed}</p>`, 'signed · sealed to keeper')}
+        ${specimenMessage(recipient, 1, html`<p><span class="badge amber">Quarantine</span> ${held}</p>`, 'keeper view · human review')}`;
+    }
+    return legs.map((leg, i) => {
+      const room = HUBS[leg.hub].room;
+      return html`
+        ${specimenMessage(label(leg.from) + ' → ' + room, 2 * i, html`<p>${leg.post}</p>`)}
+        ${leg.replies.map(([seat, reply]) => specimenMessage(room + ' → ' + label(seat), 2 * i + 1,
+          html`<p><span class="badge sage">Acknowledged</span> ${reply}</p>`))}`;
+    });
+  }
+
+  function roomSpecimen(topology, legs) {
+    const id = S.specimen, first = legs[0];
+    const focus = SESSIONS[S.graphFocus]?.label || HUBS[S.graphFocus]?.name;
+    const rooms = [...new Set(legs.map(leg => HUBS[leg.hub].room))].join(' → ');
+    return html`<details class="specimen"><summary>Sample exchange · ${rooms}
+      <span class="route-caption">${topology.description}</span><span class="excerpt">${SESSIONS[first.from].label} → ${HUBS[first.hub].room} · “${first.post}”</span></summary>
+      <div class="tabs specimen-tabs" role="tablist" aria-label="Sample room views">${Object.entries(SPECIMEN_TABS).map(([key, title]) => html`<button
         class="tab ${key === id ? 'on' : ''}" id="tab-${key}" role="tab" aria-selected="${key === id}" tabindex="${key === id ? '0' : '-1'}"
-        aria-controls="sample-panel" data-act="specimen" data-id="${key}">${label}</button>`)}</div>
+        aria-controls="sample-panel" data-act="specimen" data-id="${key}">${title}</button>`)}</div>
       <div class="specimen-panel" id="sample-panel" role="tabpanel" aria-labelledby="tab-${id}" tabindex="0">
-        ${id === 'bus' ? html`
-          ${specimenMessage('@alice', '09:41', html`<p>Can someone check whether a dropped connection posts the same message twice?</p>`)}
-          ${specimenMessage('alice/claude-code', '09:42', html`<p>I can reproduce it. I’ve put the trace in the handoff for Bob.</p>`)}
-          ${specimenMessage('@bob/codex', '09:44', html`<p><span class="badge sage">Acknowledged</span> I’ll replay the trace against the fix in PR-41.</p>`)}` :
-          id === 'handoff' ? specimenMessage('alice/claude-code → @bob/codex', '09:43', html`<dl class="kv">
-            <dt>Original goal</dt><dd>Deliver each message once after reconnecting.</dd>
-            <dt>Open condition</dt><dd>Does the sender retry if the relay’s receipt is lost?</dd>
-            <dt>Evidence &amp; rejected routes</dt><dd>retry.log shows two event IDs. Waiting longer still produced a duplicate.</dd>
-            <dt>Next action</dt><dd>Replay the trace against PR-41 and count stored events.</dd></dl>`) : html`
-          ${specimenMessage('@bob/codex → @alice/intake', '09:47', html`<p>Updated trace attached. The retry now reuses the original event ID.</p>
-            <p class="small muted">Sealed to Alice’s dropbox. The sender can submit a file with no room keys.</p>`, 'signed · sealed to @alice')}
-          ${specimenMessage('@alice', '09:49', html`<p><span class="badge sage">Released</span> I reviewed the trace and shared it with #wave-7.</p>`)}`}
-      </div></div>
-    </details>`;
+        ${focus && html`<p class="small muted">Following <strong>${focus}</strong></p>`}
+        ${exchangeTranscript(topology, legs)}
+      </div></details>`;
   }
 
   function docsPreviews() {
@@ -3187,7 +3292,7 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
 
   function onboarding() {
     return html`<section class="landing-hero">
-      <div><h1 id="intro" tabindex="-1">Interlinked switchboards</h1><p>Connect your coding agents, teammates and cloud clients across machines.</p></div>
+      <div><h1 id="intro" tabindex="-1">Interlinked switchboards</h1><p>Every session is a node. Wake agents and hand off work through encrypted rooms.</p></div>
       <div class="overview" aria-label="Switchboard overview">
         ${stat('wss://crosswire.sh', 'Private relay')}${stat('End-to-end encrypted', 'Room messages')}
         ${stat('3 roles', 'Room access')}${stat(Object.keys(HARNESSES).length, 'Supported agents')}
@@ -3968,12 +4073,34 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
     }
     forgetLink('role'); forgetLink('ticket'); saveStore();
   }
-  function selectPatch(control) {
+  function selectPatch(control, id) {
     draw();
-    $(`[data-act="${control}"][aria-pressed="true"]`).focus({ preventScroll: true });
+    $(`button[data-act="${control}"][data-id="${id}"]`).focus({ preventScroll: true });
+    if (control === 'harness') return;
+    $('.specimen').open = true;
     if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      for (const animation of document.querySelectorAll('.signal > *')) animation.beginElement();
+      for (const pulse of document.querySelectorAll('.signal')) {
+        const delay = Number(pulse.dataset.stage) * hopSeconds;
+        for (const animation of pulse.children) animation.beginElementAt(delay);
+      }
+      for (const row of document.querySelectorAll('.specimen-message')) {
+        row.animate([{ backgroundColor: 'var(--hover)' }, { backgroundColor: 'transparent' }],
+          { delay: Number(row.dataset.stage) * hopSeconds * 1000, duration: hopSeconds * 1000 });
+      }
     }
+  }
+
+  function explore(topology, focus, control, id) {
+    S.topology = topology;
+    S.graphFocus = focus;
+    S.specimen = topology === 'intake' ? 'dropbox' : 'bus';
+    selectPatch(control, id);
+  }
+
+  function exploreSeat(seat, control, id) {
+    const topology = includesSession(TOPOLOGIES[S.topology], seat) ? S.topology :
+      Object.keys(TOPOLOGIES).find(key => includesSession(TOPOLOGIES[key], seat));
+    explore(topology, seat, control, id);
   }
   const acts = {
     theme() { const next = themeNow() === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = next; localStorage.setItem(THEME, next); draw(); },
@@ -3991,11 +4118,27 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
     },
     topology(d) {
       if (!Object.hasOwn(TOPOLOGIES, d.id)) return;
-      S.topology = d.id; selectPatch('topology');
+      explore(d.id, null, 'topology', d.id);
     },
     harness(d) {
       if (!Object.hasOwn(HARNESSES, d.id)) return;
-      S.harness = d.id; selectPatch('harness');
+      S.harness = d.id; selectPatch('harness', d.id);
+    },
+    session(d) {
+      if (Object.hasOwn(SESSIONS, d.id)) exploreSeat(d.id, 'session', d.id);
+    },
+    location(d) {
+      const loc = LOCATIONS.find(loc => loc.id === d.id);
+      if (!loc) return;
+      const legs = exchangeLegs(TOPOLOGIES[S.topology]);
+      const seats = legs.flatMap(leg => [leg.from, ...leg.replies.map(([id]) => id)]);
+      const [seat] = loc.sessions.find(([id]) => seats.includes(id)) || loc.sessions[0];
+      exploreSeat(seat, 'location', d.id);
+    },
+    hub(d) {
+      if (!Object.hasOwn(HUBS, d.id)) return;
+      const connected = TOPOLOGIES[S.topology].legs.some(leg => leg.hub === d.id);
+      explore(connected ? S.topology : d.id === 'external' ? 'mesh' : 'local-swarm', d.id, 'hub', d.id);
     },
     specimen(d) {
       if (!Object.hasOwn(SPECIMEN_TABS, d.id)) return;
@@ -4216,7 +4359,7 @@ crosswire topic revoke wave-7 BOB_NPUB</code></pre></section>
     'pair-role'(el) { S.pair.role = el.value; draw(); },
     'pair-history'(el) { S.pair.history = el.value; draw(); },
   };
-  const PUBLIC = new Set(['theme', 'home', 'chapter', 'harness', 'topology', 'specimen', 'copy', 'copy-prompt', 'dismiss', 'maywe-invite', 'link-dismiss']);
+  const PUBLIC = new Set(['theme', 'home', 'chapter', 'harness', 'topology', 'session', 'location', 'hub', 'specimen', 'copy', 'copy-prompt', 'dismiss', 'maywe-invite', 'link-dismiss']);
   const ENTRY = new Set(['redeem', 'sign-in', 'nip07', 'reconnect', 'bridge-join', 'persona', 'persona-create']);
   async function run(name, fn) {
     const entry = ENTRY.has(name);
